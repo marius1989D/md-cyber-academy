@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro';
 import RungGauge from '../components/RungGauge.astro';
 import { getCollection } from 'astro:content';
 import { COURSES, RUNGS, type CourseId } from '../content.config';
+import { ROADMAP, PHASES } from '../lib/roadmap';
 
 const all = (await getCollection('modules', ({ data }) => data.published)).sort(
   (a, b) => a.data.order - b.data.order,
@@ -12,6 +13,8 @@ const courses = (Object.keys(COURSES) as CourseId[])
   .map((id) => ({ id, ...COURSES[id], modules: all.filter((m) => m.data.course === id) }))
   .filter((c) => c.modules.length > 0);
 
+const trackSteps = await getCollection('track', ({ data }) => data.published);
+const phaseCount = Object.keys(PHASES).length;
 const totalMinutes = all.reduce((sum, m) => sum + m.data.minutes, 0);
 ---
 
@@ -40,6 +43,40 @@ const totalMinutes = all.reduce((sum, m) => sum + m.data.minutes, 0);
       <span class="eyebrow block">Pick up where you left off</span>
       <span class="mt-0.5 block truncate font-display font-bold" data-resume-title></span>
     </span>
+  </a>
+  <!-- ── Track 6 ─────────────────────────────────────────────────── -->
+  
+    href="/track/"
+    class="mt-8 block overflow-hidden rounded-xl border-2 transition hover:border-[var(--accent)]"
+    style="border-color: var(--rule-strong); background: var(--surface-2)"
+  >
+    <div class="px-5 py-4" style="background: var(--accent); color: #fff">
+      <p class="font-mono text-[0.63rem] uppercase tracking-[0.2em] opacity-85">
+        // Track 6 · campaign
+      </p>
+      <p class="mt-0.5 font-display text-[1.15rem] font-bold leading-snug">
+        SOC Analyst: Zero to Hired
+      </p>
+    </div>
+
+    <div class="p-5">
+      <p class="max-w-[58ch] text-[0.96rem] leading-relaxed" style="color: var(--text-2)">
+        A sequenced campaign from certified-but-unemployed to a UK Tier 1 SOC offer.
+        Foundations, detection engineering, applied triage, the lab, the portfolio and
+        the job search — with gates, scenario triage and timed interview drills throughout.
+      </p>
+
+      <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[0.7rem]" style="color: var(--text-3)">
+        <span>{phaseCount} phases</span>
+        <span>{trackSteps.length} steps</span>
+        <span>~10 months</span>
+        <span style="color: var(--ok)">free to learn</span>
+      </div>
+
+      <p class="mt-4 text-[0.85rem] font-semibold" style="color: var(--accent)">
+        Open the roadmap →
+      </p>
+    </div>
   </a>
 
   <!-- ── The ladder ────────────────────────────────────────────── -->

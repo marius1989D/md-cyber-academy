@@ -1,4 +1,4 @@
-# MD Cyber Academy v2.0
+# MD Cyber Academy v3.1
 
 A study platform for advanced cyber security material — rebuilt from a single 530 KB HTML file into an Astro + MDX static site with offline support, spaced-repetition review, and cross-device progress sync.
 
