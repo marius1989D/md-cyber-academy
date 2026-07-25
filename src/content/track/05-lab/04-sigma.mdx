@@ -1,0 +1,365 @@
+---
+title: "Sigma Rules"
+phase: 5
+order: 4
+summary: "Write detections once in a vendor-neutral format, convert them to any backend, and contribute one upstream as public evidence."
+weeks: "Weeks 24-26"
+minutes: 300
+kind: lab
+pillar: evidence
+cost: 0
+prereq: ["05-lab/03-write-detections"]
+academy: ["detection/12-sigma"]
+attack: ["T1218.011", "T1059.001"]
+tags: ["sigma", "detection-as-code", "portability", "open-source"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import QueryChallenge from '../../../components/track/QueryChallenge.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="You've written all your detections in KQL. What happens when you join a company running Splunk?">
+Sigma is the answer to that question, and it is a fair one to be asked - the UK
+market is Microsoft-heavy but not exclusively so, and an analyst whose skills are
+welded to one vendor is a narrower hire. Learning Sigma converts your detection
+work from a Sentinel skill into a detection engineering skill. It also gives you
+the single most credible portfolio item available at entry level: a rule accepted
+into a public repository that working analysts actually use.
+</Why>
+
+## What Sigma is
+
+A YAML format for describing detections independently of any SIEM, plus a
+converter that translates a rule into the query language of whatever backend you
+target - KQL, SPL, Elastic DSL, and dozens more.
+
+**Write once, convert anywhere.** The value is not just portability between jobs -
+it is that the community writes rules in a shared format, so a Sigma repository is
+thousands of peer-reviewed detections you can convert straight into your own
+environment.
+
+## Anatomy of a rule
+
+```yaml
+title: Rundll32 Execution With Script Protocol Handler
+id: 8b1e5f0c-9a3d-4e7b-b2c1-6d4f8a9e0c3b
+status: experimental
+description: >
+    Detects rundll32.exe invoked with a script protocol handler such as
+    javascript: or vbscript:, a common proxy execution technique used to
+    run code through a signed Microsoft binary.
+references:
+    - https://attack.mitre.org/techniques/T1218/011/
+    - https://lolbas-project.github.io/lolbas/Binaries/Rundll32/
+author: Marius Dumitru
+date: 2026/07/25
+tags:
+    - attack.defense-evasion
+    - attack.t1218.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        - Image|endswith: '\rundll32.exe'
+        - OriginalFileName: 'RUNDLL32.EXE'
+    selection_cli:
+        CommandLine|contains:
+            - 'javascript:'
+            - 'vbscript:'
+            - 'RunHTMLApplication'
+    filter_optional_legitimate:
+        ParentImage|endswith: '\ccmexec.exe'
+        CommandLine|contains: 'inventory'
+    condition: all of selection_* and not 1 of filter_optional_*
+falsepositives:
+    - Rare legitimate software using script protocol handlers through
+      rundll32, typically deployment or inventory tooling
+level: high
+```
+
+The fields that matter most:
+
+- **`logsource`** - the abstraction that makes portability work. `category:
+  process_creation` maps to `DeviceProcessEvents` in Defender, `SecurityEvent`
+  with EventID 4688 in Sentinel, `Sysmon EventCode=1` in Splunk. You describe the
+  kind of data, the converter handles the table names.
+- **`detection`** - named selection blocks and filter blocks, combined by
+  `condition`. Naming blocks `selection_*` and `filter_*` lets you write
+  `all of selection_*` and `not 1 of filter_*`, which is the idiomatic style.
+- **Field modifiers** - `|contains`, `|endswith`, `|startswith`, `|re`, `|base64`,
+  `|all`. These are where the expressiveness lives.
+- **`falsepositives`** - **a required field.** The format itself insists you
+  document expected noise, which is the Phase 2 tuning discipline baked into the
+  specification.
+- **`level`** - informational, low, medium, high, critical.
+
+<Callout type="key">
+The `falsepositives` field being mandatory is a genuinely interesting design
+decision to mention in an interview. The industry standard format treats
+"what benign activity will trigger this?" as part of writing a rule, not an
+afterthought - which is exactly the argument you learned in Phase 2.
+</Callout>
+
+## Converting
+
+`sigma-cli` with pySigma backends does the translation:
+
+```bash
+pip install sigma-cli
+sigma plugin install microsoft365defender
+sigma plugin install splunk
+
+# Convert one rule to Defender KQL
+sigma convert -t microsoft365defender rules/rundll32_script_protocol.yml
+
+# Convert a whole directory to Splunk
+sigma convert -t splunk -f savedsearches rules/
+
+# Check what a pipeline does to field names
+sigma convert -t microsoft365defender -p microsoft365defender rules/ --verbose
+```
+
+**Pipelines** handle the field-name mapping between the generic Sigma schema and a
+specific product's fields - `Image` becomes `FolderPath` or `NewProcessName`
+depending on target. When a conversion produces something that looks wrong, the
+pipeline is usually where to look.
+
+<Callout type="warn">
+**Always test the converted query, never assume it.** Conversion is mechanical and
+correct conversions can still be semantically wrong for your environment - a field
+your logsource assumes may not be collected, or may be populated differently.
+Convert, run it, and validate against your atomics exactly as in the previous
+step.
+</Callout>
+
+## Challenge - write a Sigma rule
+
+<QueryChallenge
+  step="track/05-lab/04-sigma"
+  id="sigma-lsass"
+  title="LSASS access, portably"
+  lang="sigma"
+  tables={["logsource: category=process_access, product=windows", "Sysmon EventID 10", "SourceImage", "TargetImage", "GrantedAccess", "CallTrace"]}
+>
+<div slot="brief">
+
+Write a Sigma rule detecting **credential dumping via LSASS memory access
+(T1003.001)**, aimed high on the Pyramid of Pain - it should key on the access
+itself, not on tool names.
+
+Include a filter for legitimate security tooling, and complete the
+`falsepositives` field properly.
+
+</div>
+<div slot="solution">
+
+```yaml
+title: LSASS Memory Access With Suspicious Granted Access Mask
+id: 3c7e9a41-2b8d-4f6a-9e1c-5a0b7d3f8e2c
+status: experimental
+description: >
+    Detects a process opening a handle to lsass.exe with an access mask
+    granting memory read, which is required by credential dumping tools
+    regardless of implementation. Keys on the behaviour rather than on
+    tool names, so it survives renaming and reimplementation.
+references:
+    - https://attack.mitre.org/techniques/T1003/001/
+author: Marius Dumitru
+date: 2026/07/25
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection_target:
+        TargetImage|endswith: '\lsass.exe'
+    selection_access:
+        GrantedAccess:
+            - '0x1010'
+            - '0x1410'
+            - '0x1438'
+            - '0x143a'
+            - '0x1418'
+    filter_main_av:
+        SourceImage|startswith:
+            - 'C:\Program Files\Windows Defender\'
+            - 'C:\ProgramData\Microsoft\Windows Defender\'
+    filter_main_system:
+        SourceImage|endswith:
+            - '\wininit.exe'
+            - '\csrss.exe'
+            - '\services.exe'
+    filter_optional_backup:
+        SourceImage|endswith: '\vssvc.exe'
+    condition: all of selection_* and not 1 of filter_*
+falsepositives:
+    - Endpoint detection and response agents legitimately reading LSASS
+      memory for credential-theft protection
+    - Backup and volume shadow copy services
+    - Some enterprise password management and SSO agents
+    - Vulnerability scanners performing authenticated credential checks
+level: high
+```
+
+**Why this shape:**
+
+- **`GrantedAccess` values are the durable signal.** `0x1010` combines
+  `PROCESS_QUERY_INFORMATION` and `PROCESS_VM_READ` - what a dumper needs. Listing
+  several observed masks rather than one catches variations across tools without
+  naming any of them.
+- **No tool names anywhere.** That is deliberate and is what puts this near the top
+  of the pyramid. Renaming `mimikatz.exe` does nothing to it.
+- **Filters use `SourceImage|startswith` with full paths for the AV case.** Matching
+  on filename alone would let an attacker place a binary with that name elsewhere
+  and inherit the exclusion - the narrow-intervention principle from Phase 2,
+  expressed in Sigma.
+- **`filter_main_` versus `filter_optional_`** is the community convention: main
+  filters are always applied, optional ones are environment-specific and may be
+  removed. The `condition` here applies both, which you would adjust per
+  environment.
+- **`falsepositives` is genuinely completed**, with four realistic entries. A rule
+  submitted with "unknown" in that field will not be accepted upstream, and rightly
+  so.
+
+**Common wrong shapes:** including `SourceImage|endswith: '\mimikatz.exe'` in the
+selection, which drops the rule to the bottom of the pyramid; filtering EDR by
+filename rather than full path; omitting `CallTrace` refinements that mature
+versions of this rule use to reduce noise further; and leaving `falsepositives` as
+a placeholder.
+
+**Validate it** by converting to your backend, running it, and firing the
+T1003.001 atomics. Then check what your EDR does - if your filter is too broad you
+will find the rule never fires at all.
+
+</div>
+</QueryChallenge>
+
+## Contributing upstream
+
+This is the portfolio move. SigmaHQ accepts community rules via pull request, and
+a merged rule is public, permanent, peer-reviewed evidence of your work.
+
+**How to give yourself a real chance of acceptance:**
+
+1. **Search the repository first.** Most obvious detections already exist.
+   Duplicates are the commonest rejection reason.
+2. **Look for genuine gaps.** A technique with no rule, a new LOLBin from LOLBAS,
+   or a variation an existing rule misses - the kind of gap you found by
+   multi-atomic validation in the last step.
+3. **Follow the contribution guide exactly** - naming conventions, file location,
+   required fields, and the rule creation guide's style rules.
+4. **Test the conversion** for at least two backends before submitting.
+5. **Complete `falsepositives` honestly.** This is scrutinised.
+6. **Expect review comments and engage with them.** Maintainers are helpful and
+   the review itself is a free education. Revisions are normal, not rejection.
+
+<Callout type="key">
+Even an unmerged pull request with substantive review discussion is worth
+including in your portfolio - it shows you engaged with a professional open source
+project and took feedback. A merged rule is better, but the attempt is far from
+worthless.
+</Callout>
+
+<Drill
+  step="track/05-lab/04-sigma"
+  id="why-sigma"
+  question="Why would you write a detection in Sigma rather than directly in your SIEM's query language?"
+  seconds={90}
+  hits={[
+    "Portability - one rule converts to KQL, SPL, Elastic DSL and others, so detections survive a platform change",
+    "The logsource abstraction describes the kind of data rather than a vendor's table names",
+    "It gives access to thousands of peer-reviewed community rules that convert straight into my environment",
+    "The format requires documenting falsepositives, which builds the tuning discipline into rule authoring",
+    "It supports detection-as-code: version control, review, and CI testing",
+    "Caveat: always test the converted query rather than assuming the conversion is semantically right for your data"
+  ]}
+  trap="Presenting conversion as fully automatic and reliable. Pipelines map fields imperfectly and a syntactically valid conversion can be semantically wrong for your environment - saying so shows you have actually used it."
+/>
+
+<Quiz mid="track/05-lab/04-sigma" title="Sigma Rules" questions={[
+  {
+    q: "What does the logsource section of a Sigma rule do?",
+    opts: ["Specifies which SIEM the rule targets", "Describes the category and product of data the rule expects, so the converter can map it to the right table in any backend", "Lists the log files to search", "Defines the retention period required"],
+    a: 1,
+    why: "logsource is the abstraction that makes portability possible. Declaring category: process_creation lets the converter map it to DeviceProcessEvents, SecurityEvent with 4688, or Sysmon EventCode=1 depending on target. You describe the kind of data and the pipeline handles vendor specifics."
+  },
+  {
+    q: "Why is falsepositives a required field in the Sigma specification?",
+    opts: ["To satisfy compliance auditing", "Because documenting expected benign triggers is treated as part of writing a rule rather than an afterthought", "To calculate the rule's severity automatically", "To enable automatic tuning"],
+    a: 1,
+    why: "The industry standard format encodes the Phase 2 tuning discipline directly into rule authoring. A rule submitted upstream with an empty or placeholder falsepositives field will be rejected, because a detection whose author has not considered what benign activity triggers it is incomplete."
+  },
+  {
+    q: "A Sigma filter excludes an EDR agent by filename only. What is the risk?",
+    opts: ["The conversion will fail", "An attacker can place a binary with that filename elsewhere on disk and inherit the exclusion", "The rule will match too few events", "Filename matching is not supported in Sigma"],
+    a: 1,
+    why: "Filename is trivially controlled by the attacker. Filtering on the full path - SourceImage|startswith with the installation directory - means a binary of the same name elsewhere still triggers the rule. This is the narrow-intervention principle from Phase 2 applied to Sigma syntax."
+  },
+  {
+    q: "What is the purpose of naming detection blocks selection_* and filter_*?",
+    opts: ["It is purely cosmetic", "It enables concise conditions such as 'all of selection_* and not 1 of filter_*'", "It controls the order of evaluation", "It determines the rule's severity"],
+    a: 1,
+    why: "Sigma's condition syntax supports wildcards over block names, so consistent prefixes let you write compact, readable conditions that remain correct as blocks are added. It is the community convention and following it is expected in any rule submitted upstream."
+  },
+  {
+    q: "After converting a Sigma rule to your backend, you should:",
+    opts: ["Deploy it directly, since conversion is deterministic", "Run it and validate against the relevant atomics, because a syntactically correct conversion can still be semantically wrong for your data", "Convert it a second time to confirm", "Only test it if the rule has a high severity level"],
+    a: 1,
+    why: "Pipelines map fields imperfectly, and a field your logsource assumes may not be collected in your environment or may be populated differently. The converted query can be valid and still never match. Validation against atomics is the same discipline as writing the rule natively."
+  },
+  {
+    q: "Which detection would be most likely to be accepted into the SigmaHQ repository?",
+    opts: ["A rule matching mimikatz.exe by filename", "A behaviour-based rule covering a technique variation that existing rules miss, with complete falsepositives documentation", "A duplicate of an existing rule with a different title", "A rule with an empty falsepositives field but very low false positive rate"],
+    a: 1,
+    why: "Duplicates are the most common rejection reason, and filename-based rules are considered low value because they are trivially evaded. A genuine gap - the kind multi-atomic validation reveals - written behaviourally with honest false positive documentation is what maintainers are looking for."
+  },
+  {
+    q: "What is the main career argument for learning Sigma?",
+    opts: ["It replaces the need to learn KQL", "It converts vendor-specific detection work into a transferable detection engineering skill, and gives access to peer-reviewed community rules", "It is required for SC-200", "It is faster to write than KQL"],
+    a: 1,
+    why: "Skills welded to one vendor make for a narrower hire, and the UK market is Microsoft-heavy but not exclusively so. Sigma demonstrates you understand detection as a discipline rather than a product feature - and a merged upstream rule is among the most credible portfolio items available at entry level."
+  }
+]} />
+
+<TaskList step="track/05-lab/04-sigma" tasks={[
+  { text: "Install sigma-cli and at least two backend plugins", detail: "Microsoft 365 Defender and Splunk gives you a meaningful portability test." },
+  { text: "Convert five existing SigmaHQ rules to KQL and run them in your lab", detail: "Read the generated query and compare it with the YAML. This teaches the mapping faster than the docs." },
+  { text: "Rewrite three of your own detections from step 3 as Sigma rules" },
+  { text: "Convert your rules to two backends and validate both against the atomics", detail: "Confirm they still catch what the native versions caught." },
+  { text: "Complete the LSASS challenge and test it against your EDR's behaviour", detail: "If the rule never fires, your filter is too broad. That is a useful failure." },
+  { text: "Find a genuine gap in the SigmaHQ repository", detail: "Use a technique variation your multi-atomic validation revealed, or a recent LOLBAS addition." },
+  { text: "Submit a pull request following the contribution guide exactly", detail: "Expect review comments. Engage with them - the review is a free education." },
+  { text: "Add the Sigma rules to your portfolio repo and log the PR in your evidence log" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "SigmaHQ repository", url: "https://github.com/SigmaHQ/sigma", type: "ref", note: "Thousands of production rules organised by log source. Read rules for techniques you know - it is the fastest way to learn idiomatic Sigma.", primary: true },
+  { title: "Sigma rule creation guide", by: "SigmaHQ", url: "https://github.com/SigmaHQ/sigma/wiki/Rule-Creation-Guide", type: "read", minutes: 40, note: "Conventions, naming, required fields and style. Read it fully before submitting anything upstream." },
+  { title: "Sigma specification", by: "SigmaHQ", url: "https://github.com/SigmaHQ/sigma-specification", type: "ref", note: "The formal format definition, including every field modifier. Consult it when a condition will not express what you want." },
+  { title: "sigma-cli and pySigma", url: "https://github.com/SigmaHQ/sigma-cli", type: "do", note: "The converter. Install it, and read the pipeline documentation - field mapping is where conversions go wrong." },
+  { title: "Uncoder.io", url: "https://uncoder.io/", type: "do", cost: "Free tier", note: "Browser-based Sigma translation across many backends. Handy for quick checks without a local install." },
+  { title: "SigmaHQ contribution guidelines", by: "SigmaHQ", url: "https://github.com/SigmaHQ/sigma/blob/master/CONTRIBUTING.md", type: "read", minutes: 15, note: "Read this before opening a pull request. Following it exactly materially improves your chance of acceptance." }
+]} />
+
+<Gate
+  step="track/05-lab/04-sigma"
+  conditions={[
+    "I can explain the logsource abstraction and why it enables portability",
+    "I have written at least three Sigma rules of my own",
+    "I have converted rules to two backends and validated both against atomics",
+    "I understand why filtering by full path beats filtering by filename",
+    "I complete the falsepositives field honestly on every rule",
+    "I have submitted a pull request to SigmaHQ and engaged with any review",
+    "My Sigma rules are in my portfolio repo"
+  ]}
+  unlocks="Final Phase 5 step: automation - what to automate, what to gate behind a human, and why the difference matters."
+/>

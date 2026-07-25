@@ -1,0 +1,342 @@
+---
+title: "Windows Internals for Analysts"
+phase: 1
+order: 2
+summary: "Processes, tokens, services and the registry — enough internals to know what a normal process tree looks like, and therefore what an abnormal one looks like."
+weeks: "Week 3"
+minutes: 210
+kind: learn
+pillar: fundamentals
+cost: 0
+prereq: ["01-foundations/01-networking"]
+attack: ["T1055", "T1003.001", "T1543.003", "T1574.002", "T1134"]
+tags: ["windows", "processes", "lsass", "registry", "fundamentals"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Lab from '../../../components/Lab.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What is LSASS, and why do attackers target it?">
+Detection is pattern-matching against normal, and you cannot recognise abnormal
+on a platform whose normal you've never learned. Almost every endpoint alert you
+will ever triage reduces to one question: *should this process be doing this?* —
+and answering it needs the parent-child relationships, the token model and the
+persistence surfaces in your head, not in a tab. This is also the step that makes
+Sysmon events readable rather than merely present.
+</Why>
+
+## Processes, and the tree that gives attackers away
+
+A Windows process has an image, a parent, a command line, a token and a set of
+loaded modules. The parent relationship is the single most useful field in
+endpoint telemetry, because legitimate software has boringly consistent lineage.
+
+The normal boot tree, roughly:
+
+```text
+System (4)
+└── smss.exe                     session manager
+    ├── csrss.exe                one per session
+    └── wininit.exe              session 0
+        ├── services.exe         the SCM — parent of most services
+        │   ├── svchost.exe      many, each hosting grouped services
+        │   ├── spoolsv.exe
+        │   └── MsMpEng.exe      Defender
+        └── lsass.exe            local security authority
+    └── winlogon.exe             session 1
+        └── userinit.exe → explorer.exe
+                             └── (everything the user launches)
+```
+
+Learn the invariants, because the deviations are detections:
+
+- **`lsass.exe` is spawned by `wininit.exe`, exactly once, from `System32`.** A second
+  lsass, a misspelled `1sass.exe`, or lsass in the wrong directory is not a subtle
+  finding.
+- **`services.exe` is the parent of services.** A service process parented to
+  something else is worth a look.
+- **`svchost.exe` should be a child of `services.exe` and should carry a `-k` group
+  argument.** `svchost.exe` with no arguments, or parented to a user process, is a
+  classic masquerade.
+- **Office applications should not spawn shells.** `winword.exe` → `powershell.exe`
+  is macro execution and one of the highest-fidelity detections in existence.
+- **`explorer.exe` is the normal parent of user-launched things.** A command
+  interpreter parented to `w3wp.exe` (IIS) or `sqlservr.exe` means a web shell or
+  SQL command execution.
+
+<Callout type="key">
+The interview-ready version: *"I'd look at the process tree first. Parent-child
+relationships are the highest-signal field because legitimate software has
+predictable lineage — Office spawning a shell, or svchost without a -k flag and
+not parented to services.exe, tells you something is wrong before you've looked
+at a single hash."*
+</Callout>
+
+## Tokens, SIDs and integrity levels
+
+Every process runs with an **access token** describing who it is and what it can
+do. Three parts matter:
+
+- **SID** — the security identifier. Well-known ones are worth recognising:
+  `S-1-5-18` is SYSTEM, `S-1-5-19` LOCAL SERVICE, `S-1-5-20` NETWORK SERVICE, and
+  a domain SID ending `-500` is the built-in Administrator, `-512` Domain Admins.
+- **Privileges** — `SeDebugPrivilege` (open any process — required to dump LSASS),
+  `SeImpersonatePrivilege` (the basis of the "potato" escalation family),
+  `SeBackupPrivilege` (read any file regardless of ACL).
+- **Integrity level** — Low, Medium, High, System. A standard user process runs
+  Medium; an elevated one runs High. UAC is the boundary between them, and it is
+  *not* a security boundary Microsoft commits to defending — worth knowing, because
+  it explains why "UAC bypass" is a technique rather than a vulnerability.
+
+**Token manipulation (T1134)** is stealing or duplicating another process's token
+to inherit its identity. It's why an alert showing a process running as SYSTEM
+with a parent running as a normal user deserves attention.
+
+## LSASS, and why everyone wants it
+
+`lsass.exe` handles authentication and holds credential material in memory —
+NTLM hashes, Kerberos tickets, and in older or misconfigured environments,
+cleartext passwords. Dumping it (T1003.001) gives an attacker credentials to
+move laterally without ever cracking anything.
+
+The detection surface is **Sysmon event 10 (ProcessAccess)** with a target of
+`lsass.exe`. What matters is the requested access mask: `0x1010` and `0x1410`
+combine read-memory and query-information, which is what a dumper needs and what
+almost nothing legitimate asks for.
+
+Defences worth naming in an interview: **Credential Guard** (isolates secrets in
+a virtualised container), **LSA Protection / RunAsPPL** (makes lsass a protected
+process), and disabling WDigest so cleartext isn't cached.
+
+## Registry — configuration and persistence in one place
+
+Five hives; three you'll actually reference. `HKLM` is machine-wide, `HKCU` is
+the current user, `HKU` holds all loaded user hives.
+
+The persistence keys to know cold:
+
+```text
+HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run          machine autorun
+HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run          user autorun
+HKLM\SYSTEM\CurrentControlSet\Services\                     services (T1543.003)
+HKLM\...\Winlogon\Userinit  and  \Shell                     logon hijack
+HKLM\...\Image File Execution Options\<exe>\Debugger        IFEO hijack
+HKCU\SOFTWARE\Classes\<ext>\shell\open\command              file association
+```
+
+Sysmon events 12, 13 and 14 cover registry create/delete, value set and key
+rename. Event 13 on a Run key is one of the cheapest persistence detections you
+can build.
+
+## Services and DLL search order
+
+A service is a background process registered with the Service Control Manager,
+recorded at creation in **event 7045** (System log) or **4697** (Security log).
+Attackers create services because they run as SYSTEM and survive reboot.
+
+**DLL search order hijacking (T1574.002)** exploits the order Windows uses to
+find a DLL: application directory first, then system directories, then PATH. Drop
+a malicious DLL with the right name next to a trusted signed executable and the
+signed binary loads your code. It defeats naive "is the binary signed?" logic
+entirely, which is why Sysmon event 7 (image loaded) exists despite its volume.
+
+<Scenario
+  step="track/01-foundations/02-windows-internals"
+  id="tree-anomaly"
+  title="A process tree from a triage queue"
+  minutes={7}
+>
+<div slot="brief">
+
+An EDR alert points you at a workstation. You pull the process tree around the
+alert time:
+
+```text
+explorer.exe (PID 4120, user: j.hollis, Medium)
+└── OUTLOOK.EXE (PID 5544, Medium)
+    └── excel.exe (PID 6012, Medium)
+        └── cmd.exe (PID 6188, Medium)
+            └── powershell.exe (PID 6220, Medium)
+                CommandLine: powershell -nop -w hidden -ep bypass
+                             -e SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA...
+                └── rundll32.exe (PID 6301, Medium)
+                    no command line arguments
+
+Also within 90 seconds:
+  Sysmon 10 — SourceImage: rundll32.exe (6301)
+              TargetImage: C:\Windows\System32\lsass.exe
+              GrantedAccess: 0x1010
+  Sysmon 3  — rundll32.exe (6301) → 185.243.x.x:443
+```
+
+What has happened, in what order, and what do you do?
+
+</div>
+<div slot="model">
+
+**Read the tree top down and it tells you the whole story.**
+
+1. `OUTLOOK.EXE → excel.exe` means the user opened a spreadsheet attachment from
+   an email. That's the initial access vector.
+2. `excel.exe → cmd.exe → powershell.exe` is macro execution (T1566.001 into
+   T1059.001). **Office should never spawn a shell.** This alone is enough to act on.
+3. The PowerShell flags are a stack of intent signals: `-nop` skips the profile,
+   `-w hidden` hides the window, `-ep bypass` ignores execution policy, `-e`
+   supplies base64. Nothing legitimate needs all four. Decode the base64 — it's
+   trivially reversible and will almost certainly show a download cradle.
+4. `powershell → rundll32.exe` **with no arguments** is the loudest thing here.
+   `rundll32` exists to run a named function from a named DLL; with no command
+   line it isn't doing its job, it's hosting injected code (T1055).
+5. **Sysmon 10 against lsass with GrantedAccess 0x1010** is credential dumping
+   (T1003.001). That access mask is read-memory plus query-information — what a
+   dumper needs, and what almost nothing legitimate requests.
+6. **Sysmon 3** from the same PID to an external IP on 443 is either the C2
+   channel or exfiltration of what it just dumped.
+
+**Severity: this is a confirmed compromise with credential theft, not a
+suspicious event.** The order matters — the LSASS access came *before* or
+alongside the outbound connection, so you must assume credentials left the host.
+
+**What you do:**
+
+- **Escalate immediately.** Don't finish the investigation first.
+- **Recommend containment:** isolate the host. Recommend, don't act — network
+  isolation is above Tier 1 in most SOCs, and doing it unilaterally on a
+  director's laptop is a career-shortening move.
+- **Recommend credential response:** every account that had a session on that
+  host is potentially compromised, starting with `j.hollis` and any cached
+  service or admin credentials. This is the part junior analysts miss.
+- **Scope it:** search for the same parent-child pattern and the same destination
+  IP across the estate. If this arrived by email, others got it too — pivot to
+  the mail logs for the same sender or attachment hash.
+
+**What would change the conclusion:** essentially nothing. Even if the payload
+turned out to be a red team exercise, the correct Tier 1 action is identical —
+escalate and let someone with the authorisation list confirm it. "It was
+probably a test" is not a triage conclusion you're paid to reach alone.
+
+</div>
+</Scenario>
+
+<Lab title="Learn your own machine's normal" host="Windows VM in VMware Fusion" minutes={90}>
+
+You cannot spot abnormal without having looked hard at normal. Sysinternals is
+free and is what actual analysts use.
+
+1. Install **Process Explorer** and **Process Monitor** from Sysinternals.
+2. In Process Explorer, enable the process tree view. Find `lsass.exe` — confirm
+   its parent, its path and its user. Do the same for three `svchost.exe`
+   instances and read their `-k` arguments.
+3. Enable **View → Show Lower Pane** and inspect the handles and DLLs of
+   `explorer.exe`. Get comfortable with how much a normal process has loaded.
+4. Run **Autoruns**. Look at every persistence location it enumerates — Run keys,
+   services, scheduled tasks, WMI subscriptions. This is the attack surface for
+   persistence, laid out in one window.
+5. Launch `notepad.exe` from Explorer, then from `cmd.exe`, and compare the
+   parent in each case. Small exercise, and it makes the parent field concrete.
+6. In Process Monitor, filter on `Operation is RegSetValue` and set a Run key
+   value manually. Watch it appear. That's Sysmon event 13 in miniature.
+
+**Evidence to capture:** a screenshot of the boot process tree with lsass and
+services annotated. Log it.
+
+</Lab>
+
+<Drill
+  step="track/01-foundations/02-windows-internals"
+  id="lsass"
+  question="What is LSASS, and why do attackers target it? How would you detect them doing so?"
+  seconds={90}
+  hits={[
+    "LSASS enforces the local security policy and handles authentication; it holds credential material in memory — NTLM hashes, Kerberos tickets, cleartext in older or misconfigured setups",
+    "Dumping it gives credentials for lateral movement without cracking anything (T1003.001)",
+    "Detection: Sysmon event 10 / ProcessAccess with a target of lsass.exe, looking at the requested access mask — 0x1010 and 0x1410 are the dumper patterns",
+    "Also: unusual parents for the accessing process, and known tooling names, though naming is trivially changed",
+    "Defences: Credential Guard, LSA Protection / RunAsPPL, disabling WDigest"
+  ]}
+  trap="Stopping at 'it stores passwords'. The question is really testing whether you can pair the attack with the telemetry — say the event and the access mask, and you've answered a level above most candidates."
+/>
+
+<Quiz mid="track/01-foundations/02-windows-internals" title="Windows Internals for Analysts" questions={[
+  {
+    q: "You see `svchost.exe` running with no command line arguments, parented to `explorer.exe`. Why is this suspicious?",
+    opts: ["svchost should never run on a workstation", "Legitimate svchost is spawned by services.exe and carries a -k service group argument", "svchost cannot be parented to explorer.exe technically", "It indicates a driver failure"],
+    a: 1,
+    why: "svchost hosts grouped Windows services, so it is spawned by services.exe with a -k argument naming the group. Both deviations here — wrong parent, no arguments — point at masquerading (T1036). This exact pattern is a standard interview question because it tests whether you know normal well enough to spot abnormal."
+  },
+  {
+    q: "Which Sysmon event and access mask combination indicates likely LSASS credential dumping?",
+    opts: ["Event 1 with a hash mismatch", "Event 10 (ProcessAccess) targeting lsass.exe with GrantedAccess 0x1010", "Event 3 to an external IP", "Event 11 in the Temp directory"],
+    a: 1,
+    why: "Event 10 records one process opening a handle to another. Reading LSASS memory requires PROCESS_VM_READ plus PROCESS_QUERY_INFORMATION, which show up as masks like 0x1010 and 0x1410. Almost nothing legitimate requests that combination against lsass, which makes it a high-fidelity detection that doesn't depend on tool names."
+  },
+  {
+    q: "What does SeDebugPrivilege allow, and why does it matter?",
+    opts: ["It enables kernel debugging only", "It permits opening a handle to any process, which is what credential dumping tools need", "It grants file system access regardless of ACLs", "It disables Windows Defender"],
+    a: 1,
+    why: "SeDebugPrivilege lets a process open any other process regardless of its security descriptor. It's the privilege a dumper enables before touching LSASS, so seeing it requested by something unexpected is itself a signal. SeBackupPrivilege is the one that bypasses file ACLs; SeImpersonatePrivilege underpins the 'potato' escalation family."
+  },
+  {
+    q: "DLL search order hijacking works because:",
+    opts: ["Windows verifies DLL signatures only on reboot", "Windows searches the application's own directory before system directories, so a planted DLL can be loaded by a trusted signed binary", "DLLs cannot be signed", "It requires administrator rights to load any DLL"],
+    a: 1,
+    why: "The application directory is searched early, so placing a malicious DLL with the expected name beside a legitimate signed executable causes the signed binary to load attacker code. This is why 'the process is signed' is insufficient reasoning during triage, and why Sysmon event 7 (image loaded) earns its volume despite being noisy."
+  },
+  {
+    q: "A process runs as SYSTEM (S-1-5-18) but its parent runs as a standard domain user. The most likely explanation is:",
+    opts: ["Normal service startup behaviour", "Privilege escalation or token manipulation", "A Group Policy refresh", "Windows Update"],
+    a: 1,
+    why: "Children normally inherit the parent's token, so a jump from a user context to SYSTEM without going through services.exe suggests token theft or impersonation (T1134), or an exploit. Legitimate elevation goes through recognisable paths — the SCM, or a UAC consent prompt with matching telemetry."
+  },
+  {
+    q: "Which registry location would you check first for user-level persistence?",
+    opts: ["HKLM\\SYSTEM\\CurrentControlSet\\Control", "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", "HKLM\\SOFTWARE\\Classes\\CLSID", "HKU\\.DEFAULT\\Environment"],
+    a: 1,
+    why: "The per-user Run key executes at logon and needs no administrative rights, which makes it the cheapest persistence an attacker can establish. Sysmon event 13 on that key is a low-cost, high-value detection. The machine-wide equivalent under HKLM requires elevation, so seeing it implies the attacker already has it."
+  },
+  {
+    q: "Why is `winword.exe` spawning `powershell.exe` considered high-fidelity?",
+    opts: ["PowerShell is inherently malicious", "Office applications have essentially no legitimate reason to launch a command interpreter, so the false positive rate is very low", "It always indicates ransomware specifically", "Word cannot spawn child processes without an exploit"],
+    a: 1,
+    why: "High fidelity means few false positives, not high severity. Office spawning a shell is nearly always macro-based initial access, so the rule fires rarely and is nearly always worth investigating. Contrast with 'PowerShell executed', which fires constantly in any managed environment and is useless without further conditions."
+  }
+]} />
+
+<TaskList step="track/01-foundations/02-windows-internals" tasks={[
+  { text: "Complete the Sysinternals lab and log the annotated tree screenshot" },
+  { text: "Draw the boot process tree from memory, twice, on different days", detail: "System → smss → csrss/wininit/winlogon → services/lsass → svchost. Getting this automatic makes triage fast." },
+  { text: "Memorise the well-known SIDs and the three privileges that matter", detail: "S-1-5-18/19/20, RID 500 and 512; SeDebug, SeImpersonate, SeBackup." },
+  { text: "Write out the six persistence registry locations from memory" },
+  { text: "Run Autoruns and identify three things you did not know started automatically", detail: "On your own machine. It's usually sobering." },
+  { text: "Decode a base64 PowerShell command yourself", detail: "`[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('...'))`. Do it once so it isn't mysterious in an interview." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Sysinternals suite and documentation", by: "Microsoft", url: "https://learn.microsoft.com/en-us/sysinternals/", type: "ref", note: "Process Explorer, Process Monitor and Autoruns are what analysts actually use. The docs double as a tour of Windows internals.", primary: true },
+  { title: "13Cubed — Windows internals and forensics", by: "Richard Davis", url: "https://www.youtube.com/@13Cubed", type: "watch", minutes: 20, note: "Precise and calm. The process-tree and memory-analysis videos map directly onto this step." },
+  { title: "MITRE ATT&CK — T1003.001 LSASS Memory", url: "https://attack.mitre.org/techniques/T1003/001/", type: "read", minutes: 15, note: "Read the detection and mitigation sections, not just the description." },
+  { title: "Hunt Evil — process tree poster", by: "SANS", url: "https://www.sans.org/posters/hunt-evil/", type: "ref", note: "Free poster listing every core Windows process, its expected parent, path and user. Print it. It is the single most useful reference for this topic." },
+  { title: "LOLBAS project", url: "https://lolbas-project.github.io/", type: "ref", note: "Every signed Microsoft binary that can be abused, with the exact command lines. rundll32, regsvr32, mshta, certutil — know the top ten by name." },
+  { title: "Windows Internals concepts", by: "Microsoft Learn", url: "https://learn.microsoft.com/en-us/windows/win32/procthread/processes-and-threads", type: "read", minutes: 30, note: "The official model for processes, threads and tokens. Dry, accurate, free." }
+]} />
+
+<Gate
+  step="track/01-foundations/02-windows-internals"
+  conditions={[
+    "I can draw the core boot process tree and state each process's expected parent",
+    "I can explain what LSASS is, why it is targeted, and the Sysmon event that detects it",
+    "I can name six registry persistence locations",
+    "I can explain DLL search order hijacking and why signing does not stop it",
+    "I have used Process Explorer, Autoruns and Process Monitor on a real system",
+    "I can decode a base64 PowerShell command without looking up the syntax"
+  ]}
+  unlocks="Next: the event IDs that record everything you just learned to recognise."
+/>

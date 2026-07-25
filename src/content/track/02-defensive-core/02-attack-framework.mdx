@@ -1,0 +1,315 @@
+---
+title: "MITRE ATT&CK as a Tool"
+phase: 2
+order: 2
+summary: "Tactic, technique, sub-technique and procedure — plus how to map a real intrusion and why 'we cover 80% of ATT&CK' is a meaningless claim."
+weeks: "Week 8"
+minutes: 210
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["02-defensive-core/01-ir-lifecycle"]
+academy: ["detection/02-attack-mapping"]
+attack: ["T1566.001", "T1059.001", "T1547.001", "T1021.002", "T1486"]
+tags: ["mitre", "attack", "threat-modelling", "navigator"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What's the difference between a tactic and a technique? Map an attack you've read about.">
+ATT&CK is the shared language of modern defence. Detections are tagged with it,
+escalations reference it, threat intel is organised by it, and coverage is
+argued about in it. Using it fluently — technique IDs in your ticket, correct
+tactic attribution, an honest view of what your coverage claim actually means —
+is a fast, unfakeable signal that you've operated rather than just studied. Using
+it *wrongly*, which mostly means treating it as a checklist, is an equally fast
+signal in the other direction.
+</Why>
+
+## The hierarchy, precisely
+
+Four levels, and interviewers do check that you can separate them:
+
+- **Tactic** — the adversary's *goal*. Why they're doing it. `TA0006` Credential
+  Access. There are 14 in the Enterprise matrix.
+- **Technique** — *how* they achieve it. `T1003` OS Credential Dumping.
+- **Sub-technique** — a more specific how. `T1003.001` LSASS Memory.
+- **Procedure** — the actual observed implementation. "APT29 used a renamed
+  procdump.exe with `-ma lsass.exe` to write a minidump to `C:\Windows\Temp`."
+
+<Callout type="key">
+The one-line answer: *"A tactic is the adversary's objective — the why. A
+technique is the method used to achieve it — the how. A procedure is the specific
+implementation a particular actor used. Credential Access is the tactic, OS
+Credential Dumping is the technique, LSASS Memory is the sub-technique, and
+'renamed procdump writing a minidump' is the procedure."*
+</Callout>
+
+## The 14 Enterprise tactics, roughly in order
+
+They aren't strictly sequential — real intrusions loop — but this ordering is how
+an attack tends to unfold, and knowing it lets you spot which stage an alert
+belongs to:
+
+```text
+ 1  Reconnaissance          TA0043   gathering information
+ 2  Resource Development    TA0042   building infrastructure
+ 3  Initial Access          TA0001   getting in
+ 4  Execution               TA0002   running code
+ 5  Persistence             TA0003   staying in
+ 6  Privilege Escalation    TA0004   getting more rights
+ 7  Defense Evasion         TA0005   avoiding detection
+ 8  Credential Access       TA0006   stealing credentials
+ 9  Discovery               TA0007   learning the environment
+10  Lateral Movement        TA0008   moving to other systems
+11  Collection              TA0009   gathering target data
+12  Command and Control     TA0011   communicating out
+13  Exfiltration            TA0010   stealing data
+14  Impact                  TA0040   destroying, encrypting, disrupting
+```
+
+**A single technique can serve several tactics.** Valid Accounts (T1078) is
+simultaneously Initial Access, Persistence, Privilege Escalation and Defense
+Evasion, because using legitimate credentials achieves all four. Understanding
+that the mapping is many-to-many, not one-to-one, is what separates working
+knowledge from memorised structure.
+
+## The parts of ATT&CK people never open
+
+Most candidates know the matrix. Fewer know these, and they're where the value is:
+
+- **Data Sources** — each technique lists the telemetry that reveals it (Process
+  Creation, Command Execution, Logon Session). This is the bridge from ATT&CK to
+  your logging architecture: it tells you *what to collect* to be able to detect a
+  given technique at all.
+- **Detection guidance** — concrete advice per technique. Often the fastest route
+  from "I need to detect X" to a working idea.
+- **Mitigations** — preventive controls, numbered `M####`. Useful when an
+  escalation asks "how do we stop this recurring?"
+- **Groups and Software** — `G####` and `S####`. Which actors use which techniques.
+  This is how threat intel becomes a prioritisation input rather than a newsletter.
+
+## Navigator, and the coverage trap
+
+**ATT&CK Navigator** is a free web tool for painting layers on the matrix — what
+you can detect, what an actor uses, where the gaps are. Building a coverage layer
+for your own lab is a genuinely impressive portfolio artifact.
+
+<Callout type="warn">
+**"We cover 80% of ATT&CK" is a meaningless statement**, and saying it in an
+interview is a trap you can avoid. Three reasons: techniques aren't equally
+weighted (nobody cares equally about all 200+); "covered" is undefined — one
+brittle rule matching a tool name is not coverage; and the matrix keeps growing,
+so your percentage moves without you doing anything. The mature framing is
+*"we have tested detections for the techniques most relevant to the threats we
+actually face, and we know which of those detections are behavioural versus
+signature-based."*
+</Callout>
+
+## Related models, in one paragraph each
+
+**Cyber Kill Chain** (Lockheed Martin) — seven linear stages from reconnaissance
+to actions on objectives. Older, simpler, still widely cited. Its weakness is the
+linearity: real intrusions loop and skip. Useful for explaining an incident to
+non-technical stakeholders; ATT&CK is what you use operationally.
+
+**Diamond Model** — every event has four vertices: adversary, capability,
+infrastructure, victim. Pivot from any one to find the others. Genuinely useful
+for intel analysis and for structuring how you pivot during an investigation.
+
+**D3FEND** — MITRE's defensive counterpart, mapping countermeasures to techniques.
+Newer and less used, but naming it shows you're current.
+
+<Scenario
+  step="track/02-defensive-core/02-attack-framework"
+  id="map-intrusion"
+  title="Map this intrusion to ATT&CK"
+  minutes={10}
+>
+<div slot="brief">
+
+A condensed intrusion narrative, of the kind you'd find in a DFIR write-up. Map
+each numbered action to a **tactic and technique**, then answer the question at
+the end.
+
+```text
+1. A finance user receives an email with an ISO attachment. Opening it
+   mounts a drive containing a shortcut file.
+
+2. The shortcut executes rundll32.exe against a bundled DLL.
+
+3. The DLL creates a registry value under
+   HKCU\...\CurrentVersion\Run pointing to a copy of itself in AppData.
+
+4. It queries the domain for all computers and all users via LDAP,
+   and runs `whoami /groups` and `net group "Domain Admins" /domain`.
+
+5. It requests Kerberos service tickets for 12 accounts with SPNs,
+   all with RC4 encryption.
+
+6. Three hours later, an admin account authenticates to FILE-01
+   over SMB and copies a toolset to C:\Windows\Temp.
+
+7. Data from three file shares is compressed into a single
+   password-protected archive.
+
+8. The archive is uploaded over HTTPS to a cloud storage provider.
+
+9. Ransomware is deployed via a Group Policy Object to 400 hosts.
+```
+
+Map all nine. Then: **which single detection, placed as early as possible, would
+have had the greatest effect — and why?**
+
+</div>
+<div slot="model">
+
+**The mapping:**
+
+| # | Tactic | Technique |
+|---|---|---|
+| 1 | Initial Access | T1566.001 Phishing: Spearphishing Attachment |
+| 2 | Execution / Defense Evasion | T1204.002 User Execution: Malicious File; T1218.011 Signed Binary Proxy Execution: Rundll32 |
+| 3 | Persistence | T1547.001 Registry Run Keys / Startup Folder |
+| 4 | Discovery | T1018 Remote System Discovery; T1087.002 Domain Account Discovery; T1069.002 Domain Groups |
+| 5 | Credential Access | T1558.003 Steal or Forge Kerberos Tickets: Kerberoasting |
+| 6 | Lateral Movement | T1021.002 Remote Services: SMB/Windows Admin Shares; T1570 Lateral Tool Transfer |
+| 7 | Collection | T1560.001 Archive Collected Data: Archive via Utility |
+| 8 | Exfiltration | T1567.002 Exfiltration to Cloud Storage |
+| 9 | Impact | T1486 Data Encrypted for Impact; delivered via T1484.001 Group Policy Modification |
+
+Note step 2 spans two tactics — rundll32 is both *how the code ran* and *how it
+evaded* naive detection, since it's a signed Microsoft binary. That many-to-many
+relationship is the thing to demonstrate you understand.
+
+**The highest-value early detection: step 2 — rundll32 executing from a
+user-mounted ISO, with an unusual parent.**
+
+Why this one rather than an earlier or a louder stage:
+
+- **Earlier isn't better if it isn't reliable.** Detecting step 1 means detecting
+  phishing generically, which is a mail-security problem with an unavoidable false
+  negative rate. You can't build a SOC detection that catches all malicious
+  attachments.
+- **Step 2 is the first point where the attacker must run code on your endpoint**,
+  and it produces high-fidelity telemetry: a process-creation event with a parent
+  that has no business spawning rundll32, from a mounted removable-style volume.
+  The ISO-to-shortcut-to-rundll32 chain has almost no legitimate equivalent.
+- **Everything downstream depends on it.** Persistence, discovery, Kerberoasting,
+  lateral movement and ransomware all require this foothold. Cutting here costs
+  the attacker the entire intrusion; cutting at step 9 costs them a redeploy.
+- **The later stages are individually detectable but progressively more expensive
+  to respond to.** Kerberoasting at step 5 is a good detection and you should have
+  it — but by then credentials are already being cracked. GPO modification at step 9
+  is an excellent detection, and it fires roughly ninety seconds before you have a
+  400-host encryption event.
+
+**The honest caveat:** you want detections at *several* of these stages, not one.
+Defence in depth exists because any single detection can be evaded. The correct
+interview framing is "step 2 gives the best ratio of fidelity to blast-radius
+reduction, but I'd want independent coverage at 5, 6 and 9 because an attacker who
+evades rundll32 detection still has to Kerberoast, still has to move laterally, and
+still has to deploy."
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/02-defensive-core/02-attack-framework"
+  id="tactic-technique"
+  question="What's the difference between a tactic and a technique in ATT&CK, and how would you use the framework day to day?"
+  seconds={90}
+  hits={[
+    "Tactic is the adversary's goal (the why), technique is the method (the how), sub-technique is a more specific method, procedure is a particular actor's implementation",
+    "A technique can map to multiple tactics — Valid Accounts is the standard example",
+    "Day to day: tagging detections and escalations with technique IDs so everyone shares a vocabulary",
+    "Using the Data Sources field to work out what telemetry a technique needs — the bridge to logging",
+    "Using Groups/Software to prioritise which techniques matter for the threats you actually face",
+    "Navigator layers to visualise coverage and gaps honestly"
+  ]}
+  trap="Claiming a coverage percentage. If you say 'we covered 80% of ATT&CK', expect a follow-up asking what 'covered' means — and there's no good answer. Talk about tested detections for relevant techniques instead."
+/>
+
+<Quiz mid="track/02-defensive-core/02-attack-framework" title="MITRE ATT&CK as a Tool" questions={[
+  {
+    q: "T1078 Valid Accounts appears under Initial Access, Persistence, Privilege Escalation and Defense Evasion. What does this demonstrate?",
+    opts: ["A cataloguing error in ATT&CK", "That techniques map to tactics many-to-many, because one method can serve several adversary goals", "That Valid Accounts is the most dangerous technique", "That the four tactics are equivalent"],
+    a: 1,
+    why: "Using legitimate credentials simultaneously gets you in, keeps you in, may grant more rights, and helps you blend with normal activity. The many-to-many relationship between techniques and tactics is a structural feature of ATT&CK, and understanding it is what separates working use from having memorised the matrix layout."
+  },
+  {
+    q: "Which part of an ATT&CK technique page tells you what telemetry you need in order to detect it?",
+    opts: ["The Procedure Examples", "The Data Sources field", "The Groups list", "The Mitigations list"],
+    a: 1,
+    why: "Data Sources names the telemetry — Process Creation, Command Execution, Logon Session, Network Traffic Content — that makes a technique observable at all. It's the direct bridge from ATT&CK to logging architecture: if you don't collect the listed source, no detection for that technique can work regardless of how good your rule is."
+  },
+  {
+    q: "Why is 'we cover 80% of ATT&CK' considered a weak claim?",
+    opts: ["ATT&CK has exactly 100 techniques so percentages are misleading", "Techniques are not equally important, 'covered' is undefined, and the matrix grows over time", "Coverage should always be expressed as a fraction", "Only MITRE is permitted to measure coverage"],
+    a: 1,
+    why: "All three problems compound: a brittle rule matching one tool name counts the same as a robust behavioural detection; nobody faces all techniques equally; and your percentage shifts when MITRE publishes an update. The mature framing describes tested detections for relevant techniques and distinguishes behavioural from signature-based coverage."
+  },
+  {
+    q: "An adversary compresses files into a password-protected archive before sending them out. Which tactic does the compression step belong to?",
+    opts: ["Exfiltration", "Collection", "Defense Evasion", "Impact"],
+    a: 1,
+    why: "Staging and packaging data is Collection (T1560 Archive Collected Data); the subsequent transfer out is Exfiltration. The distinction matters operationally because catching it at Collection means the data has not yet left, which is a materially different incident — and a materially different conversation with a regulator."
+  },
+  {
+    q: "What is the main limitation of the Cyber Kill Chain compared with ATT&CK?",
+    opts: ["It contains too many stages to remember", "Its linear model doesn't reflect real intrusions, which loop, skip stages and run activities in parallel", "It does not cover malware", "It is not free to use"],
+    a: 1,
+    why: "The Kill Chain's seven sequential stages are a clean narrative but a poor operational fit — attackers revisit discovery after moving laterally, escalate privileges repeatedly, and run collection and C2 concurrently. It remains useful for explaining an incident to non-technical stakeholders; ATT&CK's tactic/technique structure is what you use for detection work."
+  },
+  {
+    q: "In the Diamond Model, what are the four vertices?",
+    opts: ["Detect, Deny, Disrupt, Degrade", "Adversary, Capability, Infrastructure, Victim", "Tactic, Technique, Procedure, Mitigation", "Confidentiality, Integrity, Availability, Accountability"],
+    a: 1,
+    why: "Adversary, Capability, Infrastructure, Victim — and the value is that you can pivot from any known vertex to discover the others. Seeing a C2 IP (infrastructure) lets you pivot to other victims contacting it, or to the capability using it. It's a structured description of what good analysts do intuitively when they pivot during an investigation."
+  },
+  {
+    q: "A detection rule matches on the filename `mimikatz.exe`. Its main weakness is:",
+    opts: ["It generates too many false positives", "It detects a specific tool implementation rather than the behaviour, so renaming the binary defeats it", "It cannot be tagged with an ATT&CK ID", "It requires Sysmon to be installed"],
+    a: 1,
+    why: "That rule sits at the procedure level and is trivially evaded by renaming the file — a one-second change. The durable version detects the behaviour: a process opening a handle to LSASS with a memory-read access mask, which any credential dumper must do regardless of its name. This is the Pyramid of Pain argument, which is the next step in this phase."
+  }
+]} />
+
+<TaskList step="track/02-defensive-core/02-attack-framework" tasks={[
+  { text: "Recite the 14 Enterprise tactics in order, from memory" },
+  { text: "Complete the mapping scenario without looking anything up, then check against the ATT&CK site" },
+  { text: "Map one full DFIR Report intrusion to ATT&CK yourself", detail: "Pick any recent report. Build the same table. This is genuinely the best single exercise in Phase 2." },
+  { text: "Build an ATT&CK Navigator layer of your lab's current detection coverage", detail: "It will be embarrassingly sparse at this stage. That's the point — it becomes the before picture for Phase 5, and a great blog post asset." },
+  { text: "Read the Data Sources and Detection sections for five techniques you expect to meet", detail: "T1059.001, T1003.001, T1558.003, T1021.002, T1486." },
+  { text: "Write a two-sentence answer to the coverage-percentage trap and rehearse it" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "MITRE ATT&CK", by: "MITRE", url: "https://attack.mitre.org/", type: "ref", note: "Read technique pages like documentation — description, procedures, mitigations, detection, data sources. Ten minutes a day builds the vocabulary painlessly.", primary: true },
+  { title: "ATT&CK Navigator", by: "MITRE", url: "https://mitre-attack.github.io/attack-navigator/", type: "do", note: "Free, browser-based. Build your coverage layer here and export the JSON — it goes in your portfolio repo." },
+  { title: "Getting Started with ATT&CK", by: "MITRE", url: "https://www.mitre.org/news-insights/publication/getting-started-mitre-attck", type: "read", minutes: 45, note: "MITRE's own four-part guide covering threat intel, detection, adversary emulation and assessment. The detection chapter is the one for you." },
+  { title: "MITRE ATT&CK Defender (MAD) free training", by: "MITRE / Cybrary", url: "https://mitre-engenuity.org/cybersecurity/mad/", type: "watch", cost: "Free tier", note: "MITRE's own training. The fundamentals course is free and gives you a badge worth putting on LinkedIn." },
+  { title: "The DFIR Report — ATT&CK mappings", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Every report ends with a full technique mapping. Map it yourself first, then compare — that comparison is where the learning happens." },
+  { title: "Cyber Kill Chain", by: "Lockheed Martin", url: "https://www.lockheedmartin.com/en-us/capabilities/cyber/cyber-kill-chain.html", type: "read", minutes: 15, note: "The original paper. Know it well enough to compare and contrast with ATT&CK when asked." }
+]} />
+
+<Gate
+  step="track/02-defensive-core/02-attack-framework"
+  conditions={[
+    "I can define tactic, technique, sub-technique and procedure with an example of each",
+    "I can name the 14 Enterprise tactics in rough order",
+    "I have mapped a full real intrusion to ATT&CK unaided",
+    "I know where Data Sources sits and why it matters for logging decisions",
+    "I have built a Navigator coverage layer for my lab",
+    "I can explain why a coverage percentage is a weak claim"
+  ]}
+  unlocks="Next: logging architecture — because ATT&CK's Data Sources field is worthless if you aren't collecting them."
+/>

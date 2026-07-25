@@ -1,0 +1,205 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { PHASES, PILLARS, ROADMAP, KIND_ICON, TOTAL_COST, type PhaseId } from '../../lib/roadmap';
+
+const written = new Set((await getCollection('track', ({ data }) => data.published)).map((e) => e.id));
+const phaseIds = Object.keys(PHASES).map(Number) as PhaseId[];
+---
+
+<Base
+  title="Track 6 — SOC Analyst: Zero to Hired"
+  description="A sequenced campaign from CEH-with-no-experience to a UK Tier 1 SOC offer."
+>
+  <header class="border-b pb-7">
+    <p class="eyebrow" style="color: var(--accent)">// Track 6 · campaign</p>
+    <h1 class="mt-2 text-[clamp(1.9rem,1.3rem+2.4vw,2.9rem)]">SOC Analyst: Zero to Hired</h1>
+    <p class="mt-3 max-w-[62ch] text-[1.05rem]" style="color: var(--text-2)">
+      Nine phases, {ROADMAP.length} steps, roughly ten months at a sustainable pace.
+      Everything here is free to learn; the only unavoidable money is exam fees.
+      The finish line is an offer, not a certificate.
+    </p>
+
+    <div class="mt-6 grid gap-3 sm:grid-cols-3">
+      <div class="panel p-4">
+        <p class="eyebrow">Overall</p>
+        <p class="mt-1 font-display text-2xl font-extrabold">
+          <span data-overall-pct>0</span>%
+        </p>
+        <p class="font-mono text-[0.7rem]" style="color: var(--text-3)">
+          <span data-overall-done>0</span> / {ROADMAP.length} steps
+        </p>
+      </div>
+      <div class="panel p-4">
+        <p class="eyebrow">Total cost</p>
+        <p class="mt-1 font-display text-2xl font-extrabold">£{TOTAL_COST}</p>
+        <p class="font-mono text-[0.7rem]" style="color: var(--text-3)">SC-200 + BTL1 exams only</p>
+      </div>
+      <div class="panel p-4">
+        <p class="eyebrow">Ready to apply?</p>
+        <p class="mt-1 font-display text-2xl font-extrabold" data-apply-verdict style="color: var(--text-3)">—</p>
+        <p class="font-mono text-[0.7rem]" style="color: var(--text-3)" data-apply-blockers>
+          Complete the baseline to find out
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a href="/track/evidence/" class="btn text-[0.78rem]">Evidence log & applications →</a>
+      <a href="/dashboard/" class="btn text-[0.78rem]">Course progress</a>
+    </div>
+  </header>
+
+  <!-- ── Readiness pillars ────────────────────────────────────────── -->
+  <section class="mt-9">
+    <h2 class="text-xl">Readiness</h2>
+    <p class="mt-1 text-[0.92rem]" style="color: var(--text-3)">
+      Five pillars. An interview will find the weakest one, so the useful number
+      is the lowest bar, not the average.
+    </p>
+    <div class="mt-4 space-y-3">
+      {Object.entries(PILLARS).map(([id, pillar]) => (
+        <div data-pillar={id}>
+          <div class="flex items-baseline justify-between gap-3">
+            <p class="text-[0.9rem] font-semibold">
+              {pillar.label}
+              <span class="ml-2 font-normal" style="color: var(--text-3)">{pillar.blurb}</span>
+            </p>
+            <p class="shrink-0 font-mono text-[0.72rem]" style="color: var(--text-3)">
+              <span data-pillar-pct>0</span>%
+            </p>
+          </div>
+          <div class="mt-1.5 h-2 overflow-hidden rounded-full" style="background: var(--rule)">
+            <div class="h-full rounded-full transition-[width] duration-500" data-pillar-bar style="width:0%; background: var(--accent)"></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- ── Phases ───────────────────────────────────────────────────── -->
+  <section class="mt-12">
+    <h2 class="text-xl">The map</h2>
+
+    <div class="mt-5 space-y-4">
+      {phaseIds.map((pid) => {
+        const phase = PHASES[pid];
+        const steps = ROADMAP.filter((s) => s.phase === pid);
+        return (
+          <details open={pid <= 1} class="panel overflow-hidden" data-phase={pid}>
+            <summary class="flex cursor-pointer items-start gap-3 p-4 hover:bg-[var(--surface-3)]">
+              <span class="mt-0.5 text-[1.15rem]" aria-hidden="true" style="color: var(--accent)">
+                {phase.icon}
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-baseline gap-x-3">
+                  <span class="font-display text-[1.05rem] font-bold">
+                    Phase {pid} · {phase.name}
+                  </span>
+                  <span class="font-mono text-[0.68rem]" style="color: var(--text-3)">{phase.weeks}</span>
+                </span>
+                <span class="mt-1 block text-[0.88rem] leading-snug" style="color: var(--text-3)">
+                  {phase.blurb}
+                </span>
+              </span>
+              <span class="shrink-0 font-mono text-[0.7rem]" style="color: var(--text-3)">
+                <span data-phase-done>0</span>/{steps.length}
+              </span>
+            </summary>
+
+            <ul class="border-t">
+              {steps.map((step) => {
+                const exists = written.has(step.id);
+                return (
+                  <li class="border-b last:border-b-0" data-step={step.id}>
+                    <a
+                      href={exists ? `/track/${step.id}/` : undefined}
+                      class={`block px-4 py-3 ${exists ? 'hover:bg-[var(--surface-3)]' : 'cursor-default'}`}
+                      style={exists ? '' : 'opacity:0.55'}
+                    >
+                      <div class="flex items-start gap-3">
+                        <span
+                          class="mt-1 grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[0.6rem]"
+                          data-step-tick
+                          style="border-color: var(--rule-strong); color: transparent"
+                        >✓</span>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-[0.94rem] font-semibold leading-snug">
+                            <span aria-hidden="true" style="color: var(--text-3)">{KIND_ICON[step.kind]}</span>{' '}
+                            {step.title}
+                            {!exists && (
+                              <span class="ml-2 font-mono text-[0.6rem] uppercase tracking-wider" style="color: var(--text-3)">
+                                not written yet
+                              </span>
+                            )}
+                          </p>
+                          <p class="mt-0.5 text-[0.84rem] leading-relaxed" style="color: var(--text-3)">
+                            {step.brief}
+                          </p>
+                          <p class="mt-1 flex flex-wrap gap-x-3 font-mono text-[0.64rem]" style="color: var(--text-3)">
+                            <span>{step.weeks}</span>
+                            <span>{PILLARS[step.pillar].label}</span>
+                            {step.cost > 0 && <span style="color: var(--accent)">£{step.cost}</span>}
+                          </p>
+                        </div>
+                      </div>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
+        );
+      })}
+    </div>
+  </section>
+</Base>
+
+<script>
+  import { readiness, overallProgress, stepComplete, readyToApply } from '../../lib/track-store';
+  import { ROADMAP } from '../../lib/roadmap';
+
+  const overall = overallProgress();
+  document.querySelector('[data-overall-pct]')!.textContent = String(overall.pct);
+  document.querySelector('[data-overall-done]')!.textContent = String(overall.done);
+
+  const r = readiness();
+  for (const el of document.querySelectorAll<HTMLElement>('[data-pillar]')) {
+    const p = r[el.dataset.pillar as keyof typeof r];
+    if (!p) continue;
+    el.querySelector<HTMLElement>('[data-pillar-pct]')!.textContent = String(p.pct);
+    const bar = el.querySelector<HTMLElement>('[data-pillar-bar]')!;
+    bar.style.width = `${p.pct}%`;
+    if (p.pct >= 80) bar.style.background = 'var(--ok)';
+  }
+
+  // Per-step ticks and per-phase counts.
+  const doneByPhase = new Map<number, number>();
+  for (const step of ROADMAP) {
+    const done = stepComplete(step.id);
+    if (done) doneByPhase.set(step.phase, (doneByPhase.get(step.phase) ?? 0) + 1);
+    const row = document.querySelector<HTMLElement>(`[data-step="${step.id}"] [data-step-tick]`);
+    if (row && done) {
+      row.style.background = 'var(--ok)';
+      row.style.borderColor = 'var(--ok)';
+      row.style.color = '#fff';
+    }
+  }
+  for (const el of document.querySelectorAll<HTMLElement>('[data-phase]')) {
+    const n = doneByPhase.get(Number(el.dataset.phase)) ?? 0;
+    el.querySelector<HTMLElement>('[data-phase-done]')!.textContent = String(n);
+  }
+
+  const verdict = readyToApply();
+  const vEl = document.querySelector<HTMLElement>('[data-apply-verdict]')!;
+  const bEl = document.querySelector<HTMLElement>('[data-apply-blockers]')!;
+  if (verdict.ready) {
+    vEl.textContent = 'Yes';
+    vEl.style.color = 'var(--ok)';
+    bEl.textContent = 'Apply hard. 20–30 tailored applications a week.';
+  } else {
+    vEl.textContent = 'Not yet';
+    vEl.style.color = 'var(--text-3)';
+    bEl.textContent = verdict.blockers.join(' · ');
+  }
+</script>

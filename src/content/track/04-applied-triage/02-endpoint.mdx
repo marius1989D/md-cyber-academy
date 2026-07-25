@@ -1,0 +1,324 @@
+---
+title: "Endpoint Triage"
+phase: 4
+order: 2
+summary: "Process trees, encoded commands, LOLBins and persistence hunting - including the harder skill of correctly clearing something that looks malicious."
+weeks: "Weeks 18-19"
+minutes: 260
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["04-applied-triage/01-phishing"]
+academy: ["ceh/06-system-hacking"]
+attack: ["T1059.001", "T1218", "T1547.001", "T1055", "T1105"]
+tags: ["endpoint", "edr", "lolbins", "powershell", "triage"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="You get an EDR alert on a suspicious process. Walk me through your triage.">
+Phase 1 taught you what a normal process tree looks like. This step is the applied
+version, and it deliberately includes the harder half of the job: correctly
+concluding that something suspicious is benign. Anyone can escalate a clearly
+malicious tree. The analyst who gets promoted is the one who can clear a
+frightening-looking alert with documented reasoning, and who knows exactly what
+evidence would have changed their mind.
+</Why>
+
+## The triage sequence
+
+Work it in this order every time. The consistency matters more than the speed.
+
+1. **What fired, and why?** Read the detection logic. A rule matching a filename
+   and a rule matching LSASS access deserve very different starting confidence.
+2. **The process tree, upward.** The parent chain tells you how this got here.
+   Almost every conclusion starts here.
+3. **The command line.** Decoded, in full. This is usually where intent lives.
+4. **The binary.** Path, signature, hash, prevalence. Is it where it should be?
+5. **What it did next.** Children, file writes, registry changes, network
+   connections.
+6. **Context.** Whose machine, what is their role, what were they doing, is there a
+   change window.
+7. **Scope.** Has this pattern appeared anywhere else in the estate?
+
+<Callout type="key">
+Step 6 is the one juniors skip and it resolves more alerts than any other. A
+PowerShell download cradle on a developer's machine during working hours with a
+matching change ticket is a different event from the same command on a
+receptionist's laptop at 03:00. Context is not an excuse for a weak conclusion; it
+is evidence.
+</Callout>
+
+## Decoding what you find
+
+**Base64 PowerShell.** Decode it rather than describing it as "encoded":
+
+```powershell
+[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('SQBFAFgA...'))
+```
+
+Windows PowerShell uses UTF-16LE for `-EncodedCommand`, which is why `Unicode` is
+the right encoding and why a naive base64 decode produces text with null bytes
+between characters. Knowing that detail is a small, credible signal.
+
+**Flags that signal intent:** `-nop` (skip profile), `-w hidden` (hide window),
+`-ep bypass` (ignore execution policy), `-enc` (base64), `-noni`
+(non-interactive), `IEX` / `Invoke-Expression` (execute a string), `DownloadString`
+and `DownloadFile` (fetch remote code). Any one may be innocent. Four together are
+not.
+
+## LOLBins
+
+Signed Microsoft binaries abused to do an attacker's work, defeating naive "is it
+signed?" logic. The ones to recognise instantly:
+
+| Binary | Legitimate purpose | Abused for |
+|---|---|---|
+| `rundll32.exe` | Run a DLL export | Executing payloads, proxying execution |
+| `regsvr32.exe` | Register a DLL | Remote scriptlet execution (Squiblydoo) |
+| `mshta.exe` | Run HTML applications | Executing remote HTA payloads |
+| `certutil.exe` | Certificate utility | Downloading files, base64 decode |
+| `bitsadmin.exe` | Background transfers | Stealthy download and persistence |
+| `msiexec.exe` | Install MSI packages | Installing remote MSI payloads |
+| `wmic.exe` | WMI command line | Remote execution, discovery |
+| `installutil.exe` | .NET installer | Bypassing application control |
+
+The triage question is never "is this binary bad" — they are all legitimate. It is
+**"is this binary doing its actual job, invoked by a plausible parent, with
+arguments that make sense?"** `certutil` fetching a `.exe` over HTTP is not
+certificate management.
+
+## Persistence hunting
+
+When you have confirmed something ran, check whether it arranged to run again:
+
+- Registry Run keys, machine and user
+- Services (7045, 4697)
+- Scheduled tasks (4698, and Sysmon 1 with `schtasks.exe`)
+- WMI event subscriptions (Sysmon 19, 20, 21) - the quiet one people miss
+- Startup folders
+- Winlogon `Userinit` and `Shell` values
+
+<Callout type="warn">
+Missing persistence is how an incident recurs a week later with someone asking why
+it was closed. If you confirm execution, persistence hunting is not optional, and
+saying so unprompted in an interview is a strong signal.
+</Callout>
+
+<Scenario
+  step="track/04-applied-triage/02-endpoint"
+  id="certutil-ambiguous"
+  title="certutil downloading a file - malicious or not?"
+  minutes={10}
+>
+<div slot="brief">
+
+An EDR alert fires. This one is genuinely ambiguous, which is the point.
+
+```text
+ALERT: "LOLBin abuse - certutil remote download"  Severity: High
+
+Process:      certutil.exe  (PID 7742)
+Path:         C:\Windows\System32\certutil.exe   (signed, Microsoft)
+CommandLine:  certutil.exe -urlcache -split -f
+              http://10.44.2.19/pkg/agent-installer.msi
+              C:\Windows\Temp\agent-installer.msi
+Parent:       cmd.exe (PID 7738)
+Grandparent:  ccmexec.exe (PID 1204)
+User:         NT AUTHORITY\SYSTEM
+Host:         WKSTN-3391
+Time:         Wed 11:14:22 (business hours)
+
+FOLLOW-ON ACTIVITY
+  Sysmon 11  C:\Windows\Temp\agent-installer.msi created
+  Sysmon 1   msiexec.exe /i C:\Windows\Temp\agent-installer.msi /qn
+             parent: cmd.exe (7738)
+  Sysmon 3   none outbound except the 10.44.2.19 fetch
+  No LSASS access. No registry Run key changes. No new services
+  beyond the MSI's own.
+
+CONTEXT
+  - 10.44.2.19 resolves to sccm-dp02.corp.local (internal
+    distribution point), confirmed in asset inventory.
+  - The same command ran on 217 other workstations in a 40-minute
+    window this morning.
+  - Change ticket CHG-4471 "Deploy monitoring agent v4.2" is open,
+    scheduled for today.
+  - The MSI hash matches the vendor's published hash.
+```
+
+What is your conclusion, and what would have changed it?
+
+</div>
+<div slot="model">
+
+**Conclusion: benign. This is software deployment via SCCM, and I would close it
+as a true negative with a tuning recommendation.**
+
+The alert is not wrong to have fired - `certutil -urlcache -split -f` is a
+genuine download cradle and a well-known LOLBin technique (T1105). The skill here
+is not pattern-matching the command to "malicious"; it is weighing the full
+context and being willing to reach a confident negative conclusion.
+
+**The evidence supporting benign, in order of weight:**
+
+1. **The grandparent is `ccmexec.exe`** - the SCCM client agent. That is a
+   legitimate software deployment chain, and it explains both the SYSTEM context
+   and the `cmd.exe` intermediary.
+2. **The source is an internal, inventoried distribution point.** Not an external
+   IP, not a hosting provider, not a domain registered last week. Confirmed against
+   asset inventory rather than assumed from the RFC1918 range.
+3. **Fleet-wide identical execution.** 218 hosts in 40 minutes is deployment
+   behaviour. Targeted attacks do not look like this; worm-like propagation could,
+   but that would show lateral movement telemetry, which is absent.
+4. **A matching change ticket.** Correlating to CHG-4471 is the step that converts
+   a plausible story into a verified one.
+5. **The MSI hash matches the vendor's published hash.** The payload is what it
+   claims to be.
+6. **No post-execution indicators.** No credential access, no persistence beyond
+   what the MSI legitimately installs, no outbound connections, no discovery
+   commands. A real intrusion using certutil would almost certainly do something
+   next.
+
+**What would have changed my conclusion - any one of these:**
+
+- **The source IP not matching a known internal asset**, or resolving externally.
+  An RFC1918 address is not automatically trustworthy; an attacker with a foothold
+  hosts payloads internally precisely because it looks like this.
+- **A parent chain that did not include a legitimate deployment agent.** The same
+  certutil command parented to `winword.exe`, `explorer.exe` or a browser is
+  malicious until proven otherwise.
+- **Execution on one host rather than hundreds**, or on an odd subset such as only
+  the finance team.
+- **No corresponding change ticket**, or a ticket that does not match the payload.
+- **A hash mismatch**, or a payload that no vendor claims.
+- **Any follow-on indicator**: LSASS access, a Run key write, a scheduled task, an
+  outbound connection to anything unexpected, or discovery commands.
+- **Timing outside a change window**, particularly overnight.
+
+**What I do with it:**
+
+- Close as benign, and **document all of the above**. A closure that says
+  "legitimate SCCM deployment" without the evidence is only marginally better than
+  "closed, FP" - the next analyst needs to be able to verify the reasoning rather
+  than trust it.
+- **Raise a tuning request**, scoped correctly: suppress `certutil` download
+  activity where the parent chain includes `ccmexec.exe` **and** the destination is
+  a known distribution point. Not "suppress certutil", and not "suppress on this
+  host" - both would hand an attacker a free channel, since SCCM is an attractive
+  target exactly because it can execute everywhere.
+- **Note the underlying weakness for the customer**: using `certutil` as a
+  downloader in deployment tooling is poor practice, because it forces defenders to
+  allowlist a technique attackers rely on. Recommending the deployment be changed
+  removes the ambiguity permanently. That is fixing the environment rather than the
+  detection, and it is the better fix where it is available.
+
+**The transferable lesson:** a confident, well-documented negative is as valuable
+as an escalation and considerably harder. The test of your reasoning is not
+whether you reached the right answer - it is whether you can state precisely what
+would have made you reach the other one.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/04-applied-triage/02-endpoint"
+  id="endpoint-triage"
+  question="You get an EDR alert on a suspicious process. Walk me through your triage."
+  seconds={120}
+  hits={[
+    "Read the detection logic first - what fired and how reliable is that rule",
+    "Walk the process tree upward; the parent chain usually determines the conclusion",
+    "Decode the full command line rather than describing it as encoded",
+    "Check the binary: path, signature, hash, prevalence - and remember signed does not mean safe, because LOLBins are all signed",
+    "Look at what happened next: children, file writes, registry, network",
+    "Bring in context - user, role, time, change tickets - as evidence, not as an excuse",
+    "Scope across the estate for the same pattern",
+    "If execution is confirmed, hunt persistence before closing anything"
+  ]}
+  trap="Concluding malicious purely because the command matches a known technique. LOLBins are legitimate tools with legitimate uses, and an analyst who escalates every certutil download will be ignored when it matters. State what would change your mind - that is what demonstrates real judgement."
+/>
+
+<Quiz mid="track/04-applied-triage/02-endpoint" title="Endpoint Triage" questions={[
+  {
+    q: "Why is 'the binary is signed by Microsoft' insufficient reasoning during triage?",
+    opts: ["Signatures can be forged easily", "LOLBins are all legitimately signed Microsoft binaries being abused to perform attacker actions", "Signature checking is disabled by default", "Only third-party binaries are ever malicious"],
+    a: 1,
+    why: "rundll32, certutil, mshta, regsvr32 and the rest are genuine signed Microsoft tools, which is exactly why attackers use them. The useful question is whether the binary is doing its actual job, invoked by a plausible parent, with arguments that make sense - not whether it is signed."
+  },
+  {
+    q: "Why does decoding a PowerShell -EncodedCommand require UTF-16LE rather than plain ASCII?",
+    opts: ["PowerShell encrypts the payload", "Windows PowerShell expects the encoded string to be UTF-16LE, so a naive decode produces text with null bytes between characters", "Base64 always produces UTF-16", "The encoding depends on the execution policy"],
+    a: 1,
+    why: "The -EncodedCommand parameter takes base64 of a UTF-16LE string, which is why [Text.Encoding]::Unicode is the correct decoder in PowerShell. Getting readable text with null bytes interleaved is the tell that you decoded as ASCII, and knowing this detail is a small but credible signal of hands-on experience."
+  },
+  {
+    q: "An alert shows certutil downloading a file from an internal RFC1918 address. This means:",
+    opts: ["It is definitely benign, since the source is internal", "Nothing on its own - an attacker with a foothold will host payloads internally precisely because it appears trustworthy", "It is definitely malicious, since certutil should never download", "The alert is a false positive by definition"],
+    a: 1,
+    why: "Internal addressing is not trust. Verifying the destination against asset inventory - is this a known distribution point? - is the step that converts an assumption into evidence. Attackers stage payloads internally after gaining a foothold for exactly this reason."
+  },
+  {
+    q: "Which persistence mechanism is most commonly overlooked during endpoint triage?",
+    opts: ["Registry Run keys", "Scheduled tasks", "WMI event subscriptions", "Startup folder shortcuts"],
+    a: 2,
+    why: "WMI event subscriptions (Sysmon events 19, 20 and 21) are fileless, survive reboot, and are invisible to anyone checking only Run keys, services and scheduled tasks. They are a favourite of more capable actors for precisely that reason, and mentioning them unprompted marks you out."
+  },
+  {
+    q: "You conclude a suspicious-looking alert is benign. What most determines whether that was good analysis?",
+    opts: ["How quickly you closed it", "Whether you documented the evidence and can state what would have changed your conclusion", "Whether you consulted Tier 2 first", "Whether the rule was later disabled"],
+    a: 1,
+    why: "A conclusion without documented reasoning cannot be verified or reused, and 'closed, benign' is barely better than 'closed, FP'. Being able to articulate the specific evidence that would have flipped the decision is what demonstrates you reasoned rather than pattern-matched - and it is exactly what a post-incident review will ask for."
+  },
+  {
+    q: "Which combination of PowerShell flags most strongly suggests malicious intent?",
+    opts: ["-File and -Command", "-nop -w hidden -ep bypass -enc together", "-Version and -NoLogo", "-OutputFormat and -InputFormat"],
+    a: 1,
+    why: "Individually each has legitimate uses - administrators skip profiles and bypass execution policy routinely. Together they describe a hidden, non-interactive, policy-ignoring, obfuscated execution, which is a combination with essentially no legitimate purpose. Reasoning about combinations rather than single flags is what makes the assessment defensible."
+  },
+  {
+    q: "The correct tuning for a benign SCCM-driven certutil download is:",
+    opts: ["Suppress all certutil alerts", "Suppress certutil alerts on that host", "Suppress where the parent chain includes the deployment agent and the destination is a known distribution point", "Disable the rule and rely on the EDR vendor's detections"],
+    a: 2,
+    why: "Suppressing the binary outright removes a real detection; suppressing by host creates a blind spot on a machine an attacker may later compromise. Scoping to the specific benign combination - parent chain plus verified destination - removes the noise while keeping the detection alive if anyone abuses SCCM, which is a genuine and attractive attack path."
+  }
+]} />
+
+<TaskList step="track/04-applied-triage/02-endpoint" tasks={[
+  { text: "Write your triage sequence as a seven-step checklist and use it every time" },
+  { text: "Decode ten real encoded PowerShell samples", detail: "Any threat report or LetsDefend case supplies them. Build the reflex until it takes seconds." },
+  { text: "Learn the eight LOLBins in the table and one abuse case each", detail: "Then browse LOLBAS for five more you have never heard of." },
+  { text: "Run three Atomic Red Team tests on your lab and triage your own telemetry", detail: "T1218.011 rundll32, T1105 ingress tool transfer, T1547.001 Run key. You know the answer, which lets you focus on the method." },
+  { text: "Practise writing a benign closure with full reasoning", detail: "Take the certutil scenario and write the ticket. Include the what-would-change-my-mind section - most analysts never write one, and it is the part that impresses." },
+  { text: "Build a persistence-hunting checklist covering all six locations" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "LOLBAS Project", url: "https://lolbas-project.github.io/", type: "ref", note: "Every abusable signed Windows binary with exact command lines and ATT&CK mapping. Browse a few entries per break until the common ones are instant recognition.", primary: true },
+  { title: "LetsDefend", url: "https://letsdefend.io/", type: "do", cost: "Free tier", note: "Simulated SOC alerts with real artifacts and a ticketing workflow. The free tier gives you enough endpoint cases to build the habit." },
+  { title: "Atomic Red Team - atomics index", by: "Red Canary", url: "https://github.com/redcanaryco/atomic-red-team/tree/master/atomics", type: "do", note: "Run a technique, then triage the telemetry it produced. The single most efficient way to connect attack to evidence." },
+  { title: "Microsoft Defender advanced hunting queries", by: "Microsoft", url: "https://github.com/microsoft/Microsoft-365-Defender-Hunting-Queries", type: "read", note: "Hundreds of endpoint hunting queries. Read them to learn what experienced analysts consider suspicious and how they express it." },
+  { title: "13Cubed - process tree and persistence videos", by: "Richard Davis", url: "https://www.youtube.com/@13Cubed", type: "watch", minutes: 20, note: "The WMI persistence video in particular covers the mechanism most analysts miss." },
+  { title: "MITRE ATT&CK - T1218 System Binary Proxy Execution", url: "https://attack.mitre.org/techniques/T1218/", type: "read", minutes: 20, note: "The full sub-technique list for LOLBin abuse, each with detection guidance." }
+]} />
+
+<Gate
+  step="track/04-applied-triage/02-endpoint"
+  conditions={[
+    "I have a fixed triage sequence and follow it every time",
+    "I can decode encoded PowerShell quickly and explain why UTF-16LE matters",
+    "I can name eight LOLBins and an abuse case for each",
+    "I can clear a suspicious alert with documented reasoning and state what would have changed my mind",
+    "I hunt persistence in all six locations whenever execution is confirmed",
+    "I have triaged my own Atomic Red Team telemetry end to end"
+  ]}
+  unlocks="Next: the network view of the same intrusions - beaconing, tunnelling and what encryption does and does not hide."
+/>

@@ -1,0 +1,399 @@
+---
+title: "KQL for Threat Hunting"
+phase: 3
+order: 3
+summary: "Time series, anomaly functions, first-seen patterns and cross-table joins - the queries that find what the rules missed."
+weeks: "Weeks 14-15"
+minutes: 300
+kind: learn
+pillar: siem
+cost: 0
+prereq: ["03-microsoft-kql/02-kql-fundamentals"]
+academy: ["detection/08-threat-hunting"]
+objectives: ["SC-200 3.3", "SC-200 3.4"]
+attack: ["T1078", "T1021.001", "T1071.001"]
+tags: ["kql", "hunting", "anomaly", "time-series", "sentinel"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import QueryChallenge from '../../../components/track/QueryChallenge.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What's the difference between threat hunting and detection?">
+Detection answers questions you already knew to ask. Hunting asks the questions
+nobody wrote a rule for - and every rule that exists started life as a hunt. For a
+Tier 1 candidate, being able to hunt is the single clearest signal that you will
+not stay Tier 1 for long, and quiet hours on a night shift are exactly when it
+happens. The queries below are the shapes that find things: first-seen,
+statistical outlier, and cross-source correlation.
+</Why>
+
+## Hunting versus detection
+
+| | Detection | Hunting |
+|---|---|---|
+| Trigger | Automated, continuous | Human, hypothesis-driven |
+| Input | A known bad pattern | A theory about attacker behaviour |
+| Output | An alert | A finding, or a new detection rule |
+| Assumes | We know what to look for | Something is here that we missed |
+| Success | The rule fired | Either a finding, or confidence in its absence |
+
+<Callout type="key">
+A hunt that finds nothing is not a failed hunt. "We hypothesised X, searched for
+it thoroughly, and found no evidence" is a genuine result that increases
+confidence and often exposes a telemetry gap along the way. Saying this in an
+interview separates you from candidates who think hunting means finding something
+every time.
+</Callout>
+
+**Structure a hunt in four steps:** form a hypothesis specific enough to be wrong
+("an attacker is using WMI for lateral movement"), identify the data that would
+show it, query and analyse, then act - escalate a finding, or convert the query
+into a scheduled rule so the hunt never has to be repeated manually.
+
+## The operators that make hunting possible
+
+Beyond the fundamentals, five carry most of the weight:
+
+- **`make-series`** - build an evenly-spaced time series with gaps filled, which
+  is a precondition for the anomaly functions.
+- **`series_decompose_anomalies`** - decomposes a series into seasonal, trend and
+  residual components and flags points that deviate. Handles daily and weekly
+  rhythms automatically, which naive thresholds cannot.
+- **`arg_max` / `arg_min`** - return the whole row where a column hits its
+  extreme. `arg_max(TimeGenerated, *)` gives the latest full record per group.
+- **`materialize()`** - cache a subquery used more than once so it is computed
+  once. On a hunt over 30 days this is the difference between seconds and a timeout.
+- **`join kind=leftanti`** - what is in A but not in B. The first-seen workhorse.
+
+Also worth knowing: **`externaldata`** pulls a CSV or JSON from a URL into a
+query, which lets you join against an IOC list without ingesting it, and
+**`row_window_session`** groups events into sessions separated by idle gaps.
+
+## The three hunt shapes
+
+Almost every useful hunt is a variation on one of these:
+
+1. **First-seen** - this host pair, this parent-child process, this user-agent, has
+   never been observed before. Cheap, high-yield, hard for an attacker to avoid.
+2. **Statistical outlier** - this volume, timing or ratio deviates from the
+   established baseline for this entity.
+3. **Cross-source correlation** - this identity event and this device event, close
+   in time, are individually unremarkable but jointly suspicious.
+
+## Challenge 1 - first-seen parent-child
+
+<QueryChallenge
+  step="track/03-microsoft-kql/03-kql-hunting"
+  id="first-seen-parentchild"
+  title="Never-before-seen process lineage"
+  lang="kql"
+  tables={["DeviceProcessEvents", "DeviceName", "FileName", "InitiatingProcessFileName", "ProcessCommandLine", "Timestamp"]}
+>
+<div slot="brief">
+
+Hunt for parent-child process relationships seen in the **last 24 hours** that
+have **never** occurred in the preceding **30 days**, anywhere in the estate.
+
+Return the pair, how many devices it appeared on, and a sample command line.
+Order so the rarest appear first.
+
+</div>
+<div slot="solution">
+
+```kql
+let baseline = materialize(
+    DeviceProcessEvents
+    | where Timestamp between (ago(31d) .. ago(1d))
+    | distinct InitiatingProcessFileName, FileName
+);
+DeviceProcessEvents
+| where Timestamp > ago(1d)
+| join kind=leftanti baseline
+    on InitiatingProcessFileName, FileName
+| summarize
+    Devices     = dcount(DeviceName),
+    Executions  = count(),
+    FirstSeen   = min(Timestamp),
+    SampleCmd   = any(ProcessCommandLine),
+    DeviceList  = make_set(DeviceName, 20)
+    by InitiatingProcessFileName, FileName
+| sort by Devices asc, Executions asc
+```
+
+**Why the shape is what it is:**
+
+- **`materialize()`** on the baseline matters here. Without it the 30-day
+  `distinct` may be recomputed, and on a real estate that is the difference
+  between a query that returns and one that times out.
+- **`between (ago(31d) .. ago(1d))`** excludes the last 24 hours from the
+  baseline. If today were included, today's activity would match itself and the
+  query would silently return nothing - the same off-by-one from the fundamentals
+  step, and it fails without error, which is worse.
+- **Sorting ascending on device count** is deliberate. A new lineage on one device
+  is far more interesting than one that appeared on 400 devices this morning, which
+  is almost certainly a software deployment.
+
+**Common wrong shapes:** including `DeviceName` in the baseline `distinct`, which
+turns an estate-wide hunt into a per-device one and floods you with results;
+sorting descending, which buries the interesting findings; and omitting
+`materialize`, which works fine in a lab and fails in production.
+
+**Tuning note:** the first run will return a large amount of legitimate novelty -
+new software, updates, patched binaries. That is expected. The value comes from
+running it regularly so the baseline matures and the daily new-lineage count drops
+to something reviewable.
+
+</div>
+</QueryChallenge>
+
+## Challenge 2 - statistical anomaly with seasonality
+
+<QueryChallenge
+  step="track/03-microsoft-kql/03-kql-hunting"
+  id="series-anomaly"
+  title="Anomalous authentication volume per account"
+  lang="kql"
+  tables={["SigninLogs", "UserPrincipalName", "TimeGenerated", "ResultType"]}
+>
+<div slot="brief">
+
+Corporate sign-in volume has a strong daily and weekly rhythm - quiet at night,
+quiet at weekends. A fixed threshold either alerts every Monday morning or misses
+a real spike on a Tuesday.
+
+Over **21 days**, build an hourly series of successful sign-ins **per account** and
+flag statistically anomalous points, accounting for that seasonality.
+
+</div>
+<div slot="solution">
+
+```kql
+let start = ago(21d);
+let stop  = now();
+let step  = 1h;
+SigninLogs
+| where TimeGenerated between (start .. stop)
+| where ResultType == 0
+| make-series Signins = count()
+    on TimeGenerated
+    from start to stop step step
+    by UserPrincipalName
+| extend (anomalies, score, baseline) =
+    series_decompose_anomalies(Signins, 2.5, -1, 'linefit')
+| mv-expand
+    TimeGenerated to typeof(datetime),
+    Signins       to typeof(long),
+    anomalies     to typeof(int),
+    score         to typeof(double),
+    baseline      to typeof(long)
+| where anomalies == 1 and Signins > baseline
+| where TimeGenerated > ago(2d)
+| project TimeGenerated, UserPrincipalName, Signins, baseline, score
+| sort by score desc
+```
+
+**How it works:**
+
+- **`make-series`** produces an evenly spaced series with empty buckets filled -
+  a hard requirement for the anomaly functions, which cannot handle irregular
+  gaps. `summarize by bin()` will not do here.
+- **`series_decompose_anomalies`** splits the series into seasonal, trend and
+  residual parts and scores each point against the residual. **This is what
+  handles the daily and weekly rhythm automatically** - the reason a fixed
+  threshold fails.
+- **The `2.5` threshold** is sensitivity in standard deviations. Lower catches
+  more and alerts more; 2.5 to 3 is a reasonable starting range.
+- **`-1`** lets the function infer seasonality rather than being told the period.
+- **`anomalies == 1`** keeps positive deviations only. Value `-1` marks dips,
+  which matter for a different hunt - an account that suddenly *stops*
+  authenticating, or a log source that goes quiet, which is the pipeline failure
+  from Phase 2.
+- **`Signins > baseline`** is belt and braces alongside the `== 1` filter.
+- **Filtering to the last 2 days at the end**, after the full series is built,
+  keeps 21 days of context for the model while returning only recent findings.
+
+**Common wrong shapes:** using `summarize count() by bin(TimeGenerated, 1h)`
+instead of `make-series`, which produces gaps the decomposition cannot handle;
+forgetting `mv-expand`, which leaves you with arrays rather than rows; and
+filtering to recent time *before* building the series, which destroys the baseline
+the model needs.
+
+</div>
+</QueryChallenge>
+
+## Challenge 3 - cross-source correlation
+
+<QueryChallenge
+  step="track/03-microsoft-kql/03-kql-hunting"
+  id="cross-source"
+  title="Sign-in followed by suspicious device activity"
+  lang="kql"
+  tables={["SigninLogs", "DeviceProcessEvents", "DeviceLogonEvents", "AccountName", "UserPrincipalName"]}
+>
+<div slot="brief">
+
+Individually unremarkable, jointly suspicious: a sign-in from an unfamiliar
+location, followed within **30 minutes** by process execution on a device under
+the same account that has a suspicious parent.
+
+Correlate identity and endpoint telemetry over the last 7 days.
+
+</div>
+<div slot="solution">
+
+```kql
+let window = 30m;
+let risky_signins = materialize(
+    SigninLogs
+    | where TimeGenerated > ago(7d)
+    | where ResultType == 0
+    | where RiskLevelDuringSignIn in ("high", "medium")
+        or DeviceDetail.isCompliant == false
+    | extend Account = tolower(tostring(split(UserPrincipalName, "@")[0]))
+    | project SigninTime = TimeGenerated, Account, UserPrincipalName,
+              IPAddress, Location = tostring(LocationDetails.countryOrRegion)
+);
+let suspicious_exec = DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where InitiatingProcessFileName in~
+        ("winword.exe","excel.exe","outlook.exe","powerpnt.exe","mshta.exe")
+    | extend Account = tolower(AccountName)
+    | project ExecTime = Timestamp, Account, DeviceName,
+              FileName, ProcessCommandLine, InitiatingProcessFileName;
+risky_signins
+| join kind=inner suspicious_exec on Account
+| where ExecTime between (SigninTime .. SigninTime + window)
+| project SigninTime, ExecTime,
+          MinutesAfter = datetime_diff('minute', ExecTime, SigninTime),
+          UserPrincipalName, IPAddress, Location,
+          DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine
+| sort by SigninTime desc
+```
+
+**The technique to take away:**
+
+- **Normalising the join key is the whole problem.** `SigninLogs` carries a UPN
+  (`p.osei@corp.com`); `DeviceProcessEvents` carries a bare account name
+  (`p.osei`). Both go through `tolower()` and the UPN is split at the `@`. Joins
+  across Microsoft tables fail far more often on key format than on logic, and
+  this is the fix.
+- **`materialize` on the first subquery** because it feeds the join.
+- **The time-window filter comes after the join**, since you need both timestamps
+  in scope to compare them.
+- **`in~`** is the case-insensitive membership operator - process names vary in
+  casing across sources and a case-sensitive `in` will quietly miss rows.
+
+**Common wrong shapes:** joining on the raw `UserPrincipalName` against
+`AccountName` and getting zero rows with no error; applying the window filter
+inside a subquery where only one timestamp exists; and using `join kind=leftouter`
+here, which returns every risky sign-in whether or not anything followed.
+
+**Extending it:** this shape generalises. Swap the endpoint side for
+`DeviceNetworkEvents` to find sign-ins followed by unusual outbound connections,
+or for `DeviceLogonEvents` to find sign-ins followed by lateral movement. The
+pattern - risky identity event, then device event, within a window - is one of the
+most productive hunts available in a Microsoft estate.
+
+</div>
+</QueryChallenge>
+
+<Drill
+  step="track/03-microsoft-kql/03-kql-hunting"
+  id="hunt-vs-detect"
+  question="What's the difference between threat hunting and detection, and how would you structure a hunt?"
+  seconds={90}
+  hits={[
+    "Detection is automated and looks for known patterns; hunting is human and hypothesis-driven, looking for what no rule covers",
+    "Structure: form a falsifiable hypothesis, identify the data that would evidence it, query and analyse, then act",
+    "The output of a good hunt is often a new detection rule, so the hunt never needs repeating manually",
+    "A hunt that finds nothing is still a result - it raises confidence and often exposes a telemetry gap",
+    "The three productive shapes: first-seen, statistical outlier, cross-source correlation",
+    "Concrete example from my own lab"
+  ]}
+  trap="Describing hunting as 'looking through logs for anything suspicious'. Without a hypothesis it is browsing, not hunting - and the structured version is what distinguishes someone who has actually done it."
+/>
+
+<Quiz mid="track/03-microsoft-kql/03-kql-hunting" title="KQL for Threat Hunting" questions={[
+  {
+    q: "Why must you use make-series rather than summarize by bin() before series_decompose_anomalies?",
+    opts: ["make-series is faster", "The anomaly functions require an evenly spaced series with empty buckets filled, which summarize by bin does not produce", "summarize cannot group by time", "bin() only works on integers"],
+    a: 1,
+    why: "summarize by bin() omits buckets that contain no events, leaving irregular gaps. The decomposition functions operate on a fixed-interval array and cannot handle missing points. make-series fills empty buckets with a default, producing the regular series the model requires."
+  },
+  {
+    q: "In a first-seen query, why does the baseline use `between (ago(31d) .. ago(1d))` rather than `ago(31d)`?",
+    opts: ["It reduces query cost", "Including the last 24 hours would let today's activity match itself, so the leftanti join returns nothing", "ago(31d) is not valid syntax in a let block", "It ensures the data is in the hot tier"],
+    a: 1,
+    why: "If the baseline covers the same period you are searching, every current event has a match and the anti-join eliminates all of them. The query then returns zero rows with no error, which is the dangerous part - it looks like a clean result rather than a broken query."
+  },
+  {
+    q: "What does `arg_max(TimeGenerated, *)` return?",
+    opts: ["The maximum timestamp only", "The complete row corresponding to the latest timestamp in each group", "A count of events per group", "The average of all timestamps"],
+    a: 1,
+    why: "arg_max returns the full record where the specified column reaches its maximum, with * selecting all columns. It is the idiomatic way to get the most recent complete state per entity - latest sign-in per user, latest configuration per device - without a self-join."
+  },
+  {
+    q: "Why does materialize() matter in a hunting query?",
+    opts: ["It writes results to a permanent table", "It caches a subquery used more than once so it is computed only once, which can prevent timeouts on large ranges", "It converts arrays into rows", "It enables cross-workspace queries"],
+    a: 1,
+    why: "Without materialize, a subquery referenced multiple times may be evaluated repeatedly. Over a 30-day baseline on a production estate that difference decides whether the query returns or times out. It is one of the clearest markers of someone who has run queries against real data volumes."
+  },
+  {
+    q: "Joining SigninLogs to DeviceProcessEvents on account frequently returns zero rows because:",
+    opts: ["The tables cannot be joined", "The key formats differ - UPN versus bare account name - and casing varies, so the keys must be normalised first", "DeviceProcessEvents has no account column", "Joins are limited to one table per query"],
+    a: 1,
+    why: "SigninLogs carries user@domain while DeviceProcessEvents carries just the username, and casing is inconsistent across sources. Applying tolower() and splitting the UPN at the @ fixes it. Cross-table joins in Microsoft estates fail on key format far more often than on logic, and the failure is silent."
+  },
+  {
+    q: "In series_decompose_anomalies output, what does an anomaly value of -1 indicate?",
+    opts: ["An error in the calculation", "A negative deviation - the value dropped below the expected baseline", "The series had insufficient data", "Seasonality could not be determined"],
+    a: 1,
+    why: "1 marks a positive spike, -1 a negative dip, 0 no anomaly. Dips are genuinely useful: an account that suddenly stops authenticating, or a log source whose volume collapses, which is exactly the silent pipeline failure from Phase 2. Most people filter for 1 and never think about -1."
+  },
+  {
+    q: "A hunt is conducted thoroughly and finds no evidence of the hypothesised activity. This is:",
+    opts: ["A wasted shift", "A legitimate result that increases confidence and often reveals telemetry gaps along the way", "Evidence the hypothesis was badly formed", "Grounds to disable the related detections"],
+    a: 1,
+    why: "Negative results have real value - they narrow the space of what might be happening and frequently surface the discovery that you could not have detected the thing anyway, which is itself an important finding. Treating hunting as successful only when it finds something produces analysts who force conclusions from thin evidence."
+  }
+]} />
+
+<TaskList step="track/03-microsoft-kql/03-kql-hunting" tasks={[
+  { text: "Complete all three challenges before reading any solution" },
+  { text: "Run a first-seen hunt against your own lab weekly", detail: "Watch the volume of new lineages fall as the baseline matures. That curve is the point." },
+  { text: "Build one make-series anomaly query and tune the sensitivity", detail: "Try 2, 2.5 and 3 standard deviations. Feel the precision/recall trade-off from Phase 2 in your hands." },
+  { text: "Write a hunt hypothesis, execute it, and document the result", detail: "Including if you find nothing. Write it up - a documented negative hunt is a genuine portfolio artifact and very few candidates have one." },
+  { text: "Convert one successful hunt into a scheduled analytics rule", detail: "Hunt becomes detection. This is the lifecycle in miniature and exactly what Phase 5 step 3 expands on." },
+  { text: "Practise normalising join keys across identity and device tables", detail: "It is the most common reason a correlation query silently returns nothing." },
+  { text: "Read ten queries from the Sentinel hunting repository and explain each aloud" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Azure Sentinel hunting queries", by: "Microsoft", url: "https://github.com/Azure/Azure-Sentinel/tree/master/Hunting%20Queries", type: "read", note: "Hundreds of production hunting queries organised by data source. Read them as literature - this is the fastest way to internalise idiomatic KQL.", primary: true },
+  { title: "Must Learn KQL", by: "Rod Trent", url: "https://github.com/rod-trent/MustLearnKQL", type: "read", note: "The later chapters cover time series, anomalies and advanced operators. Still the best free KQL resource, still phone-friendly." },
+  { title: "series_decompose_anomalies reference", by: "Microsoft", url: "https://learn.microsoft.com/en-us/kusto/query/series-decompose-anomalies-function", type: "ref", note: "Parameters and worked examples. Read it alongside challenge 2 rather than before." },
+  { title: "The PEAK Threat Hunting Framework", by: "Splunk", url: "https://www.splunk.com/en_us/blog/security/peak-threat-hunting-framework.html", type: "read", minutes: 30, note: "A structured hunting methodology - hypothesis-driven, baseline and model-assisted. Vendor-neutral thinking and good interview vocabulary." },
+  { title: "Threat Hunting with KQL", by: "Microsoft Tech Community", url: "https://techcommunity.microsoft.com/category/MicrosoftSentinel", type: "read", minutes: 20, note: "Regular practical posts on hunting techniques. Good dead-time reading." },
+  { title: "KQL detective challenges", url: "https://detective.kusto.io/", type: "do", cost: "Free", note: "Gamified KQL puzzles from Microsoft. Genuinely fun, and excellent for building fluency without a live workspace." }
+]} />
+
+<Gate
+  step="track/03-microsoft-kql/03-kql-hunting"
+  conditions={[
+    "I can explain the difference between hunting and detection and structure a hunt in four steps",
+    "I can write a first-seen query and explain the baseline window off-by-one",
+    "I can build a make-series anomaly query and tune its sensitivity",
+    "I know why materialize matters and when to use it",
+    "I can normalise join keys across identity and device tables",
+    "I have run a documented hunt, including one that found nothing",
+    "I have converted at least one hunt into a scheduled rule"
+  ]}
+  unlocks="Next: Defender XDR - the four pillars, their hunting tables, and correlating a phishing attack across all of them."
+/>

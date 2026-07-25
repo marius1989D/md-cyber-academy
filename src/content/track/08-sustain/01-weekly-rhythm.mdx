@@ -1,0 +1,363 @@
+---
+title: "The Weekly Rhythm"
+phase: 8
+order: 1
+summary: "What you do every week to stay sharp through a long search, and to still be worth hiring the year after you land."
+weeks: "Ongoing"
+minutes: 240
+kind: learn
+pillar: evidence
+cost: 0
+prereq: ["07-campaign/05-applications"]
+tags: ["continuous-learning", "career", "first-90-days", "sustain"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="How do you keep your skills current?">
+Two things happen to people who reach this point. The first is that the search
+takes longer than expected and skills quietly decay while they wait - so the
+interview in month five goes worse than the one in month two would have. The
+second is that they land the job, stop learning, and are still Tier 1 four years
+later wondering why. Both are avoided by the same thing: a small weekly routine
+that does not depend on motivation. This step is that routine, and it does not
+end when you get hired.
+</Why>
+
+## The rhythm
+
+Four items. Roughly four hours a week, which fits around shift work.
+
+| Item | Time | Why |
+|---|---|---|
+| **One intrusion report** | 45 min | Read a DFIR Report or vendor write-up. Cover the conclusion, build the timeline yourself, then compare. |
+| **One challenge** | 90 min | A CyberDefenders or LetsDefend case, or a TryHackMe room. Hands on keys, not reading. |
+| **One detection or query** | 45 min | Write something. A rule, a hunt, a Sigma conversion. Small is fine; consistency is the point. |
+| **One batch of applications** | 60 min | During the campaign. After you land, this becomes one hour of deliberate learning instead. |
+
+<Callout type="key">
+**Consistency beats intensity, and it is not close.** Four hours every week for six
+months is roughly a hundred hours of deliberate practice. Two heroic weekends
+followed by a month of nothing is forty hours and no retention. Build the rhythm
+around your rota - the same two evenings and one rest-day morning, every cycle -
+so it survives the weeks when you cannot face it.
+</Callout>
+
+## Skill decay is real and specific
+
+Some things fade faster than others, and the fast-fading ones are exactly what
+gets tested:
+
+- **Query fluency goes first.** KQL syntax you could write from a blank editor in
+  week 18 takes twice as long by week 30 if you have not touched it. This is why
+  the weekly query matters more than it looks.
+- **Event ID recall fades quickly** without use. Keep the flashcard deck and run it
+  monthly.
+- **Triage judgement holds up better**, because it is reasoning rather than recall -
+  but it degrades without exposure to real artifacts.
+- **Concepts and frameworks barely decay.** ATT&CK, the IR lifecycle and the
+  Pyramid of Pain stay with you.
+
+The practical consequence: if you get an interview after a quiet month, spend the
+two days before it on queries and event IDs specifically, not on re-reading
+concepts you already know.
+
+## Staying current
+
+Being able to reference something published this month is cheap interview currency
+and almost nobody bothers. Fifteen minutes a day covers it:
+
+- **A daily brief** - Simply Cyber's daily threat brief or equivalent
+- **Detection Engineering Weekly** - the newsletter, once a week
+- **The DFIR Report** when they publish
+- **Vendor threat blogs** - Microsoft, Huntress, Red Canary, Sophos X-Ops
+- **NCSC advisories** for UK-specific relevance
+
+<Callout type="warn">
+**Curate ruthlessly and accept that you will miss things.** The volume of security
+content is unbounded and trying to keep up with all of it produces anxiety rather
+than knowledge. Five sources read properly beats fifty skimmed, and nobody in this
+field is across everything - the people who look like they are have simply chosen
+their scope and stopped apologising for it.
+</Callout>
+
+<Scenario
+  step="track/08-sustain/01-weekly-rhythm"
+  id="month-five"
+  title="Month five, no offers"
+  minutes={9}
+>
+<div slot="brief">
+
+You are twenty weeks into the campaign.
+
+```text
+POSITION
+  Applications sent:        340
+  No response:              291
+  Rejected after CV:         38
+  Phone screens:              8
+  Technical interviews:       3
+  Final stage:                1  (rejected - "went with someone
+                                  with commercial SOC experience")
+  Offers:                     0
+
+  Still working full-time shifts. Weekly rhythm has slipped to
+  roughly every other week. Last blog post was 9 weeks ago.
+  Two agencies have stopped responding.
+
+  Savings are fine. Motivation is not.
+```
+
+Diagnose it and decide what changes.
+
+</div>
+<div slot="model">
+
+**First, read the funnel properly, because it is telling you something specific
+and it is not what it feels like.**
+
+Eight phone screens, three technical interviews and a final stage from 340
+applications is **not a broken campaign**. A roughly 14 percent response rate at
+entry level is respectable, and reaching a final stage means your CV, your
+narrative and your technical answers all worked well enough to get you to the last
+room. The feedback confirms it: you lost to commercial experience, not to a gap in
+your capability or your presentation.
+
+**So the top of the funnel is functioning. The problem is conversion at the
+end - and one identifiable thing has changed.**
+
+**The actual diagnosis: the campaign has decayed, and it happened quietly.**
+
+- The weekly rhythm has halved. That means twenty weeks of skill decay in exactly
+  the areas that fade fastest - query fluency and event ID recall - going into
+  interviews that test them.
+- Nine weeks without a blog post means your public evidence has been static since
+  roughly month three, while your competition's has not.
+- Two agencies have gone quiet, which usually means you have dropped down their
+  list rather than that they have no roles.
+
+None of that was a decision. It is what happens when a long campaign runs on
+motivation instead of routine, and it is the most common way searches fail from a
+position of strength.
+
+**What I would change, in priority order:**
+
+**1. Restore the rhythm first, before anything else.** Not because it feels
+productive, but because you have three interviews' worth of evidence that you can
+reach the final stage - and the thing most likely to have degraded since then is
+the technical fluency you demonstrate there. Two evenings and one morning per rota
+cycle, fixed.
+
+**2. Attack the one thing the feedback actually named.** "Commercial SOC
+experience" is the stated reason, and you cannot manufacture it - but you can
+narrow the gap. Two moves:
+
+- **Escalate the side-door tier.** The MSP service desk roles from your Phase 7
+  Tier 4 list are no longer a hedge; at month five they are the highest-expected-
+  value applications on your list. Nine to twelve months of commercial IT at a
+  company that runs a SOC converts the exact objection you just lost on.
+- **Prioritise defence and cleared roles harder.** They are the tier most willing
+  to train and vet rather than requiring arrival-ready experience, and the long
+  vetting timeline you started in month one may now be working in your favour.
+
+**3. Publish again, and publish the right thing.** Nine weeks of silence is
+visible. The post to write now is not another detection walkthrough - it is
+something that demonstrates continued momentum. A write-up of a recent DFIR
+Report, mapped and analysed. It is a weekend's work and it restores the signal
+that you are still building.
+
+**4. Re-engage the quiet agencies deliberately.** Not "any updates?" - send them
+something new. The new post, a new certification, an updated CV. A candidate with
+news is a candidate worth resubmitting; a candidate checking in is an inbox item.
+
+**5. Ask the final-stage employer one specific question.** You reached the last
+round, so someone there formed a real opinion of you. "I understand the decision -
+would you be willing to tell me the one thing that would most improve my chances
+next time?" People answer this surprisingly often, and it is the single most
+valuable feedback available to you. Also ask to be kept in mind; entry-level roles
+recur, and being the known near-miss is a strong position.
+
+**On the motivation, honestly.** Twenty weeks of mostly silence while working full
+shifts is genuinely wearing, and treating that as a character failing rather than
+a predictable response to the situation makes it worse. Two things help
+concretely: measure yourself on effort rather than outcomes, which you control -
+and do not do the whole of this alone. A peer on the same path, a community, or
+simply telling someone how it is actually going takes a surprising amount of the
+weight off. If it is affecting your sleep or your health more broadly, that is
+worth taking seriously rather than pushing through.
+
+**The thing to hold onto:** you got to a final stage. Most people applying to
+these roles do not. The evidence says this works - it has just not finished
+working yet.
+
+</div>
+</Scenario>
+
+## The first 90 days
+
+When you land - and the plan is built so that you do - the first three months set
+your trajectory more than the next year does.
+
+**Weeks 1-4: absorb.** Learn their stack, their runbooks, their escalation
+criteria, their customers. Ask questions freely; this is the only period where
+asking a lot is expected rather than noted. Write things down.
+
+**Weeks 5-8: contribute quietly.** Take the tickets. Write good notes. Be the
+analyst whose handovers are clear. Reputation at Tier 1 is built almost entirely
+on documentation quality and reliability, which is exactly the ground you already
+stand on.
+
+**Weeks 9-12: improve one thing.** Find a noisy rule and bring a measured tuning
+proposal - fire rate, false positive categorisation, a scoped intervention, the
+reasoning. You have done this in a lab; doing it once in production, properly, is
+how a new starter gets noticed for the right reasons.
+
+<Callout type="key">
+**Do not arrive intending to fix everything.** New analysts who spend their first
+month explaining what is wrong with the SOC are correct roughly half the time and
+resented approximately always. Learn why things are the way they are first - there
+is usually a reason, and if there is not, you will be far more persuasive in month
+three than in week two.
+</Callout>
+
+## Beyond Tier 1
+
+Know roughly where you are heading, because it shapes what you learn:
+
+- **Tier 2 / senior analyst** - deeper investigation, mentoring, the natural next
+  step in 18-24 months.
+- **Detection engineering** - you already have a head start; this is the most
+  direct route from your portfolio.
+- **Threat hunting** - hypothesis-driven work, usually after Tier 2.
+- **Incident response / DFIR** - deeper forensics; BTL1 into GCFA or equivalent.
+- **Cloud security** - fast-growing, and your Entra and Azure work points at it.
+- **Threat intelligence** - if the analytical and writing side appeals more than
+  the technical.
+
+You do not need to choose now. But noticing which parts of this track you enjoyed
+most is real information - and for what it is worth, the detection engineering
+work in Phase 5 is where your portfolio is strongest.
+
+<Drill
+  step="track/08-sustain/01-weekly-rhythm"
+  id="stay-current"
+  question="How do you keep your skills current?"
+  seconds={60}
+  hits={[
+    "A specific weekly routine rather than a vague claim to read a lot",
+    "Name the routine: one intrusion report, one hands-on challenge, one detection or query written",
+    "Name your actual sources - DFIR Report, Detection Engineering Weekly, vendor threat blogs, NCSC",
+    "Reference something specific published recently to prove it is real",
+    "Acknowledge curation - a few sources read properly rather than trying to cover everything",
+    "Mention that writing things up is part of how you learn, with the portfolio as evidence"
+  ]}
+  trap="Saying 'I read a lot and follow the news'. Everyone says it and it is unverifiable. Naming a routine and then citing something from this month proves it in a way no claim can."
+/>
+
+<Quiz mid="track/08-sustain/01-weekly-rhythm" title="The Weekly Rhythm" questions={[
+  {
+    q: "Which skill decays fastest during a long job search?",
+    opts: ["Understanding of the IR lifecycle", "Query language fluency", "Knowledge of MITRE ATT&CK", "The ability to reason about triage"],
+    a: 1,
+    why: "Syntax fluency is motor memory and fades quickly without use - KQL you could write from a blank editor takes noticeably longer after a few unused months. Frameworks and conceptual understanding barely decay. This is why the weekly written query matters more than it appears, and why pre-interview revision should target queries and event IDs rather than concepts."
+  },
+  {
+    q: "A campaign reaches a final-stage interview but no offer, and the weekly routine has halved. The first thing to fix is:",
+    opts: ["The CV, since it clearly is not working", "The routine, because reaching a final stage proves the CV works and technical fluency is what has degraded since", "The target list, by applying to more senior roles", "The salary expectations"],
+    a: 1,
+    why: "Reaching a final stage is evidence that the CV, narrative and technical answers all functioned. Rewriting things that are working wastes effort. What changed is the routine, and the skills it maintains are precisely the ones tested in the rooms you are now reaching."
+  },
+  {
+    q: "Feedback states you lost to a candidate with commercial SOC experience. The most useful response is:",
+    opts: ["Apply to more of the same roles and hope", "Escalate the side-door tier - MSP or service desk roles at companies with a SOC - which converts the specific objection", "Add more certifications", "Lower your salary expectations"],
+    a: 1,
+    why: "The objection is specific and cannot be closed by more certifications or more applications to the same tier. Nine to twelve months of commercial IT at an organisation that runs a SOC directly answers it, and internal movement into the security team is a well-trodden route. It is a slower path that actually addresses the stated reason."
+  },
+  {
+    q: "In the first 90 days of a new SOC role, what most builds a Tier 1 analyst's reputation?",
+    opts: ["Identifying problems with existing detections", "Documentation quality and reliability - clear ticket notes and clean handovers", "Volume of alerts closed", "Technical knowledge demonstrated in conversation"],
+    a: 1,
+    why: "Tier 2 and the next shift experience you almost entirely through what you write. Clear, evidenced notes and reliable handovers are what make colleagues trust your work, and they are the ground a career changer from an audit-documented environment already stands on. Alert volume closed without quality is actively negative."
+  },
+  {
+    q: "Why should a new analyst avoid proposing fixes in their first weeks?",
+    opts: ["New starters lack the necessary permissions", "Existing arrangements usually have reasons, and understanding them first makes you far more persuasive later", "Suggestions are not welcomed at Tier 1", "It distracts from learning the runbooks"],
+    a: 1,
+    why: "Arriving with a list of what is wrong is correct perhaps half the time and resented nearly always, because it assumes nobody had considered it. Learning why things are as they are either explains the arrangement or gives you a much stronger case in month three - and the same proposal lands completely differently once you have earned some standing."
+  },
+  {
+    q: "What is the strongest way to answer \"how do you keep your skills current?\"",
+    opts: ["\"I read a lot and follow security news\"", "Name a specific weekly routine, name your sources, and reference something published recently", "List the certifications you hold", "Describe your long-term career plan"],
+    a: 1,
+    why: "The generic answer is unverifiable and universal. A named routine plus a specific recent reference proves the claim in a way no assertion can, and it demonstrates the habit rather than describing it. Certifications answer a different question - they show what you learned, not that you are still learning."
+  },
+  {
+    q: "Which approach to security content is most sustainable?",
+    opts: ["Follow as many sources as possible to avoid missing anything", "Curate a small number of sources read properly, accepting that you will miss things", "Only read content directly relevant to your current role", "Rely on colleagues to share what matters"],
+    a: 1,
+    why: "The volume is unbounded, so attempting full coverage produces anxiety rather than knowledge and is abandoned within weeks. Five sources read properly beats fifty skimmed, and everyone in the field has chosen a scope - the ones who appear to be across everything have simply stopped apologising for their choice."
+  }
+]} />
+
+<TaskList step="track/08-sustain/01-weekly-rhythm" title="Every week, indefinitely" tasks={[
+  { text: "Read one intrusion report and build the timeline before reading the conclusion" },
+  { text: "Complete one hands-on challenge", detail: "CyberDefenders, LetsDefend, or a TryHackMe room. Keys, not reading." },
+  { text: "Write one detection, hunt query, or Sigma conversion", detail: "Small is fine. The point is that the syntax stays in your fingers." },
+  { text: "Send one batch of applications", detail: "During the campaign. After you land, swap this for an hour of deliberate learning." },
+  { text: "Fix the routine to your rota", detail: "Same two evenings and one rest-day morning each cycle. Routine survives what motivation does not." },
+  { text: "Run the event ID and command flashcards monthly" },
+  { text: "Review the campaign monthly against effort metrics" },
+  { text: "Publish something every six to eight weeks", detail: "Silence is visible. Momentum is part of the signal." },
+  { text: "Retake the Phase 0 baseline quiz every three months and compare" },
+  { text: "Talk to someone about how the search is actually going", detail: "A peer, a community, a friend. Doing this entirely alone makes a hard thing harder." }
+]} />
+
+<Resources title="Ongoing sources" items={[
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Still the single best free source. Cover the conclusion, build the timeline yourself, then compare. One a week, indefinitely.", primary: true },
+  { title: "Detection Engineering Weekly", url: "https://www.detectionengineering.net/", type: "read", minutes: 15, note: "One newsletter, once a week, directly relevant to where your portfolio is strongest." },
+  { title: "Simply Cyber daily threat brief", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 15, note: "Fifteen minutes of current news, daily. This is what makes 'I read something this week' a true statement." },
+  { title: "CyberDefenders", url: "https://cyberdefenders.org/blueteam-ctf-challenges/", type: "do", cost: "Free tier", note: "Your weekly challenge source. New cases added regularly, and the free tier is substantial." },
+  { title: "NCSC advisories and guidance", by: "NCSC", url: "https://www.ncsc.gov.uk/section/keep-up-to-date/all-topics", type: "read", minutes: 15, note: "UK-specific and directly quotable in a UK interview. Most candidates cite US sources only." },
+  { title: "Huntress and Red Canary blogs", url: "https://www.huntress.com/blog", type: "read", minutes: 15, note: "Accessible real-incident write-ups pitched well for the level you are at, and they publish consistently." }
+]} />
+
+<Gate
+  step="track/08-sustain/01-weekly-rhythm"
+  conditions={[
+    "The weekly rhythm is fixed to my rota and I have held it for four weeks",
+    "I can name my sources and reference something published this month",
+    "I run the flashcards monthly and retake the baseline quarterly",
+    "I review the campaign monthly against effort rather than outcomes",
+    "I am publishing something every six to eight weeks",
+    "I have someone I talk to about how the search is going",
+    "I know roughly which specialisation I am heading toward and why"
+  ]}
+  unlocks="Track complete. Nine phases, thirty-eight steps, a lab, a portfolio, three certifications and a campaign. The rhythm above is the only part that does not end - keep it running, and this works."
+/>
+
+## Closing
+
+You started this track with CEH, no commercial security experience, and a
+manufacturing job. If you have worked through it properly you now have: a
+detection lab you built and attacked, a documented technique-to-telemetry map,
+twelve or more validated detections with measured tuning, portable Sigma rules
+with one submitted upstream, enrichment automation, four published write-ups, a
+public portfolio, SC-200, BTL1, a rehearsed narrative, and a tracked campaign.
+
+That is not a career changer hoping to be given a chance. That is a candidate with
+evidence.
+
+The part that decides the outcome now is not knowledge - it is persistence past
+the point where the silence gets discouraging, which is exactly what the weekly
+rhythm above is for.
+
+Good luck. Go and get the job.

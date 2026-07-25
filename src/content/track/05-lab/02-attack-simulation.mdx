@@ -1,0 +1,373 @@
+---
+title: "Attack Simulation"
+phase: 5
+order: 2
+summary: "Fire ATT&CK techniques at your own lab and record exactly what telemetry each one produces - the evidence every detection you write depends on."
+weeks: "Weeks 14-16"
+minutes: 420
+kind: lab
+pillar: evidence
+cost: 0
+prereq: ["05-lab/01-build-detection-lab"]
+academy: ["detection/10-adversary-emulation"]
+attack: ["T1059.001", "T1218.011", "T1547.001", "T1003.001", "T1053.005"]
+tags: ["atomic-red-team", "purple-team", "attack-simulation", "lab"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Lab from '../../../components/Lab.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="How do you know your detections actually work?">
+You cannot write a detection for telemetry you have never seen. Reading that
+Kerberoasting produces event 4769 with RC4 encryption is not the same as watching
+it appear in your own workspace ninety seconds after you ran the attack - and the
+second one is what makes it stick, and what makes it defensible in an interview.
+This step also answers the question above, which is one most candidates cannot
+answer at all: you know your detections work because you fired the technique and
+watched them fire.
+</Why>
+
+## The purple team loop
+
+```text
+   ┌──────────────────┐
+   │ 1. Pick a        │
+   │    technique     │
+   └────────┬─────────┘
+            ▼
+   ┌──────────────────┐
+   │ 2. Execute it    │     Atomic Red Team, in your lab only
+   └────────┬─────────┘
+            ▼
+   ┌──────────────────┐
+   │ 3. Find the      │     What did it actually generate?
+   │    telemetry     │     Record the fields, not just the event ID
+   └────────┬─────────┘
+            ▼
+   ┌──────────────────┐
+   │ 4. Gap or        │     Nothing logged? That is a collection
+   │    detection?    │     problem, not a detection problem
+   └────────┬─────────┘
+            ▼
+   ┌──────────────────┐
+   │ 5. Write, test,  │     Phase 5 step 3
+   │    tune          │
+   └──────────────────┘
+```
+
+Step 4 is the one people skip and it is the most valuable. **If a technique
+produces no telemetry, no detection can ever work** - and discovering that in your
+lab is infinitely better than discovering it during an incident.
+
+## Safety first, and this genuinely matters
+
+<Callout type="warn">
+**Only ever run these against systems you own.** Running attack tooling against
+your employer's estate, a customer's environment, or anything on a shared network
+without explicit written authorisation is a criminal offence under the Computer
+Misuse Act. Your lab sits on the Pi's isolated network for exactly this reason.
+
+**Read every atomic before you run it.** Some are genuinely destructive - they
+delete shadow copies, modify boot configuration, disable security tooling, or
+encrypt files. The technique catalogue includes impact techniques, and those do
+what they say. Snapshot before, revert after, every time.
+</Callout>
+
+## Atomic Red Team
+
+A library of small, ATT&CK-mapped tests. Each atomic has a description, supported
+platforms, input arguments, prerequisites, the executor, and - crucially - a
+cleanup command.
+
+```powershell
+# One-time setup in the lab VM
+IEX (IWR 'https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1' -UseBasicParsing)
+Install-AtomicRedTeam -getAtomics
+
+# Inspect before running - always
+Invoke-AtomicTest T1059.001 -ShowDetailsBrief
+Invoke-AtomicTest T1059.001 -ShowDetails
+
+# Check and satisfy prerequisites
+Invoke-AtomicTest T1059.001 -TestNumbers 1 -CheckPrereqs
+Invoke-AtomicTest T1059.001 -TestNumbers 1 -GetPrereqs
+
+# Execute a single test
+Invoke-AtomicTest T1059.001 -TestNumbers 1
+
+# Clean up
+Invoke-AtomicTest T1059.001 -TestNumbers 1 -Cleanup
+```
+
+<Callout type="key">
+**One atomic at a time, and write down the exact time you ran it.** Firing five
+techniques in a batch produces a tangle of overlapping telemetry you cannot
+attribute. Run one, note the timestamp to the second, go and find what it
+generated, record it, clean up, then move to the next. It is slower and it is the
+only way the exercise teaches you anything.
+</Callout>
+
+## The artifact you are building
+
+For every technique, one row in a technique-to-telemetry table. This becomes the
+evidence base for step 3 and a genuinely impressive portfolio piece:
+
+| Field | Example |
+|---|---|
+| Technique | T1218.011 Signed Binary Proxy Execution: Rundll32 |
+| Atomic | Test 1 - rundll32 with inline JavaScript |
+| Ran at | 2026-07-25 14:02:17 UTC |
+| Telemetry produced | Sysmon 1 (process create), Sysmon 3 (network), 4688 |
+| Key fields | `ParentImage`, `CommandLine`, `OriginalFileName` |
+| Distinguishing value | `CommandLine` contains `javascript:` and `RunHTMLApplication` |
+| Detection idea | rundll32 with a script-protocol command line |
+| Gap found | None - or: no Sysmon 7, image load not collected |
+
+## Which techniques first
+
+Do not work through the matrix alphabetically. Prioritise by what actually appears
+in intrusions - Red Canary's annual report ranks exactly this. A sensible first
+ten:
+
+**Execution and evasion:** T1059.001 PowerShell, T1059.003 cmd,
+T1218.011 rundll32, T1218.010 regsvr32, T1140 deobfuscation
+
+**Persistence:** T1547.001 Run keys, T1053.005 scheduled tasks,
+T1543.003 Windows service
+
+**Credential access and discovery:** T1003.001 LSASS memory, T1087 account
+discovery
+
+That set covers the middle of most intrusion chains and gives you ten solid rows
+in your table.
+
+<Lab title="Run your first ten techniques" host="Windows VM on the isolated lab network" minutes={360}>
+
+Work through this deliberately over two to three weeks, not in one sitting.
+
+1. **Snapshot the VM.** Label it clearly. You will revert often.
+2. **Install Invoke-AtomicRedTeam** and download the atomics.
+3. For each technique in the list above:
+   - `-ShowDetails` and **read it**. Understand what it will do before it does it.
+   - `-CheckPrereqs`, then `-GetPrereqs` if needed.
+   - Note the exact UTC time. Run the single test.
+   - In Sentinel, query a tight window around that timestamp:
+     ```kql
+     union SecurityEvent, Event, DeviceProcessEvents
+     | where TimeGenerated between (datetime(2026-07-25 14:02:00)
+                                 .. datetime(2026-07-25 14:04:00))
+     | where Computer has "LAB" or DeviceName has "LAB"
+     | project TimeGenerated, Type, EventID, Account,
+               Process = coalesce(NewProcessName, FileName),
+               CommandLine = coalesce(CommandLine, ProcessCommandLine)
+     | sort by TimeGenerated asc
+     ```
+   - **Record the row** in your table. Note which fields distinguish this from
+     normal activity - that is your future detection logic.
+   - `-Cleanup`, then revert the snapshot if the atomic changed anything material.
+4. **Where you find nothing**, stop and diagnose before moving on. Use the
+   scenario below.
+
+**Evidence to capture:** the completed technique-to-telemetry table as a
+Markdown file in your portfolio repo, plus screenshots of two or three of the
+more interesting telemetry results. Log it.
+
+</Lab>
+
+<Scenario
+  step="track/05-lab/02-attack-simulation"
+  id="no-telemetry"
+  title="You ran the atomic and found nothing"
+  minutes={8}
+>
+<div slot="brief">
+
+You run T1003.001 test 1 (dumping LSASS with a signed tool) on the lab VM at
+15:41:08 UTC. You then query for it:
+
+```kql
+union SecurityEvent, Event, DeviceProcessEvents
+| where TimeGenerated between (datetime(2026-07-25 15:41:00)
+                            .. datetime(2026-07-25 15:43:00))
+| where Computer has "LAB" or DeviceName has "LAB"
+```
+
+**Zero rows.**
+
+You know the atomic ran - it printed output, and the dump file exists on disk at
+`C:\Windows\Temp\lsass_dump.dmp`.
+
+Diagnose it. What do you check, in what order, and what are the possible causes?
+
+</div>
+<div slot="model">
+
+**Do not start by rewriting the query.** Zero rows here means one of four things,
+and they sit at different stages of the pipeline you learned in Phase 2. Work
+them in order of cheapness.
+
+**1. Is the pipeline alive at all?** The fastest possible check:
+
+```kql
+union SecurityEvent, Event, DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| summarize Latest = max(TimeGenerated), Events = count() by Type, Computer
+```
+
+If this also returns nothing, the problem is not this atomic - the agent is down,
+the workspace is not receiving, or you have hit your daily ingestion cap. **The
+daily cap is the single most likely culprit in a lab**, because you set one
+deliberately in step 1 and a chatty VM can exhaust it by mid-afternoon. Once
+capped, ingestion silently stops until the reset. Check the workspace's usage
+blade.
+
+**2. Is there a latency problem rather than a data problem?** Ingestion is not
+instantaneous - a few minutes is normal, and longer under load. A two-minute
+window queried immediately after execution can genuinely be too tight. Re-run the
+query with `ago(30m)` before concluding anything.
+
+**3. Is the event being generated but not collected?** This is the most likely
+real cause here. LSASS access is recorded by **Sysmon event 10 (ProcessAccess)**,
+and two things commonly go wrong:
+
+- **ProcessAccess is not enabled in your Sysmon config.** SwiftOnSecurity's
+  configuration comments out or heavily filters ProcessAccess because it is high
+  volume. Check your config for a `ProcessAccess` rule group and whether
+  `lsass.exe` is in scope.
+- **Your Data Collection Rule does not include the Sysmon channel**, or includes
+  it but filters to specific event IDs that exclude 10. Check the DCR's event
+  filter - being selective was correct advice in step 1, and this is the cost of it.
+
+**4. Is the filter in your query wrong?** Least likely but trivial to rule out.
+`Computer has "LAB"` fails if the hostname is `WIN11-DETECT`. Drop the host filter
+and see whether the events appear.
+
+**The diagnosis in this case:** the process ran, so a process creation event
+should exist regardless of the LSASS specifics. Zero rows across *all three
+tables* points at cause 1 or 2, not 3 - if only the ProcessAccess event were
+missing you would still see the process creation. So: check the cap, then check
+latency, then narrow.
+
+**What to do with the answer:**
+
+- **If it is the cap:** raise it, or reduce what you collect. Either way, note it -
+  this is a genuine operational lesson about running a SIEM on a budget and it
+  belongs in blog post 1's cost-control section.
+- **If it is Sysmon configuration:** enable ProcessAccess scoped to `lsass.exe`
+  rather than everything, add it to the DCR, re-run the atomic, and **record the
+  gap you found in your table**. A discovered and closed blind spot is a better
+  portfolio story than a detection that worked first time.
+- **If it is latency:** adjust your method to query five minutes after execution
+  rather than immediately.
+
+**The transferable point:** this is exactly the Phase 2 lesson in miniature - an
+empty result and a broken pipeline are indistinguishable from the query alone.
+The habit of confirming telemetry is arriving *before* concluding anything is not
+a lab technique, it is the thing that stops an analyst declaring a host clean
+when it was never being watched.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/05-lab/02-attack-simulation"
+  id="detections-work"
+  question="How do you know your detections actually work?"
+  seconds={90}
+  hits={[
+    "Test them by executing the technique - Atomic Red Team mapped to ATT&CK, in an isolated lab I own",
+    "Run one atomic at a time with the timestamp recorded, then locate the telemetry it produced",
+    "Verify the detection fires, and check it catches multiple atomics for the same technique rather than one implementation",
+    "Where nothing is logged, that is a collection gap and no detection can work - which is itself a finding worth acting on",
+    "Document technique, telemetry, key fields and detection idea as a reusable table",
+    "Re-test after any tuning change, because exclusions can silently break a rule"
+  ]}
+  trap="Saying you would rely on the vendor's built-in detections or assume a rule works because it is syntactically valid. Untested detections fail silently, and 'I tested it by running the attack' is a sentence very few entry-level candidates can say truthfully."
+/>
+
+<Quiz mid="track/05-lab/02-attack-simulation" title="Attack Simulation" questions={[
+  {
+    q: "You run an atomic and no telemetry appears. What should you check first?",
+    opts: ["Rewrite the detection query", "Confirm the pipeline is receiving any data at all, and check the daily ingestion cap", "Reinstall Sysmon", "Run the atomic again immediately"],
+    a: 1,
+    why: "An empty result and a broken pipeline look identical from the query. Checking that any events are arriving - and specifically whether a daily cap has been hit, which silently stops ingestion - is the cheapest test and the most common lab cause. Rewriting the query first wastes time on the least likely explanation."
+  },
+  {
+    q: "Why should you run one atomic at a time rather than batching several?",
+    opts: ["Batching triggers rate limits", "Overlapping telemetry from multiple techniques cannot be reliably attributed to the technique that produced it", "The tool only supports one test per session", "Cleanup only works for a single test"],
+    a: 1,
+    why: "The entire value of the exercise is the mapping from technique to telemetry. Firing several in a batch produces a tangle where you cannot say which event came from which technique, which destroys the evidence you are trying to build. Slower and attributable beats faster and useless."
+  },
+  {
+    q: "An atomic produces no logged events even though it executed successfully. What does this mean for detection?",
+    opts: ["The detection logic needs to be more specific", "No detection for that technique can work until the collection gap is closed - it is a telemetry problem, not a rule problem", "The technique is not detectable by any SIEM", "The atomic must have failed silently"],
+    a: 1,
+    why: "Detections operate on collected data; if the event was never generated or never collected, no rule can fire. This is why the discovery is valuable rather than disappointing - finding a blind spot in a lab is enormously better than finding it during an incident, and closing it is a concrete improvement."
+  },
+  {
+    q: "Why is reading an atomic's details before running it not optional?",
+    opts: ["It is required by the licence", "Some atomics are genuinely destructive - deleting shadow copies, disabling security tooling, modifying boot configuration", "It shows which SIEM the test supports", "The details contain the detection query"],
+    a: 1,
+    why: "The catalogue includes impact techniques, and those do what they describe. Running one blind on a VM you have not snapshotted, or on the wrong machine, causes real damage. Reading first, snapshotting, and cleaning up afterwards is basic discipline and also exactly what you would be expected to do in a professional purple-team exercise."
+  },
+  {
+    q: "Which Sysmon event records a process opening a handle to LSASS, and why is it often missing in lab configs?",
+    opts: ["Event 1, because process creation is filtered", "Event 10 (ProcessAccess), because it is high volume and commonly filtered out or disabled in standard configurations", "Event 3, because network events are optional", "Event 11, because file events are disabled by default"],
+    a: 1,
+    why: "ProcessAccess generates substantial volume, so widely used configurations filter it heavily or comment it out. That makes LSASS-access detection unavailable until you deliberately enable it scoped to lsass.exe. Discovering this by running the atomic and finding nothing is precisely the kind of gap the purple team loop exists to surface."
+  },
+  {
+    q: "How should you prioritise which techniques to simulate first?",
+    opts: ["Alphabetically through the ATT&CK matrix", "By the techniques most commonly observed in real intrusions, using sources like Red Canary's annual report", "By whichever atomics are shortest to run", "By the tactics with the most techniques listed"],
+    a: 1,
+    why: "The matrix is not a checklist and techniques are not equally likely. Prioritising by what actually appears in intrusions gives you the best detection coverage per hour spent, and it gives you a defensible rationale when asked why you chose those techniques - which is a better answer than working through the list in order."
+  },
+  {
+    q: "What is the main portfolio value of the technique-to-telemetry table?",
+    opts: ["It proves you have read the ATT&CK website", "It demonstrates you have executed techniques, located the resulting evidence, and identified the fields a detection would key on", "It replaces the need for a CV", "It shows how many techniques exist"],
+    a: 1,
+    why: "The table is evidence of hands-on work that most entry-level candidates simply do not have. It shows you can move from a technique name to specific telemetry fields, which is the exact skill detection engineering requires - and it becomes the source material for the detections and blog posts in the next step."
+  }
+]} />
+
+<TaskList step="track/05-lab/02-attack-simulation" tasks={[
+  { text: "Snapshot the lab VM and label the snapshot clearly", detail: "You will revert repeatedly. Do this before installing anything." },
+  { text: "Install Invoke-AtomicRedTeam and download the atomics" },
+  { text: "Run the ten prioritised techniques, one at a time, recording exact UTC timestamps" },
+  { text: "Build the technique-to-telemetry table as a Markdown file in your portfolio repo", detail: "Technique, atomic, telemetry produced, key fields, distinguishing value, detection idea, gap found." },
+  { text: "Diagnose and close at least one collection gap you discover", detail: "There will be one. Closing it is worth more than any single detection." },
+  { text: "Re-run one technique after closing a gap to confirm the telemetry now appears" },
+  { text: "Read Red Canary's threat report and justify your technique selection in writing", detail: "Two sentences. It turns 'I ran some atomics' into 'I prioritised by observed prevalence'." },
+  { text: "Log the table and two telemetry screenshots in your evidence log" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Atomic Red Team", by: "Red Canary", url: "https://github.com/redcanaryco/atomic-red-team", type: "do", note: "The atomics themselves, organised by technique. Browse the YAML for techniques you know - it teaches you what each attack concretely does.", primary: true },
+  { title: "Invoke-AtomicRedTeam wiki", by: "Red Canary", url: "https://github.com/redcanaryco/invoke-atomicredteam/wiki", type: "ref", note: "Installation, execution, prerequisites and cleanup. Read the safety and cleanup sections before your first run." },
+  { title: "Red Canary Threat Detection Report", by: "Red Canary", url: "https://redcanary.com/threat-detection-report/", type: "read", minutes: 60, note: "Free annual ranking of techniques actually observed in the wild. This is your prioritisation rationale - read the top ten section properly." },
+  { title: "MITRE Caldera", by: "MITRE", url: "https://caldera.mitre.org/", type: "do", cost: "Free", note: "Automated adversary emulation with chained operations rather than single atomics. Step up to this once the ten techniques are done." },
+  { title: "Stratus Red Team", by: "DataDog", url: "https://stratus-red-team.cloud/", type: "do", cost: "Free", note: "Atomic Red Team for cloud - AWS, Azure, Kubernetes. Relevant once you extend the lab toward cloud identity techniques." },
+  { title: "Purple team exercise framework", by: "SCYTHE", url: "https://github.com/scythe-io/purple-team-exercise-framework", type: "read", minutes: 30, note: "How structured purple team exercises are actually run. Useful vocabulary, and it frames what you are doing as a recognised practice." }
+]} />
+
+<Gate
+  step="track/05-lab/02-attack-simulation"
+  conditions={[
+    "I have executed at least ten ATT&CK techniques in my own isolated lab",
+    "I ran them one at a time with timestamps recorded, and cleaned up after each",
+    "I have a completed technique-to-telemetry table in my portfolio repo",
+    "I found and closed at least one collection gap",
+    "I can diagnose an empty query result through the pipeline rather than by rewriting the query",
+    "I can justify my technique selection by observed prevalence",
+    "I can answer 'how do you know your detections work' with a real method"
+  ]}
+  unlocks="Next: turn that telemetry into working detections, tune them properly, and write the post that gets read."
+/>

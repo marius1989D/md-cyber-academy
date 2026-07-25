@@ -1,0 +1,269 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────
+   MD Cyber Academy — design tokens
+   Palette carried forward from v1 (parchment / ink / vermilion).
+   Night mode is a true inversion for phone reading, not a grey wash.
+   ───────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-parchment: #f5f0e8;
+  --color-parchment-2: #ede8df;
+  --color-parchment-3: #e4ddd2;
+  --color-ink: #1a1410;
+  --color-ink-2: #3d342a;
+  --color-ink-3: #7a6d61;
+  --color-vermilion: #c84b2f;
+  --color-ember: #e8652a;
+  --color-gold: #b8860b;
+  --color-forest: #2d6a4f;
+  --color-forest-soft: #d8f3dc;
+  --color-brick: #c0392b;
+  --color-brick-soft: #fde8e8;
+  --color-navy: #1a3a5c;
+  --color-rule: #c8bfb0;
+  --color-rule-2: #a89880;
+
+  --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Semantic surface variables — flipped wholesale by [data-theme="night"] */
+:root {
+  --surface: var(--color-parchment);
+  --surface-2: var(--color-parchment-2);
+  --surface-3: var(--color-parchment-3);
+  --text: var(--color-ink);
+  --text-2: var(--color-ink-2);
+  --text-3: var(--color-ink-3);
+  --rule: var(--color-rule);
+  --rule-strong: var(--color-rule-2);
+  --accent: var(--color-vermilion);
+  --accent-warm: var(--color-ember);
+  --ok: var(--color-forest);
+  --ok-soft: var(--color-forest-soft);
+  --bad: var(--color-brick);
+  --bad-soft: var(--color-brick-soft);
+  --shadow: rgba(26, 20, 16, 0.12);
+  color-scheme: light;
+}
+
+[data-theme="night"] {
+  --surface: #14100d;
+  --surface-2: #1e1813;
+  --surface-3: #2a221b;
+  --text: #f0e9dd;
+  --text-2: #cbbfae;
+  --text-3: #8d8073;
+  --rule: #3a3028;
+  --rule-strong: #574a3d;
+  --accent: #ef7a55;
+  --accent-warm: #f59042;
+  --ok: #6fcf97;
+  --ok-soft: #1c3527;
+  --bad: #ef6b5c;
+  --bad-soft: #3a1f1c;
+  --shadow: rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--rule);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    line-height: 1.65;
+    /* Fine paper tooth — the one bit of texture the whole design gets. */
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      color-mix(in srgb, var(--text) 4%, transparent) 1px,
+      transparent 0
+    );
+    background-size: 22px 22px;
+    overscroll-behavior-y: none;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  code, kbd, pre, samp {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+}
+
+@layer components {
+  /* Eyebrow — the small mono label used above every title in v1. Kept. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  /* ── Prose ────────────────────────────────────────────────── */
+  .prose-md {
+    max-width: 68ch;
+  }
+  .prose-md > * + * {
+    margin-top: 1.15em;
+  }
+  .prose-md h2 {
+    font-size: clamp(1.35rem, 1.1rem + 1.1vw, 1.75rem);
+    margin-top: 2.5em;
+    padding-top: 0.6em;
+    border-top: 1px solid var(--rule);
+  }
+  .prose-md h3 {
+    font-size: 1.1rem;
+    margin-top: 1.9em;
+    color: var(--text-2);
+  }
+  .prose-md p, .prose-md li {
+    color: var(--text-2);
+  }
+  .prose-md strong {
+    color: var(--text);
+    font-weight: 650;
+  }
+  .prose-md ul, .prose-md ol {
+    padding-left: 1.15rem;
+  }
+  .prose-md li::marker {
+    color: var(--accent);
+  }
+  .prose-md li + li {
+    margin-top: 0.5em;
+  }
+  .prose-md a {
+    color: var(--accent);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  .prose-md :not(pre) > code {
+    background: var(--surface-3);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+    color: var(--text);
+  }
+  .prose-md pre {
+    background: #0d1117;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    /* Bleed to the screen edge on phones so code isn't squeezed. */
+    scrollbar-width: thin;
+  }
+  .prose-md table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    display: block;
+    overflow-x: auto;
+  }
+  .prose-md th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    border-bottom: 1.5px solid var(--rule-strong);
+    padding: 0.5rem 0.75rem 0.5rem 0;
+    white-space: nowrap;
+  }
+  .prose-md td {
+    border-bottom: 1px solid var(--rule);
+    padding: 0.6rem 0.75rem 0.6rem 0;
+    vertical-align: top;
+    color: var(--text-2);
+  }
+
+  /* ── Surfaces ─────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.7rem 1.1rem;
+    border-radius: 7px;
+    border: 1px solid var(--rule-strong);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+    min-height: 44px; /* touch target */
+  }
+  .btn:hover {
+    background: var(--surface-3);
+    border-color: var(--accent);
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  .btn-accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn-accent:hover {
+    background: var(--accent-warm);
+    border-color: var(--accent-warm);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

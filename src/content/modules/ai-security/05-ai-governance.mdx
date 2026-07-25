@@ -1,0 +1,96 @@
+---
+title: "AI Governance & Risk"
+course: ai-security
+order: 5
+summary: "The frameworks that turn 'we should secure our AI' into an auditable programme — NIST AI RMF, the EU AI Act, and how they map to SecAI+."
+rung: 2
+minutes: 20
+objectives: ["CY0-001 4.2", "NIST AI RMF", "EU AI Act"]
+tags: ["governance", "nist-ai-rmf", "eu-ai-act", "risk", "compliance"]
+updated: 2026-07-24
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+The four preceding modules were about attacks and their mechanisms. This one is about the layer that decides which of those risks an organisation actually addresses, who signs off, and how you prove it to an auditor. It is less thrilling than a pickle payload and more likely to appear on the SecAI+ exam — governance is where a large share of the objectives live, because it is where AI security becomes a programme rather than a party trick.
+
+<Callout type="key">
+Governance is not paperwork for its own sake. It is the mechanism that makes the technical controls from Modules 1–4 *repeatable and accountable*. A backdoor scan you run once is a hobby; a backdoor scan mandated by a documented risk process, evidenced on every model intake, is a control. The framework is what turns the second into the first.
+</Callout>
+
+## NIST AI Risk Management Framework
+
+The NIST AI RMF is the voluntary US framework that most organisations reach for first, because it is practical and technology-neutral. Its spine is four functions — deliberately verbs, because each is an ongoing activity, not a document:
+
+| Function | The question it answers |
+|----------|-------------------------|
+| **Govern** | Who is accountable, what is our risk tolerance, and how is this culture sustained? (The cross-cutting function that underpins the other three.) |
+| **Map** | What is the context and what could go wrong here — which risks actually apply to *this* system and use? |
+| **Measure** | How do we assess and track those risks, quantitatively where possible? |
+| **Manage** | Which risks do we treat, in what priority, and how do we respond when they materialise? |
+
+The RMF frames trustworthy AI around properties you can hold a system against: valid and reliable, safe, secure and resilient, accountable and transparent, explainable, privacy-enhanced, and fair with harmful bias managed. Security is one property among several — a useful reminder that "AI risk" is broader than "AI security," and an exam favourite.
+
+## The EU AI Act
+
+Where the NIST RMF is voluntary and risk-based, the EU AI Act is **law**, and it regulates by tiering systems on the risk they pose to people:
+
+- **Unacceptable risk** — banned outright (e.g. government social scoring, certain manipulative or exploitative systems).
+- **High risk** — permitted but heavily obligated (systems in areas like medical devices, critical infrastructure, employment, and law enforcement). This tier carries the real compliance weight: risk management, data governance, logging, human oversight, and documented accuracy and robustness.
+- **Limited risk** — transparency duties, chiefly disclosure (a person must be told they are dealing with an AI, and certain synthetic content must be labelled).
+- **Minimal risk** — the majority; largely unregulated.
+
+<Callout type="warn">
+Two things trip people up. First, the Act is **extraterritorial** — like the GDPR, it reaches any provider whose system is used in the EU, regardless of where they sit. Second, most obligations attach to the **high-risk** tier and to general-purpose model providers; a minimal-risk system is not carrying the same load. Knowing which tier a system falls in is the first real governance decision, and the one exam questions probe.
+</Callout>
+
+## How the frameworks relate
+
+They are complementary, not competing, and this is the mental model to carry into the exam:
+
+- **NIST AI RMF** is the voluntary *how* — the internal process for identifying and managing AI risk, adaptable to any jurisdiction.
+- **EU AI Act** is the mandatory *what* — the legal obligations that apply if you operate in or into the EU.
+
+Run the RMF's Map/Measure/Manage loop and you generate much of the evidence the Act's high-risk obligations demand. A mature programme uses the voluntary framework to satisfy the mandatory one. Other pieces you will see referenced: **ISO/IEC 42001** (a certifiable AI management-system standard, the AI analogue of ISO 27001) and the **OWASP LLM Top 10** from Module 1 as the technical checklist that sits underneath the governance layer.
+
+## Where this lands for SecAI+
+
+CY0-001 weights governance, risk and compliance heavily precisely because it is the part of AI security that scales across an organisation. Expect scenario questions that hand you a system and ask you to place it in an EU AI Act tier, or to name which NIST RMF function a given activity belongs to. The reliable way to answer them is to hold the two structures firmly: the four RMF functions (Govern, Map, Measure, Manage) and the four Act tiers (unacceptable, high, limited, minimal). Most questions reduce to correctly placing something in one of those eight buckets.
+
+<Quiz mid="ai-security/05-ai-governance" title="AI Governance & Risk" questions={[
+  {
+    q: "Which NIST AI RMF function is cross-cutting and concerned with accountability, risk tolerance and culture?",
+    opts: ["Map", "Measure", "Manage", "Govern"],
+    a: 3,
+    why: "Govern is the cross-cutting function that underpins the other three, covering accountability, risk tolerance and the organisational culture that sustains the programme. Map, Measure and Manage handle context, assessment and treatment respectively."
+  },
+  {
+    q: "Under the EU AI Act, an AI system used to screen job applicants falls into which tier?",
+    opts: ["Minimal risk", "Limited risk", "High risk", "Unacceptable risk"],
+    a: 2,
+    why: "Employment and worker-management systems are named high-risk. That tier carries the substantive obligations — risk management, data governance, logging, human oversight, and documented accuracy and robustness — which is where most of the Act's compliance weight sits."
+  },
+  {
+    q: "What is the key legal distinction between the NIST AI RMF and the EU AI Act?",
+    opts: ["They cover different countries but are both voluntary", "The RMF is a voluntary risk-management process; the Act is binding law with tiered obligations", "The Act is voluntary guidance; the RMF is mandatory in the US", "They are two names for the same framework"],
+    a: 1,
+    why: "The RMF is the voluntary 'how' — an internal process adaptable to any jurisdiction. The Act is the mandatory 'what' — binding law that imposes obligations by risk tier. A mature programme uses the former to help satisfy the latter."
+  },
+  {
+    q: "Why does the EU AI Act affect a US-only company with no EU offices?",
+    opts: ["It does not — it is strictly territorial", "Because the Act is extraterritorial and reaches systems used in the EU regardless of provider location", "Only if the company uses EU-hosted servers", "Only after it opens an EU subsidiary"],
+    a: 1,
+    why: "Like the GDPR, the Act is extraterritorial: if your system is placed on the market or used within the EU, the obligations attach regardless of where you are based. Location of the provider is not the trigger — use in the EU is."
+  },
+  {
+    q: "Which standard is the certifiable AI management-system analogue of ISO 27001?",
+    opts: ["ISO/IEC 42001", "NIST SP 800-53", "SOC 2", "PCI-DSS"],
+    a: 0,
+    why: "ISO/IEC 42001 defines a certifiable AI management system, mirroring what ISO 27001 does for information security. It complements the NIST RMF (voluntary process) and the EU AI Act (law) as the certifiable management-system layer."
+  }
+]} />
+
+<Callout type="detect">
+There is no lab for this module — governance is assessed on evidence, not exploitation. The rung-4 equivalent is a paper exercise worth doing for real: take one system from your MD AI Cyber Range, place it in an EU AI Act tier, walk it through the four NIST RMF functions, and write the one-page risk note that would result. Producing that artifact is how you prove you can operate the framework, not just recite it.
+</Callout>

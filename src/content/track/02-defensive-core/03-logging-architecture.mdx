@@ -1,0 +1,313 @@
+---
+title: "Logging & Telemetry Architecture"
+phase: 2
+order: 3
+summary: "Sources, collection, normalisation and retention — and how to find the blind spot in a logging estate before an attacker does."
+weeks: "Week 9"
+minutes: 200
+kind: learn
+pillar: siem
+cost: 0
+prereq: ["02-defensive-core/02-attack-framework"]
+academy: ["detection/03-log-pipelines"]
+attack: ["T1070.001", "T1562.002"]
+tags: ["logging", "telemetry", "normalisation", "retention", "siem"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="How would you decide what to log?">
+Every detection you will ever write is downstream of a collection decision
+somebody made, often years earlier and usually on cost grounds. Analysts who
+don't understand the pipeline blame the SIEM when a query returns nothing;
+analysts who do understand it can say *"we don't have that telemetry, here's what
+we'd need to collect and roughly what it would cost."* That second sentence is a
+Tier 2 sentence, and saying it in a Tier 1 interview is how you get hired above
+your level.
+</Why>
+
+## The pipeline, end to end
+
+```text
+  SOURCES          COLLECTION       PROCESSING        STORAGE        USE
+  ────────         ──────────       ──────────        ───────        ───
+  Endpoints  ──┐                                    ┌─ Hot  7-90d ──┬─ Detections
+  Network    ──┤   Agent      ──▶  Parse       ──▶  ├─ Warm  90-365d┼─ Hunting
+  Identity   ──┼─▶ Syslog     ──▶  Normalise   ──▶  ├─ Cold  1-7yr  ┼─ Investigation
+  Cloud/SaaS ──┤   API poll   ──▶  Enrich      ──▶  └───────────────┴─ Compliance
+  Apps       ──┘   Forwarder       Filter/route
+```
+
+Every stage is a place things silently break, and knowing where to look when a
+query returns nothing is a real diagnostic skill:
+
+- **Source** — is the log even generated? Windows command-line auditing is off by
+  default; you learned that in Phase 1. Many applications log nothing useful
+  unless configured to.
+- **Collection** — is the agent installed, running, and actually shipping? Agent
+  health monitoring is unglamorous and is the single most common cause of a
+  detection blind spot.
+- **Processing** — did the parser understand the format? A vendor changes their log
+  format in an update and fields silently become null. Detections keep running and
+  keep finding nothing.
+- **Storage** — is the data still in the tier you're querying? Searching 90 days
+  back when hot retention is 30 returns an empty result, not an error.
+
+<Callout type="warn">
+**Empty results and broken pipelines look identical.** A query that returns
+nothing might mean "no attack" or "no data". Before concluding a host is clean,
+confirm you're actually receiving its telemetry — check the last heartbeat, or run
+a query for *any* event from that host in the window. Analysts who skip this
+declare things clean that were never being watched.
+</Callout>
+
+## Collection methods, and what breaks each
+
+| Method | How | Fails when |
+|---|---|---|
+| **Agent** | Software on the host forwards logs (AMA, Splunk UF, Elastic Agent, Wazuh) | Agent stops, host offline, version drift, config not applied |
+| **Agentless / WEF** | Windows Event Forwarding to a collector | Subscription misconfigured, WinRM broken, GPO not applied |
+| **Syslog** | Network devices push UDP/TCP 514 to a collector | UDP is lossy and silent; collector overload drops events |
+| **API polling** | SIEM pulls from a cloud provider on a schedule | Rate limits, token expiry, polling gaps, API changes |
+| **Flow / packet** | NetFlow, or full pcap via a TAP or SPAN | Sampling loses detail; encryption limits payload value; storage cost |
+
+<Callout type="key">
+Syslog over **UDP** has no delivery guarantee. If the collector is busy or the
+network drops a packet, that event is simply gone and nothing anywhere records
+that it was lost. When an interviewer asks about logging reliability, "I'd prefer
+TCP syslog, or better an agent with local buffering, because UDP syslog fails
+silently" is a strong, specific answer.
+</Callout>
+
+## Normalisation — why field names matter
+
+Every source names things differently. A source IP might arrive as `src_ip`,
+`SourceIp`, `ipAddress`, `client_addr` or `c-ip`. Normalisation maps them to a
+common schema so one query can span sources.
+
+The schemas you should know by name:
+
+- **ASIM** — Advanced Security Information Model, Microsoft Sentinel's schema.
+- **ECS** — Elastic Common Schema.
+- **CIM** — Common Information Model, Splunk's.
+- **OCSF** — Open Cybersecurity Schema Framework, the vendor-neutral effort.
+
+The practical consequence: **a detection written against normalised fields
+survives a source change; one written against raw vendor fields breaks.** That is
+the same durability argument you'll meet again in the Pyramid of Pain, applied to
+schemas instead of indicators.
+
+## Enrichment
+
+Adding context at ingest so the analyst doesn't have to look it up during triage:
+
+- **Geo-IP and ASN** — turns an IP into "hosting provider in Lithuania"
+- **Threat intel matching** — flags known-bad indicators
+- **Asset context** — is this a domain controller or a print server? Criticality
+  changes severity
+- **Identity context** — department, manager, privileged or not
+- **DNS resolution** — hostname alongside IP
+
+Good enrichment is the difference between a five-minute triage and a
+twenty-minute one, across hundreds of alerts a day. It is one of the highest-ROI
+things a SOC can invest in and one of the most commonly neglected.
+
+## Retention, cost and the real trade-off
+
+Retention tiers exist because SIEM licensing is usually priced on ingest volume,
+storage or both:
+
+- **Hot** — fast, searchable, expensive. Typically 30–90 days.
+- **Warm / archive** — cheaper, slower to search. 90 days to a year.
+- **Cold** — cheapest, may need restoring before it's searchable. Often years,
+  driven by compliance rather than security.
+
+The security problem: **dwell time frequently exceeds hot retention.** If an
+intrusion started 120 days ago and you keep 90 days hot, the initial access
+evidence is gone or expensive to retrieve — exactly when you most need it, during
+a major incident.
+
+**How you decide what to log**, which is the interview question:
+
+1. Start from the threats and techniques that actually matter to this
+   organisation, not from a vendor's list.
+2. Use ATT&CK **Data Sources** to determine what telemetry those techniques need.
+3. Rank by detection value per gigabyte. Windows security events and Sysmon 1/3/22
+   are enormously valuable per byte; verbose DEBUG application logs usually are not.
+4. Collect selectively at the source, filter at the collector, and let the noisy
+   but occasionally-useful data go to cheap archive rather than hot storage.
+5. Measure the result. Which log sources have ever contributed to a real
+   detection? Sources that have never contributed to anything are a budget you
+   could spend on ones that would.
+
+<Scenario
+  step="track/02-defensive-core/03-logging-architecture"
+  id="blind-spot"
+  title="Find the blind spot"
+  minutes={8}
+>
+<div slot="brief">
+
+You've joined an MSSP and are reviewing a new customer's onboarding document
+before their first month of monitoring.
+
+```text
+CUSTOMER: Meridian Logistics · 850 staff · Microsoft 365 + on-prem AD
+                                · 3 public web apps · 40 servers
+
+LOG SOURCES CONNECTED
+  ✓ Entra ID sign-in logs                    hot 90d
+  ✓ Microsoft Defender for Endpoint alerts   hot 90d
+  ✓ Firewall (Palo Alto) traffic logs        hot 30d  · UDP syslog
+  ✓ Windows Security event log — DCs only    hot 90d
+  ✓ Email security gateway                   hot 90d
+
+NOT CONNECTED
+  ✗ Entra ID audit logs
+  ✗ Windows Security events — member servers & workstations
+  ✗ Sysmon — not deployed anywhere
+  ✗ Web application / IIS logs
+  ✗ DNS query logs
+
+NOTES
+  · Defender is licensed P2 across the estate
+  · "Command line auditing not enabled — was flagged as noisy in 2023"
+  · Average dwell time in this sector reported at ~180 days
+```
+
+Name the three most serious gaps in priority order, say what each one blinds you
+to, and give one that is cheap to fix.
+
+</div>
+<div slot="model">
+
+**Gap 1 — Entra ID audit logs are missing.** This is the most serious, and it's
+the one most people skip because sign-in logs are connected and look sufficient.
+They are not the same log. The audit log is where **OAuth consent grants, inbox
+rule creation, role assignments, MFA method changes and service principal
+credential additions** are recorded. Everything you learned in the cloud identity
+step about illicit consent and BEC persistence is invisible here. This customer
+is Microsoft 365-based with 850 staff — BEC is the single most likely incident
+they will actually experience, and you cannot detect its persistence mechanisms
+at all. **It is also free to enable and low volume.** Highest impact, lowest cost:
+fix it first.
+
+**Gap 2 — endpoint telemetry is alerts-only.** Defender is sending *alerts* but no
+raw Windows Security events from workstations and member servers, and no Sysmon
+anywhere. That means you can see what Defender chose to flag, and nothing else.
+You cannot investigate around an alert, cannot hunt, cannot build custom
+detections, and cannot reconstruct a process tree — every one of the Phase 1
+scenarios becomes impossible. Worse, they hold **Defender P2**, which includes
+advanced hunting tables. That licence is already paid for and unused, so
+connecting the Defender advanced hunting data is a configuration change, not a
+purchase. The "command line auditing is noisy" note from 2023 should be
+revisited — 4688 without command lines is close to useless, and this is the
+single most valuable field in endpoint telemetry.
+
+**Gap 3 — 30-day firewall retention against ~180-day dwell time.** By the time this
+customer discovers an intrusion, the network evidence of initial access will be
+six months gone. Compounding it, the firewall arrives over **UDP syslog**, which
+drops events silently under load — so you don't even know how complete the 30 days
+you *do* have actually is. Two fixes: move firewall logs to archive tier beyond 30
+days rather than deleting them, and move the transport to TCP.
+
+**Cheapest fix:** Entra ID audit logs. It's a toggle in the data connector, the
+volume is small, and it closes the gap most likely to matter for this customer's
+actual threat profile.
+
+**The honourable mentions:** no DNS logs means no DNS tunnelling or DGA detection —
+covered partly if Sysmon 22 is deployed later, which is another argument for
+Sysmon. No web/IIS logs with three public web apps means web attacks and webshells
+are entirely invisible, which for an internet-facing estate is a serious gap in
+its own right.
+
+**How to raise it:** frame gaps in terms of *what incident you would fail to
+detect*, not in terms of missing data sources. "We cannot detect mailbox
+persistence after an account takeover" lands with a customer. "You haven't
+connected the audit log" does not.
+
+</div>
+</Scenario>
+
+<Quiz mid="track/02-defensive-core/03-logging-architecture" title="Logging & Telemetry Architecture" questions={[
+  {
+    q: "A detection query returns no results. Before concluding there is no malicious activity, you should:",
+    opts: ["Widen the time range and rerun", "Confirm you are actually receiving telemetry from the hosts in scope", "Escalate to Tier 2", "Rewrite the query in a different syntax"],
+    a: 1,
+    why: "An empty result and a broken pipeline are indistinguishable from the query alone. Checking that the source is reporting — a heartbeat, or a query for any event from that host in the window — is the step that prevents declaring a host clean when it was never being monitored. This is one of the most valuable habits you can build early."
+  },
+  {
+    q: "Why is UDP syslog considered unreliable for security logging?",
+    opts: ["It cannot carry structured data", "It has no delivery guarantee, so dropped events are lost silently with no record that anything went missing", "It is limited to 512 bytes per message", "It is unsupported by modern SIEMs"],
+    a: 1,
+    why: "UDP is fire-and-forget. Under collector load or network congestion, events simply disappear and nothing records the loss, so your data is incomplete in ways you cannot measure. TCP syslog, or better an agent with local buffering and retry, gives you delivery assurance — and knowing this distinction is a strong, specific answer to a logging reliability question."
+  },
+  {
+    q: "What is the practical benefit of normalising logs to a common schema like ASIM or ECS?",
+    opts: ["It reduces storage costs", "One detection can span multiple sources, and rules survive a source or vendor change", "It encrypts sensitive fields", "It is required for compliance"],
+    a: 1,
+    why: "Without normalisation you write a separate rule for every vendor's field naming, and each breaks when that vendor changes format. Writing against a normalised schema means a detection follows the meaning rather than the syntax — the same durability argument the Pyramid of Pain makes about indicators, applied to schemas."
+  },
+  {
+    q: "An organisation keeps 30 days of hot retention. Reported dwell time in their sector is around 180 days. The security implication is:",
+    opts: ["Detections will run more slowly", "Evidence of initial access will be unavailable when an intrusion is eventually discovered", "Compliance requirements are automatically met", "Alerts will be duplicated"],
+    a: 1,
+    why: "If attackers are present for months before discovery, hot retention shorter than dwell time guarantees the earliest and most useful evidence has aged out precisely when a major incident needs it. The mitigation is tiering rather than deleting — push older data to cheap archive so it can be restored during an investigation."
+  },
+  {
+    q: "Which enrichment most directly reduces the time spent triaging a single alert?",
+    opts: ["Adding a random unique ID to each event", "Asset and identity context — is this host critical, is this user privileged", "Increasing log verbosity", "Storing logs in a second region"],
+    a: 1,
+    why: "Knowing immediately that a host is a domain controller or that a user holds privileged roles changes both the severity and the next investigative step, without the analyst having to look anything up. Multiplied across hundreds of alerts a shift, enrichment is one of the highest-return investments a SOC can make and one of the most commonly neglected."
+  },
+  {
+    q: "How should you prioritise which log sources to collect?",
+    opts: ["Collect everything available, then filter later", "Start from the threats and techniques that matter, use ATT&CK Data Sources to identify required telemetry, and rank by detection value per gigabyte", "Collect whatever the SIEM vendor recommends", "Prioritise by which team owns the system"],
+    a: 1,
+    why: "Collect-everything is unaffordable and, more importantly, buries the valuable signal in noise. Working backwards from relevant techniques through ATT&CK's Data Sources field gives a defensible, threat-driven rationale — and 'detection value per gigabyte' is the phrase that shows you understand SIEM economics as well as security."
+  },
+  {
+    q: "A vendor update silently changes their log format. What is the most likely symptom?",
+    opts: ["The SIEM refuses to ingest the data", "Parsed fields become null, so detections keep running and quietly stop matching", "An alert storm from that source", "Retention is reset to zero"],
+    a: 1,
+    why: "Ingestion usually continues — the raw data still arrives — but the parser no longer extracts the fields, so rules that reference them silently stop firing. This is a genuinely dangerous failure mode because everything looks healthy. It's why mature SOCs monitor detection *firing rates* and alert when a rule that normally fires stops entirely."
+  }
+]} />
+
+<TaskList step="track/02-defensive-core/03-logging-architecture" tasks={[
+  { text: "Draw the five-stage pipeline from memory and name a failure mode at each stage" },
+  { text: "Audit your own lab's collection against ATT&CK Data Sources", detail: "Take the five techniques from the last step. For each, ask: do I collect the data source it needs? Write down the gaps." },
+  { text: "Write your lab's blind-spot list properly", detail: "You noted three in the Phase 5 lab step. Now justify each one in terms of what incident you would fail to detect." },
+  { text: "Check your Sentinel ingestion volume by table", detail: "`Usage | summarize sum(Quantity) by DataType`. Find out what's actually costing you and whether it earns its place." },
+  { text: "Deliberately break your pipeline and observe the symptom", detail: "Stop the agent on your Windows VM for an hour. Run a detection. See that it returns nothing rather than erroring. It's a lesson you only need once." },
+  { text: "Learn the four schema names and which product each belongs to" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Microsoft — Data collection best practices for Sentinel", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/best-practices-data", type: "read", minutes: 30, note: "Prioritisation, cost and which sources are worth their ingest. Directly applicable to your own lab and to the SC-200 exam.", primary: true },
+  { title: "ASIM — Advanced Security Information Model", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/normalization", type: "ref", note: "Sentinel's normalisation schema. Understand parsers and normalised tables — it's exam-relevant and makes your detections portable." },
+  { title: "Elastic Common Schema reference", by: "Elastic", url: "https://www.elastic.co/guide/en/ecs/current/index.html", type: "ref", note: "The clearest published example of a normalised schema. Read the field reference to see what good normalisation looks like." },
+  { title: "OCSF — Open Cybersecurity Schema Framework", url: "https://ocsf.io/", type: "read", minutes: 20, note: "The vendor-neutral effort. Worth knowing by name — mentioning it signals you follow where the industry is heading." },
+  { title: "Windows Event Forwarding guidance", by: "NSA / Microsoft", url: "https://learn.microsoft.com/en-us/windows/security/operating-system-security/device-management/use-windows-event-forwarding-to-assist-in-intrusion-detection", type: "read", minutes: 35, note: "The agentless Windows collection method and a curated list of which events are worth forwarding." },
+  { title: "Sigma — detection rule format", url: "https://github.com/SigmaHQ/sigma", type: "ref", note: "Read a few rules and notice they're written against normalised field names, then converted per backend. That's the normalisation argument in practice — and you'll build these in Phase 5." }
+]} />
+
+<Gate
+  step="track/02-defensive-core/03-logging-architecture"
+  conditions={[
+    "I can draw the pipeline and name a failure mode at every stage",
+    "I always confirm telemetry is arriving before declaring something clean",
+    "I can explain why UDP syslog is unreliable and what I'd prefer",
+    "I can name ASIM, ECS, CIM and OCSF and say why normalisation matters",
+    "I can answer 'how would you decide what to log' with a threat-driven method",
+    "I have audited my own lab's coverage against ATT&CK Data Sources and written the gaps down"
+  ]}
+  unlocks="Next: what happens once the data is flowing — correlation, tuning, and why false positives are the actual job."
+/>

@@ -1,0 +1,20 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Not found" description="That page does not exist.">
+  <div class="py-16 text-center">
+    <p class="eyebrow" style="color: var(--accent)">// 404</p>
+    <h1 class="mt-3 text-[clamp(2rem,1.4rem+2.6vw,3rem)]">Nothing here</h1>
+    <p class="mx-auto mt-4 max-w-[48ch] text-[1.02rem]" style="color: var(--text-2)">
+      That page does not exist. It may have been renamed, or the link may be
+      from an older version of the site.
+    </p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <a href="/" class="btn text-[0.85rem]">Home</a>
+      <a href="/track/" class="btn text-[0.85rem]">Track 6</a>
+      <a href="/courses/" class="btn text-[0.85rem]">Courses</a>
+      <a href="/search/" class="btn text-[0.85rem]">Search</a>
+    </div>
+  </div>
+</Base>

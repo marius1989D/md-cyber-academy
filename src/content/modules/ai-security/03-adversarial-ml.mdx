@@ -1,0 +1,135 @@
+---
+title: "Adversarial ML: The Four Attack Categories"
+course: ai-security
+order: 3
+summary: "Evasion, poisoning, extraction and inference — the attack surface of every classifier in your stack, not just the headline LLM."
+rung: 3
+minutes: 24
+atlas: ["AML.T0043", "AML.T0020", "AML.T0024", "AML.T0018"]
+objectives: ["CY0-001 2.2", "CY0-001 2.4"]
+tags: ["adversarial-ml", "evasion", "poisoning", "model-extraction", "membership-inference"]
+updated: 2026-07-24
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+The first two modules were about the LLM at the centre of a system. This one is about every *other* model in it — and there are always others. The guardrail classifier deciding whether a prompt is malicious. The anomaly detector watching your network. The spam filter, the malware classifier, the fraud model, the face-match on the door. These are the models an attacker reaches first, and they predate LLMs by a decade. The academic field that studies attacks against them is **adversarial machine learning**, and it organises the whole surface into four categories.
+
+<Callout type="key">
+The most valuable reframing in this module: in a real deployment, the adversarial ML surface is usually the **security ML**, not the chatbot. The malware classifier that an attacker needs to slip past is a juicier, more consequential target than the customer-service LLM. Learn these four categories as attacks against *your defences*, because that is where they will be used against you.
+</Callout>
+
+## The four categories
+
+They divide on two axes: *when* the attack happens (training time vs inference time) and *what* the attacker wants (to break the output, or to steal information).
+
+| Category | When | Attacker's goal | ATLAS |
+|----------|------|-----------------|-------|
+| **Evasion** | Inference | Craft an input the model misclassifies | AML.T0043 |
+| **Poisoning** | Training | Corrupt the model via tainted training data | AML.T0020 |
+| **Extraction** | Inference | Steal a functional copy of the model | AML.T0024 |
+| **Inference** | Inference | Recover facts about the training data | AML.T0018 |
+
+## Evasion — the test-time attack
+
+Evasion crafts an input that a human reads one way and the model reads another. The canonical example is the image perturbed by a few pixels — imperceptible to you — that flips a classifier from "panda" to "gibbon" with high confidence. The security-relevant version is not pandas: it is the malware sample modified so a classifier calls it benign, the phishing page tuned to pass a content filter, or the prompt reworded until a guardrail model waves it through.
+
+Evasion needs no access to training. It attacks the deployed model as it stands, probing the decision boundary until it finds a point on the wrong side of it. In a **white-box** setting the attacker has the model's gradients and can compute the perturbation directly (FGSM, PGD). In the far more common **black-box** setting they only have query access — but attacks transfer: an adversarial example built against a substitute model often fools the target too, because models trained on similar data learn similar boundaries.
+
+## Poisoning — the training-time attack
+
+Poisoning corrupts the model before it is ever deployed, by tainting the data it learns from. Two flavours matter:
+
+- **Availability poisoning** degrades overall accuracy — sabotage. Inject enough mislabelled data and the model becomes unreliable.
+- **Backdoor (integrity) poisoning** is the dangerous one: the model behaves perfectly on all normal inputs, but a specific attacker-chosen **trigger** causes a chosen output. A face-recognition model that works flawlessly until someone wears a particular pair of glasses, then authenticates them as the CEO. Nothing in normal evaluation reveals it, because the model *is* accurate — until the trigger appears.
+
+Poisoning is the connective tissue back to Module 1's LLM04. A RAG corpus is training data by another name; a poisoned document is a poisoned sample that fires when retrieved.
+
+<Callout type="warn">
+Backdoors survive fine-tuning and transfer learning. Pull a pre-trained model from a hub, fine-tune it on your own clean data, and a well-constructed backdoor can persist into your model. Provenance of the base model is a security control, not a convenience.
+</Callout>
+
+## Extraction and inference — the confidentiality attacks
+
+These two steal information rather than break outputs.
+
+**Model extraction** reconstructs the model itself. With enough query–response pairs an attacker trains a substitute that mirrors the target's behaviour — stealing the intellectual property and, usefully, producing a white-box copy to build evasion attacks against. A model behind a paid API is not a secret; it is a slow oracle that leaks itself one query at a time.
+
+**Inference attacks** recover facts about the *training data*:
+
+- **Membership inference** answers "was this specific record in the training set?" — a real privacy breach when membership is itself sensitive (a patient in a disease-model's training data).
+- **Model inversion** goes further and reconstructs representative training inputs — recovering recognisable faces from a face model, for instance.
+
+Both exploit the same tell: models are more confident on data they were trained on. That confidence gap is the signal an attacker measures.
+
+## Reading a real one: is this evasion or a benign miss?
+
+Rung 3. A malware classifier flags this behaviour in its telemetry. Decide what you're looking at before reading on:
+
+```text
+[CLASSIFIER TELEMETRY — endpoint-model v4]
+sample_a1f9  score 0.98 malicious  BLOCKED
+sample_a1fa  score 0.97 malicious  BLOCKED
+sample_a1fb  score 0.02 benign     ALLOWED   ← same family, +148 bytes appended
+sample_a1fc  score 0.03 benign     ALLOWED   ← same family, null-padded section
+sample_a1fd  score 0.02 benign     ALLOWED   ← same family, packed w/ new packer
+```
+
+This is not model drift or a bad day. Three variants of a family the model *knows* (0.97–0.98 on the unmodified samples) drop to near-zero the instant trivial, behaviour-preserving changes are applied — appended bytes, null padding, repacking. That is the signature of **evasion**: the payload is unchanged in what it *does*, only in the features the model keys on. The attacker is doing black-box gradient-free search — mutate, query the verdict, keep what lowers the score. The giveaway is the *pattern*: systematic near-misses clustered on one family with confidence collapsing under semantically-null edits.
+
+<Callout type="detect">
+Evasion against a security classifier shows up as an odd confidence distribution, not as an alert. Watch for inputs sitting suspiciously close to the decision boundary, sudden confidence collapse across a related cluster, and repeated near-identical queries with small mutations (the search itself). Log model scores, not just the allow/block verdict — the verdict throws away the evidence.
+</Callout>
+
+## Defences, honestly rated
+
+No defence is complete; the field is an arms race. In rough order of value: **adversarial training** (train on adversarial examples — the best evasion defence, but it costs accuracy and doesn't generalise to unseen attack types); **provenance and integrity** for training data and base models (the main poisoning defence); **query rate-limiting and confidence-rounding** (raises the cost of extraction and membership inference by starving the oracle); and **ensembling / input transformation** (modest, often bypassed). The honest posture is defence-in-depth plus monitoring — assume the model can be fooled and instrument for it.
+
+<Quiz mid="ai-security/03-adversarial-ml" title="Adversarial ML: The Four Attack Categories" questions={[
+  {
+    q: "An attacker appends junk bytes to a malware sample until a classifier scores it benign, without changing what the malware does. Which category is this?",
+    opts: ["Poisoning", "Evasion", "Model extraction", "Membership inference"],
+    a: 1,
+    why: "Evasion is a test-time attack that crafts an input the deployed model misclassifies, leaving the input's real behaviour intact. Modifying only the features the classifier keys on, not the payload's function, is the textbook signature."
+  },
+  {
+    q: "A face-recognition model is accurate on all normal inputs but authenticates anyone wearing a specific pattern as an admin. What was done to it?",
+    opts: ["Evasion at inference time", "Backdoor (integrity) poisoning at training time", "Model inversion", "Availability poisoning"],
+    a: 1,
+    why: "A hidden trigger that produces a chosen output while normal accuracy is preserved is a backdoor — integrity poisoning introduced during training. Normal evaluation misses it precisely because the model really is accurate until the trigger appears."
+  },
+  {
+    q: "Why does query access alone (no gradients, no weights) still let an attacker build effective evasion attacks?",
+    opts: ["APIs always leak their gradients in headers", "Adversarial examples transfer — one built on a substitute model often fools the target", "Black-box models cannot be defended at all", "Query access reveals the training data directly"],
+    a: 1,
+    why: "Transferability. Models trained on similar data learn similar decision boundaries, so an adversarial example crafted against a locally-trained substitute frequently fools the target without ever touching its internals."
+  },
+  {
+    q: "What underlying property do both membership inference and model inversion exploit?",
+    opts: ["Models respond faster to training data", "Models are more confident on data they were trained on", "Models store training data verbatim in weights", "APIs cache previous queries"],
+    a: 1,
+    why: "Both measure the confidence gap between seen and unseen data. A model's higher confidence on its training examples is the signal that reveals membership, and can be pushed further to reconstruct representative inputs."
+  },
+  {
+    q: "In a real enterprise deployment, which model is typically the highest-value adversarial ML target?",
+    opts: ["The customer-service chatbot", "The security ML — malware classifier, anomaly detector, content filter", "The recommendation engine", "The autocomplete model"],
+    a: 1,
+    why: "The security ML sits in the attacker's path and has direct consequences when defeated. Slipping malware past a classifier or a payload past a guardrail is far more valuable than confusing a chatbot, which is why these defensive models are the ones adversarial techniques get aimed at."
+  }
+]} />
+
+<Lab title="Run an evasion attack against your own classifier" host="2018 MBP attack box" minutes={50}>
+
+Build the intuition by defeating a model you trained yourself, so the boundary is something you can see.
+
+1. On the attack box, train a tiny image classifier (MNIST or a 2-class CIFAR subset) with scikit-learn or PyTorch — accuracy in the 90s is fine.
+2. Pick a correctly-classified test image. Record the model's class and confidence.
+3. Implement the fast gradient sign method: nudge each pixel by a small epsilon in the direction that increases the loss. Start with epsilon ≈ 0.03 and increase until the label flips.
+4. Display the original and perturbed images side by side, with both predictions and confidences. Confirm the change is barely visible while the label has flipped.
+5. Now test transfer: train a *second* model of a different architecture on the same data and feed it your perturbed image. Does the attack transfer?
+
+**Evidence of completion:** a journal entry with the before/after image pair, the confidence on each, the epsilon that flipped the label, and a one-line note on whether the attack transferred to the second model — the property that makes black-box evasion practical.
+
+</Lab>

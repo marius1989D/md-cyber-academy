@@ -1,0 +1,30 @@
+---
+/**
+ * Opens every track step. Not a summary — a statement of hiring consequence.
+ * If a step can't justify itself here in three lines, it doesn't belong in a
+ * campaign whose only success metric is an offer.
+ */
+interface Props {
+  /** Optional: the literal interview question this step prepares you for. */
+  asked?: string;
+}
+const { asked } = Astro.props;
+---
+<section
+  class="my-6 rounded-xl border-l-[3px] p-4 sm:p-5"
+  style="border-color: var(--accent); background: var(--surface-2)"
+>
+  <p class="eyebrow" style="color: var(--accent)">◎ Why this matters</p>
+  <div class="mt-2 text-[0.96rem] leading-relaxed" style="color: var(--text-2)">
+    <slot />
+  </div>
+  {asked && (
+    <p
+      class="mt-3.5 border-t pt-3 font-mono text-[0.78rem] leading-relaxed"
+      style="color: var(--text-3)"
+    >
+      <span class="uppercase tracking-widest" style="color: var(--accent)">Asked as:</span>{' '}
+      “{asked}”
+    </p>
+  )}
+</section>

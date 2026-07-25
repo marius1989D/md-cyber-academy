@@ -1,0 +1,303 @@
+---
+title: "Active Directory & Authentication"
+phase: 1
+order: 4
+summary: "Kerberos and NTLM end to end, the AD objects that matter, and the attacks every SOC exists to catch — paired with the telemetry each one leaves."
+weeks: "Weeks 5–6"
+minutes: 300
+kind: learn
+pillar: fundamentals
+cost: 0
+prereq: ["01-foundations/03-event-ids"]
+academy: ["network/02-active-directory"]
+attack: ["T1558.003", "T1558.004", "T1550.002", "T1003.006", "T1207"]
+tags: ["active-directory", "kerberos", "ntlm", "fundamentals"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Explain how Kerberos authentication works, then tell me what Kerberoasting is and how you'd detect it.">
+Active Directory is the crown jewel of nearly every organisation you'll defend,
+and it is what almost every intrusion is ultimately trying to own. A SOC that
+can't reason about AD authentication is blind to the middle of every attack
+chain — the part between initial access and impact. This is also where your CEH
+knowledge pays off hardest, *if* you can pair each attack you already know with
+the event it generates. That pairing is the whole interview.
+</Why>
+
+## What AD actually is
+
+A directory service: a hierarchical database of objects (users, computers,
+groups, organisational units) plus the authentication and authorisation that
+governs them. The pieces to hold in your head:
+
+- **Domain** — an administrative and security boundary. `corp.example.com`.
+- **Domain Controller (DC)** — a server running AD DS that authenticates
+  principals and holds a replica of the database (`NTDS.dit`). Compromising a DC
+  is checkmate.
+- **Forest** — one or more domains sharing a schema and trust. The real security
+  boundary is the forest, not the domain — a distinction that matters because
+  trust relationships are an attack path.
+- **OU** — a container for organising objects and applying Group Policy.
+- **GPO** — Group Policy Object: configuration pushed to users and computers.
+  Attackers love GPOs because a single edit reaches every machine it applies to.
+- **Global Catalog** — a forest-wide index, queried on TCP 3268.
+- **`NTDS.dit`** — the database file holding every account's password hash. The
+  ultimate loot; DCSync exists to extract from it remotely.
+
+## NTLM — the old protocol you'll still see everywhere
+
+NTLM is challenge-response and still ubiquitous despite Kerberos being preferred:
+
+```text
+1. Client → Server:  NEGOTIATE
+2. Server → Client:  CHALLENGE (a random nonce)
+3. Client → Server:  RESPONSE (nonce encrypted with the NT hash)
+4. Server → DC:      validate the response
+```
+
+The security-relevant fact: **the client proves it knows the hash, never the
+password.** That is the entire basis of **pass-the-hash (T1550.002)** — steal the
+NT hash from LSASS and you can authenticate as that user without ever knowing or
+cracking their password. NTLM has no mutual authentication and is relay-able,
+which is why NTLM relay attacks exist and why modern hardening pushes hard toward
+Kerberos and SMB signing.
+
+## Kerberos — learn this cold
+
+The most-tested protocol in blue-team interviews. Three parties: the client, the
+service, and the DC acting as **Key Distribution Center (KDC)**, which has two
+roles — the Authentication Service (AS) and the Ticket Granting Service (TGS).
+
+```text
+── AS Exchange (once, at logon) ──────────────────────────
+1. AS-REQ   Client → KDC   "I am alice", timestamp encrypted with alice's key
+2. AS-REP   KDC → Client   TGT (encrypted with the krbtgt key) + session key
+                            → Event 4768 on the DC
+
+── TGS Exchange (per service) ────────────────────────────
+3. TGS-REQ  Client → KDC   TGT + "I want the CIFS service on FILE01"
+4. TGS-REP  KDC → Client   Service ticket (encrypted with the service
+                            account's key)
+                            → Event 4769 on the DC
+
+── AP Exchange (to the service) ──────────────────────────
+5. AP-REQ   Client → Service   presents the service ticket
+6. Service validates it — no call back to the DC needed
+```
+
+Two facts unlock every Kerberos attack:
+
+- **The TGT is encrypted with the `krbtgt` account's key.** Steal that key and you
+  can forge any TGT for anyone, forever — a **golden ticket (T1558.001)**. It's why
+  `krbtgt` compromise means rebuilding the domain, not resetting a password.
+- **A service ticket is encrypted with the service account's key**, which is derived
+  from that account's password. Request one and you can crack it offline — that's
+  Kerberoasting.
+
+<Callout type="key">
+Interview-ready Kerberos, compressed: *"The client gets a TGT from the AS, proving
+its identity once. It presents that TGT to the TGS to get service tickets for
+specific services. The service validates the ticket itself using its own key,
+without contacting the DC. The DC logs 4768 for the TGT and 4769 for each
+service ticket — which is exactly where the detections live."*
+</Callout>
+
+## The attacks, each paired with its telemetry
+
+This table is the point of the whole step. You know the left column from CEH.
+The right column is what gets you hired.
+
+| Attack | What it does | Detection |
+|---|---|---|
+| **Kerberoasting** (T1558.003) | Requests service tickets for SPN accounts, cracks them offline | 4769 with encryption type 0x17 (RC4) for service accounts; one principal requesting many SPNs |
+| **AS-REP Roasting** (T1558.004) | Targets accounts with pre-auth disabled; crackable AS-REP | 4768 with pre-auth type 0; enumerate accounts with `DONT_REQ_PREAUTH` |
+| **Pass-the-Hash** (T1550.002) | Authenticates with a stolen NT hash | 4624 type 3 with NTLM where Kerberos is expected; LSASS access preceding it |
+| **Pass-the-Ticket** | Injects a stolen Kerberos ticket | Ticket use from an unexpected host; 4768/4769 anomalies |
+| **Golden Ticket** (T1558.001) | Forged TGT using the krbtgt key | 4769 with no preceding 4768; anomalous ticket lifetimes; username mismatches |
+| **DCSync** (T1003.006) | Impersonates a DC to pull hashes via replication | 4662 with replication GUIDs from a non-DC host — the classic tell |
+| **DCShadow** (T1207) | Registers a rogue DC to push malicious changes | Unexpected DC registration; replication from an unknown source |
+
+<Callout type="detect">
+The single highest-value AD detection to be able to describe: **DCSync from a
+non-DC.** Event 4662 records directory access; a replication request
+(the `DS-Replication-Get-Changes` GUID) should only ever come from an actual
+domain controller. Seeing it from a workstation means someone is pulling the
+entire domain's hashes. Say this in an interview and you sound like you've worked
+a real environment.
+</Callout>
+
+<Scenario
+  step="track/01-foundations/04-active-directory"
+  id="kerberoast"
+  title="4769 activity from a single workstation"
+  minutes={8}
+>
+<div slot="brief">
+
+A scheduled hunt surfaces this and routes it to you:
+
+```text
+Source host:   WKSTN-2210  (user: t.abara)
+Time window:   14:02:11 – 14:02:40  (29 seconds)
+Event ID:      4769  ×  14
+Service names: MSSQLSvc/db01.corp.local:1433
+               MSSQLSvc/db02.corp.local:1433
+               HTTP/intranet.corp.local
+               CIFS/fileserver.corp.local
+               ... (14 distinct service accounts total)
+Ticket Encryption Type:  0x17  (RC4-HMAC)  on all 14
+Failure code:  0x0  (success)
+
+Context: the domain's default is AES; RC4 is deprecated but still permitted.
+No 4768 anomalies. t.abara is a standard marketing user.
+```
+
+Triage this. What is it, how confident are you, and what do you do?
+
+</div>
+<div slot="model">
+
+**This is Kerberoasting (T1558.003), and the confidence is high.** Three
+independent signals agree:
+
+1. **One principal requesting many distinct service tickets in seconds.** A normal
+   user acquires service tickets as they access services, spread across a day. A
+   burst of 14 in 29 seconds is programmatic enumeration of SPN accounts.
+2. **RC4 (0x17) on every ticket in an AES domain.** This is the strongest single
+   indicator. Kerberoasting tools deliberately request RC4 because it's faster to
+   crack offline than AES. In an environment that defaults to AES, RC4 service
+   tickets are the anomaly you build the detection on.
+3. **The requesting user has no business reason.** A marketing user has no
+   legitimate need for tickets to SQL, intranet and file services in one burst.
+
+**What the attacker is doing:** they've compromised `t.abara`'s session (or are
+running as them), enumerated accounts with SPNs, and requested a service ticket
+for each. Every ticket is encrypted with that service account's password hash, so
+they can now crack them offline — no further network noise, no lockouts, nothing
+else to detect. Service accounts often have weak, non-expiring passwords, which
+is precisely why this attack is worth their time.
+
+**What you check:**
+
+1. How did `t.abara`'s session get here? Pull the process tree and recent logons
+   on WKSTN-2210 — this user is very likely compromised, not malicious.
+2. Which of the 14 accounts are high-privilege? A Kerberoastable account that is
+   also a Domain Admin is a domain-takeover path. Prioritise those.
+3. Any subsequent successful authentication as one of those service accounts? If
+   a crack has already succeeded, you'll see it as new logons.
+
+**Escalation: yes, promptly.** The cracking happens offline and invisibly, so the
+window to act is now, before a service account is compromised. Escalate with the
+list of targeted accounts flagged by privilege, and recommend the service-account
+passwords be rotated and, where possible, moved to group Managed Service Accounts
+with long random passwords.
+
+**What would lower confidence:** a security tool or vulnerability scanner
+legitimately enumerating SPNs on a schedule, from a known scanning host, would
+produce a similar pattern. But this is from a marketing user's workstation, not a
+scanner, so that exculpatory reading doesn't hold. Check the source-host baseline
+to be sure — after escalating.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/01-foundations/04-active-directory"
+  id="kerberos"
+  question="Explain how Kerberos authentication works, then tell me what Kerberoasting is and how you'd detect it."
+  seconds={120}
+  hits={[
+    "AS exchange: client gets a TGT from the KDC's Authentication Service, encrypted with the krbtgt key",
+    "TGS exchange: client presents the TGT to get a service ticket, encrypted with the target service account's key",
+    "The service validates the ticket with its own key, no DC round-trip",
+    "Kerberoasting: request service tickets for SPN accounts, crack them offline because they're encrypted with the account's password-derived key",
+    "Detection: 4769 with RC4 (0x17) in an AES environment, one principal requesting many SPNs in a short window",
+    "Mitigation: strong service-account passwords, gMSA, and being suspicious of RC4"
+  ]}
+  trap="Blurring the TGT and the service ticket, or saying the service 'checks with the DC' — it doesn't, and the fact that it validates locally is exactly why the detection lives on ticket *requests* (4769) rather than on service access."
+/>
+
+<Quiz mid="track/01-foundations/04-active-directory" title="Active Directory & Authentication" questions={[
+  {
+    q: "In Kerberos, what key encrypts the Ticket Granting Ticket?",
+    opts: ["The client's password hash", "The krbtgt account's key", "The target service account's key", "The domain controller's machine key"],
+    a: 1,
+    why: "The TGT is encrypted with the krbtgt key so only the KDC can read it back. This is why stealing the krbtgt hash enables golden tickets — you can forge a valid TGT for any principal — and why krbtgt compromise means rebuilding trust in the domain rather than resetting one password. The service account's key encrypts the service ticket, a different stage."
+  },
+  {
+    q: "Why does Kerberoasting request RC4-encrypted tickets when AES is available?",
+    opts: ["RC4 is required by the protocol", "RC4-encrypted tickets are faster to crack offline", "AES tickets cannot be requested by a normal user", "RC4 avoids generating event 4769"],
+    a: 1,
+    why: "Cracking speed. RC4-HMAC service tickets are considerably faster to brute-force offline than AES256 ones, so tooling downgrades to RC4 when the domain still permits it. That's exactly why 4769 with encryption type 0x17 in an AES-default environment is the signature detection — the downgrade is the tell."
+  },
+  {
+    q: "DCSync is best detected by watching for:",
+    opts: ["Event 4624 type 10 on a domain controller", "Event 4662 with replication GUIDs originating from a host that is not a domain controller", "A spike in 4625 failures", "New service installation on a workstation"],
+    a: 1,
+    why: "DCSync abuses the directory replication protocol to request password data, so it generates 4662 access events with the DS-Replication-Get-Changes GUIDs. Only real DCs should ever replicate, so those events from a workstation or member server mean someone is impersonating a DC to pull hashes. It's one of the most reliable high-severity AD detections."
+  },
+  {
+    q: "What makes pass-the-hash possible?",
+    opts: ["Weak password complexity requirements", "NTLM authentication proves knowledge of the hash rather than the plaintext password", "Kerberos tickets never expire", "Domain controllers cache credentials indefinitely"],
+    a: 1,
+    why: "In NTLM the client proves it possesses the NT hash, never the password itself, so a stolen hash is directly usable to authenticate. No cracking required. This is why credential material in LSASS is so valuable and why the mitigations focus on preventing hash theft (Credential Guard, LSA Protection) and reducing NTLM use in favour of Kerberos."
+  },
+  {
+    q: "AS-REP roasting specifically targets accounts that:",
+    opts: ["Are members of Domain Admins", "Have Kerberos pre-authentication disabled", "Use smart-card logon", "Have never changed their password"],
+    a: 1,
+    why: "With pre-authentication disabled, the KDC will return an AS-REP containing material encrypted with the account's key to anyone who asks — no proof of identity first — so it can be cracked offline. Detection: 4768 with pre-auth type 0, and proactively auditing for accounts with the DONT_REQ_PREAUTH flag set."
+  },
+  {
+    q: "Why is a golden ticket so damaging compared with a stolen service ticket?",
+    opts: ["It works on Linux systems too", "It is a forged TGT signed with the krbtgt key, so it grants access as any user for a long period and survives password resets", "It cannot be detected by any means", "It disables the domain controller"],
+    a: 1,
+    why: "Because it's forged with the krbtgt key, a golden ticket is a valid TGT for any principal the attacker chooses, with an attacker-chosen lifetime, and resetting the victim user's password doesn't revoke it. Only rotating the krbtgt password (twice) invalidates outstanding golden tickets, which is why krbtgt compromise is a domain-rebuild-level event."
+  },
+  {
+    q: "The real security boundary in a Microsoft environment is the:",
+    opts: ["Organisational unit", "Domain", "Forest", "Group Policy Object"],
+    a: 2,
+    why: "Microsoft treats the forest, not the domain, as the security boundary, because trust relationships between domains in a forest can be abused to move between them. This matters for triage scope: a compromise in one domain of a forest may not be contained to that domain, and trust-based attacks (like SID history abuse) exploit exactly this."
+  }
+]} />
+
+<TaskList step="track/01-foundations/04-active-directory" tasks={[
+  { text: "Draw the full Kerberos exchange from memory, labelling which key encrypts each ticket", detail: "Until you can do it cold. This is the highest-yield single diagram in Phase 1." },
+  { text: "Build the attack/telemetry table from memory", detail: "Attack on the left, event ID and encryption type on the right. This is what an interview is really testing." },
+  { text: "Stand up a lab DC and generate the events", detail: "One Windows Server VM promoted to a DC. Even without running attacks, seeing real 4768/4769 makes the theory concrete. Ties into Phase 5." },
+  { text: "Run one Kerberoast in your lab and read the resulting 4769", detail: "Rubeus or Impacket against your lab DC. Watch the RC4 tickets appear. Never against anything you don't own." },
+  { text: "Explain to yourself why krbtgt compromise means rebuilding, not resetting" },
+  { text: "Give the Kerberos drill out loud until you stop conflating the two ticket types" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "The Hacker Recipes — Active Directory", url: "https://www.thehacker.recipes/ad/", type: "read", note: "The clearest free reference on AD attacks, each with the mechanism spelled out. Read it as a defender: for every attack, ask what it logs.", primary: true },
+  { title: "Microsoft Learn — AD DS fundamentals", by: "Microsoft", url: "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ad-ds-getting-started", type: "read", minutes: 40, note: "The legitimate architecture. You need normal before abnormal — objects, trusts, replication, GPO." },
+  { title: "TryHackMe — Active Directory Basics", url: "https://tryhackme.com/room/winadbasics", type: "do", cost: "Free room", note: "Hands-on walk through domains, users, groups and GPO. Free tier covers it." },
+  { title: "ADSecurity.org", by: "Sean Metcalf", url: "https://adsecurity.org/", type: "ref", note: "Deep, authoritative writing on AD attacks and detection. Dense — bookmark specific attacks and return as you meet them." },
+  { title: "13Cubed — 'Investigating Kerberoasting'", by: "Richard Davis", url: "https://www.youtube.com/@13Cubed", type: "watch", minutes: 20, note: "Detection-focused walkthrough of exactly the scenario in this step. Watch after your first read." },
+  { title: "MITRE ATT&CK — Credential Access tactic", url: "https://attack.mitre.org/tactics/TA0006/", type: "read", minutes: 25, note: "The full technique list. Read the Kerberos and NTLM ones and their detection sections." }
+]} />
+
+<Gate
+  step="track/01-foundations/04-active-directory"
+  conditions={[
+    "I can draw the Kerberos AS and TGS exchanges and state which key encrypts each ticket",
+    "I can reproduce the attack/telemetry table — attack, event ID, encryption type — from memory",
+    "I can explain pass-the-hash and why NTLM makes it possible",
+    "I can describe how DCSync is detected and why 4662 from a non-DC is the tell",
+    "I can explain why golden tickets and krbtgt compromise are domain-rebuild events",
+    "I have generated real 4768/4769 events in a lab and looked at them"
+  ]}
+  unlocks="Next: the Linux side — auth logs, persistence and the triage one-liners you'll actually type."
+/>

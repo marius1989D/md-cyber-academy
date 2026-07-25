@@ -1,0 +1,348 @@
+---
+title: "Pyramid of Pain & Detection Strategy"
+phase: 2
+order: 5
+summary: "Why hashes are nearly worthless and behaviours are expensive — and how to rewrite a brittle detection into one an attacker can't sidestep in a second."
+weeks: "Week 12"
+minutes: 200
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["02-defensive-core/04-siem-concepts"]
+academy: ["detection/05-behavioural-detection"]
+attack: ["T1003.001", "T1059.001", "T1055"]
+tags: ["pyramid-of-pain", "detection-strategy", "iocs", "ttps"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Explain the Pyramid of Pain. And if hashes are so weak, why does anyone still bother with IOC matching?">
+This is the idea that ties Phase 2 together and sets up everything you'll build in
+Phase 5. It's also a question with a trap in it: candidates who've read the
+pyramid dismiss indicators entirely, which is wrong and easy to expose. The
+strong answer holds both truths — indicators are cheap, fast and worth having,
+*and* they are trivially evaded, so they can't be your strategy. Getting that
+nuance right is worth more than reciting the six levels.
+</Why>
+
+## The pyramid
+
+David Bianco's model, from 2013 and still the clearest statement of why detection
+strategy matters. Each level is an indicator type; height is **how much pain it
+causes the adversary when you detect on it**.
+
+```text
+                    ▲
+                   ╱ ╲          TTPs
+                  ╱   ╲         ← Tough!
+                 ╱─────╲
+                ╱ Tools ╲       ← Challenging
+               ╱─────────╲
+              ╱  Network/  ╲    ← Annoying
+             ╱ Host Artifacts╲
+            ╱───────────────  ╲
+           ╱   Domain Names     ╲   ← Simple
+          ╱─────────────────────  ╲
+         ╱     IP Addresses         ╲  ← Easy
+        ╱───────────────────────────  ╲
+       ╱        Hash Values             ╲ ← Trivial
+      ╱─────────────────────────────────  ╲
+```
+
+**Hash values — trivial.** Change one byte, the hash changes. Recompiling, adding
+padding, or a polymorphic packer defeats hash detection instantly and costs the
+attacker nothing.
+
+**IP addresses — easy.** New VPS, new proxy, new IP. Minutes of work and pennies
+of cost.
+
+**Domain names — simple.** Slightly more effort than IPs — registration, DNS —
+but still cheap and largely automated.
+
+**Network and host artifacts — annoying.** Now it hurts. A distinctive user-agent
+string, a URI pattern, a named pipe, a registry key the tool always creates, a
+mutex. Changing these means modifying the tool, which means finding where the
+behaviour is implemented and testing that the change doesn't break it.
+
+**Tools — challenging.** Detect the tool itself — its behaviour, not its name —
+and the adversary has to find, buy, or build a replacement, then retrain on it.
+That's real cost in time and capability.
+
+**TTPs — tough.** Detect *how they operate*: dumping LSASS, moving laterally over
+SMB with admin shares, staging data in archives before exfiltration. To evade
+this the adversary must change their tradecraft, which is slow, expensive and
+often means abandoning what they're good at.
+
+<Callout type="key">
+The compressed version for interviews: *"The pyramid ranks indicator types by how
+much it costs an adversary to change them when you detect on them. Hashes and IPs
+are disposable, so detecting on them buys you almost nothing. Behaviours are
+expensive to change because they're how the adversary actually operates. So you
+build detections as high up the pyramid as you can afford to."*
+</Callout>
+
+## The trap, and the honest answer
+
+If hashes and IPs are so weak, why does every SOC still run indicator matching?
+
+**Because it's nearly free and it's fast.** An IOC match is a lookup — no
+correlation, no baselining, negligible compute. If threat intel says an IP is a
+known Cobalt Strike server and one of your hosts talks to it, you want to know
+*now*, and you want to know without an analyst having to reason about it.
+
+Three legitimate uses that survive the pyramid critique:
+
+1. **Speed and cost.** Cheap to run, instant to alert, no tuning burden.
+2. **Retrospective hunting.** New intel arrives today naming an IP; you search 90
+   days of history for it. That indicator is stale for *prevention* but perfectly
+   good for finding what you already missed.
+3. **Confirmation and enrichment.** During triage, "this IP is on three intel
+   feeds" doesn't detect anything by itself but sharpens a judgement you're
+   already making.
+
+**The correct position:** indicators are a supplement, not a strategy. A SOC whose
+detection stack is mostly IOC feeds is detecting last month's attacks. A SOC with
+behavioural detections *and* IOC matching gets both durability and speed.
+
+## Brittle versus durable, concretely
+
+Take one technique — LSASS credential dumping — and write it at four heights:
+
+```text
+BRITTLE ─────────────────────────────────────────────────
+  hash == "a1b2c3..."                    → recompile defeats it
+  FileName == "mimikatz.exe"             → rename defeats it
+  CommandLine has "sekurlsa::logonpasswords"  → change the syntax
+─────────────────────────────────────────────────────────
+  ProcessName == "procdump.exe" and CommandLine has "lsass"
+                                         → use a different dumper
+─────────────────────────────────────────────────────────
+  Any process creating a file matching a minidump signature
+                                         → dump over the network instead
+─────────────────────────────────────────────────────────
+  Any process opening a handle to lsass.exe with an access
+  mask granting memory read (0x1010, 0x1410), excluding a
+  small allowlist of known-good security tooling
+                                         → must fundamentally change
+DURABLE ─────────────────────────────────────  how they get credentials
+```
+
+The bottom rule doesn't care what the tool is called, what language it's written
+in, or whether it's ever been seen before. It keys on the thing any credential
+dumper *must* do: read LSASS memory. That is a TTP-level detection.
+
+<Callout type="warn">
+Durable does not mean free. The TTP-level rule requires Sysmon event 10, generates
+more false positives (EDR products and backup agents legitimately touch LSASS),
+and needs a maintained allowlist. That is the trade: higher up the pyramid means
+more telemetry, more tuning, more upkeep. Which is exactly why organisations
+default to hash matching — it's cheap. Being able to articulate the cost as well
+as the benefit is what makes you sound like you've done it rather than read it.
+</Callout>
+
+## Where to aim, practically
+
+You can't write everything at TTP level. A workable strategy:
+
+- **TTP-level** for the techniques that appear in almost every intrusion:
+  credential dumping, lateral movement, persistence, encoded execution. These are
+  worth the tuning cost because everyone does them.
+- **Artifact-level** for tooling common in your threat landscape — the named pipes
+  and default patterns of frameworks like Cobalt Strike.
+- **Indicator-level** as a broad, cheap net underneath, plus retrospective hunting.
+- **Accept the gaps** and know where they are. Honest coverage beats a false sense
+  of completeness — which is the same argument as the ATT&CK coverage-percentage
+  trap two steps ago.
+
+<Scenario
+  step="track/02-defensive-core/05-pyramid-of-pain"
+  id="rewrite-brittle"
+  title="Rewrite three brittle detections"
+  minutes={10}
+>
+<div slot="brief">
+
+You've inherited a rule set. Three rules are flagged as low value. For each:
+identify what pyramid level it sits at, explain how an attacker evades it in
+under a minute, and propose a more durable replacement — including what it would
+cost you.
+
+```text
+RULE A  "Mimikatz detected"
+        FileName == "mimikatz.exe" OR FileHash in (<12 known hashes>)
+
+RULE B  "Cobalt Strike C2"
+        RemoteIP in (<feed of 4,200 known C2 IPs, updated weekly>)
+
+RULE C  "Suspicious PsExec usage"
+        ProcessCommandLine contains "psexec"
+```
+
+</div>
+<div slot="model">
+
+**Rule A — hash and filename. Bottom two levels, trivial and easy.**
+
+*Evasion:* rename the binary (one second), or recompile from public source
+(minutes), and all thirteen conditions fail simultaneously. Attackers do this by
+default, so this rule is effectively decorative.
+
+*Durable replacement:* detect the behaviour any credential dumper must perform —
+Sysmon event 10 (ProcessAccess) targeting `lsass.exe` with an access mask granting
+memory read (0x1010, 0x1410), with a tightly scoped allowlist for legitimate
+security and backup tooling.
+
+*Cost:* requires Sysmon deployed with ProcessAccess enabled, which is a real
+telemetry investment; will produce false positives from EDR and backup agents
+needing an actively maintained allowlist; higher event volume. Worth it, because
+credential dumping appears in nearly every intrusion.
+
+**Rule B — IP addresses. Second level, easy.**
+
+*Evasion:* stand up a new VPS. Minutes, a few pounds. A weekly-updated feed is
+also structurally behind — by the time an IP is published it has often been
+burned and rotated.
+
+*Durable replacement:* detect the *beaconing behaviour* rather than the
+destination. Regular-interval outbound connections with low jitter, high
+connection count and a consistent small payload size — the query you'll write in
+Phase 3. Layer artifact-level detection on top where you can: Cobalt Strike's
+default named pipe patterns, default certificate characteristics, and known
+malleable-profile URI shapes.
+
+*Cost:* significantly more expensive. Needs network telemetry with reliable
+timestamps, statistical logic rather than a lookup, and heavy tuning because
+software update checks and monitoring agents are the most regular traffic on any
+network. **Keep the IP feed as well** — it costs nothing and catches the lazy, and
+it's genuinely useful for retrospective hunting when new intel lands.
+
+**Rule C — a substring match on a tool name. Artifact level at best, and badly
+implemented.**
+
+*Evasion:* rename `psexec.exe` to anything. Or use one of a dozen functionally
+identical alternatives — PAExec, RemCom, WMI, WinRM, scheduled tasks. The
+technique survives untouched.
+
+*Durable replacement:* detect what PsExec-style remote execution *does*, which is
+service creation on a remote host. Event 7045 or 4697 for a new service, where
+the service binary path points at a temporary location, correlated with a type-3
+logon from the source host moments earlier. That catches PsExec, PAExec, RemCom
+and most of the family, because they all work the same way.
+
+*Cost:* requires Security event collection from member servers and workstations,
+not just DCs — which is exactly the gap you identified two steps ago. Moderate
+false positives from legitimate software deployment; correlation logic is more
+complex than a substring match.
+
+**The pattern across all three:** for each rule, ask *what must the adversary do
+that they cannot avoid?* Any credential dumper must read LSASS. Any C2 must
+communicate on some schedule. Any remote execution must create something on the
+target. Detect the unavoidable step, not the convenient label.
+
+**And the honest caveat to give an interviewer:** I would not delete rules A, B or
+C. They're cheap, they occasionally catch unsophisticated activity, and B is
+valuable for retrospective hunting. I'd demote them to informational and build the
+durable versions alongside — layered, not replaced.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/02-defensive-core/05-pyramid-of-pain"
+  id="pyramid"
+  question="Explain the Pyramid of Pain. And if hashes are so weak, why does anyone still bother with IOC matching?"
+  seconds={90}
+  hits={[
+    "Six levels bottom to top: hashes, IPs, domains, network/host artifacts, tools, TTPs — ranked by cost to the adversary of changing them",
+    "Hashes change with a recompile; behaviours require changing tradecraft, which is slow and expensive",
+    "The nuance: IOCs are nearly free, instant, and need no tuning — worth having",
+    "Retrospective hunting: new intel searched against 90 days of history finds what you missed",
+    "IOCs as enrichment during triage, not as detection strategy",
+    "Higher up the pyramid costs more telemetry, more tuning and more maintenance — that trade-off is real"
+  ]}
+  trap="Dismissing indicators entirely. It sounds sophisticated and it's wrong — every real SOC runs IOC matching. The strong answer is 'supplement, not strategy', with retrospective hunting as the concrete justification."
+/>
+
+<Quiz mid="track/02-defensive-core/05-pyramid-of-pain" title="Pyramid of Pain & Detection Strategy" questions={[
+  {
+    q: "What does 'pain' refer to in the Pyramid of Pain?",
+    opts: ["How difficult the detection is for the SOC to implement", "How costly it is for the adversary to change that indicator once you detect on it", "How many false positives the indicator generates", "How much storage the indicator type consumes"],
+    a: 1,
+    why: "The pyramid measures adversary cost, not defender effort — though the two correlate, since higher-value detections are usually harder to build. A hash costs nothing to change; changing tradecraft may mean abandoning tooling and retraining operators, which is why TTP-level detection is where durable value sits."
+  },
+  {
+    q: "Why is a rule matching `FileName == \"mimikatz.exe\"` considered brittle?",
+    opts: ["Filenames are not logged by Windows", "Renaming the binary takes seconds and defeats the rule entirely, while the behaviour is unchanged", "Mimikatz is no longer used by attackers", "The rule cannot be tagged with an ATT&CK ID"],
+    a: 1,
+    why: "It detects a label rather than an action. Any attacker renames tooling by default, so the rule catches only the careless. The durable equivalent detects what any credential dumper must do — open a handle to LSASS with memory-read access — which no rename can avoid."
+  },
+  {
+    q: "What is the strongest justification for keeping IOC matching despite its weakness?",
+    opts: ["It satisfies compliance requirements", "It is cheap, instant, needs no tuning, and supports retrospective hunting when new intel arrives", "It replaces the need for behavioural detection", "Threat intel feeds are always current"],
+    a: 1,
+    why: "Retrospective hunting is the killer argument: an indicator published today is stale for prevention but perfectly good for searching 90 days of history to find an intrusion you already missed. Combined with near-zero cost and no tuning burden, that makes IOCs a worthwhile supplement — just not a strategy."
+  },
+  {
+    q: "Which of these sits highest on the pyramid?",
+    opts: ["A C2 domain name", "A distinctive named pipe the tool always creates", "Detecting any process reading LSASS memory regardless of its name", "A specific malware sample's SHA-256"],
+    a: 2,
+    why: "Reading LSASS memory is the behaviour — a TTP — and any credential dumper must do it. Named pipes are host artifacts (annoying to change, but changeable); domains are simple; hashes are trivial. The test of a TTP-level detection is whether it survives the attacker swapping tools entirely."
+  },
+  {
+    q: "What is the main practical cost of detecting higher up the pyramid?",
+    opts: ["It requires more expensive SIEM licensing tiers", "It needs richer telemetry, produces more false positives, and requires ongoing tuning and allowlist maintenance", "It cannot be automated", "It only works on Windows"],
+    a: 1,
+    why: "TTP-level detection typically needs deeper telemetry — Sysmon ProcessAccess rather than a filename — and legitimate software often performs the same underlying actions, so it generates noise requiring maintained exclusions. Articulating this cost honestly is what distinguishes someone who has built these detections from someone who has read about them."
+  },
+  {
+    q: "A rule detects PsExec by matching the string 'psexec' in the command line. The most durable replacement would detect:",
+    opts: ["Any process with 'exec' in its name", "Remote service creation on the target host correlated with a preceding network logon", "Connections to port 445 from any source", "Files written to C:\\Windows\\Temp"],
+    a: 1,
+    why: "PsExec and its functional equivalents — PAExec, RemCom and others — all work by creating a service on the remote host. Detecting service creation (7045/4697) with a suspicious binary path, correlated with a type-3 logon from the source, catches the whole family because it targets the mechanism rather than one implementation's name."
+  },
+  {
+    q: "Which statement best describes a mature detection strategy?",
+    opts: ["Replace all indicator-based detection with behavioural detection", "Layer behavioural detections for common techniques over cheap indicator matching, and know where the remaining gaps are", "Maximise the number of rules regardless of type", "Rely on the EDR vendor's built-in detections exclusively"],
+    a: 1,
+    why: "Layering gets both durability and speed, and deleting cheap indicator rules discards free coverage for no benefit. The 'know where the gaps are' clause matters as much as the rest — honest awareness of blind spots beats a false sense of completeness, which is the same argument as the ATT&CK coverage-percentage trap."
+  }
+]} />
+
+<TaskList step="track/02-defensive-core/05-pyramid-of-pain" tasks={[
+  { text: "Draw the pyramid from memory with all six levels and a one-line evasion cost for each" },
+  { text: "Complete the rewrite scenario before reading the model answer" },
+  { text: "Audit your own lab rules and place each on the pyramid", detail: "Be honest. Most first-attempt rules sit at the bottom two levels — that's normal, and knowing it is the point." },
+  { text: "Rewrite one of your lab rules from indicator level to behaviour level", detail: "Then measure the false positive difference. This is exactly blog post 2's tuning section." },
+  { text: "Rehearse the IOC nuance answer", detail: "'Supplement, not strategy', with retrospective hunting as the justification. Rehearse until it's automatic — the trap catches a lot of candidates." },
+  { text: "For three techniques, write down what the attacker cannot avoid doing", detail: "Credential dumping, lateral movement, C2. That unavoidable step is where the durable detection goes." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "The Pyramid of Pain", by: "David Bianco", url: "https://detect-respond.blogspot.com/2013/03/the-pyramid-of-pain.html", type: "read", minutes: 15, note: "The original 2013 post. Short, foundational, and still quoted in interviews more than a decade later. Read the source rather than a summary of it.", primary: true },
+  { title: "Capability Abstraction", by: "Jared Atkinson, SpecterOps", url: "https://posts.specterops.io/capability-abstraction-fbeaeeb26384", type: "read", minutes: 25, note: "The deepest treatment of moving a detection from tool-specific to behaviour-based. If one link in this step changes how you think, it's this one." },
+  { title: "On Detection: Tactical to Functional", by: "Jared Atkinson", url: "https://posts.specterops.io/on-detection-tactical-to-functional-2f39b0c0ce78", type: "read", note: "A long series decomposing techniques into the operations they must perform. Dense — read one part per break." },
+  { title: "TryHackMe — Pyramid of Pain room", url: "https://tryhackme.com/room/pyramidofpainet", type: "do", cost: "Free room", note: "Hands-on walkthrough of each level with practical examples. Free, and a good hour." },
+  { title: "Atomic Red Team", by: "Red Canary", url: "https://github.com/redcanaryco/atomic-red-team", type: "do", note: "Test whether a detection is durable by running several different implementations of the same technique. If your rule only catches one atomic, it's brittle. You'll use this properly in Phase 5." },
+  { title: "Detection Engineering Weekly", url: "https://www.detectionengineering.net/", type: "read", minutes: 15, note: "Keep reading it. The brittle-versus-durable debate plays out weekly in real rules." }
+]} />
+
+<Gate
+  step="track/02-defensive-core/05-pyramid-of-pain"
+  conditions={[
+    "I can draw the six levels and state the evasion cost of each",
+    "I can explain why hash and filename detections are near-worthless",
+    "I can give the honest case for keeping IOC matching, including retrospective hunting",
+    "I have rewritten at least one of my own rules from indicator to behaviour level",
+    "I can articulate the cost of detecting higher up the pyramid, not just the benefit",
+    "For any technique, I can ask 'what must the attacker do that they cannot avoid?'"
+  ]}
+  unlocks="Phase 2 complete. You now have the analytical discipline — lifecycle, ATT&CK, telemetry, tuning and detection strategy — that Phases 3 and 4 assume. Next: Microsoft Sentinel and KQL, the highest-return phase in the whole track."
+/>

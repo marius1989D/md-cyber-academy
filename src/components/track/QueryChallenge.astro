@@ -1,0 +1,148 @@
+---
+/**
+ * Write the query, then compare.
+ *
+ * KQL fluency is the difference between a candidate who starts on Monday and
+ * one who needs six weeks of hand-holding, and it is not learnable by reading
+ * queries. There is no autograder here on purpose — a reference solution plus
+ * a note on what the common wrong shape looks like teaches more than a red X.
+ */
+interface Props {
+  step: string;
+  id: string;
+  title: string;
+  /** kql | spl | bash | sigma */
+  lang?: string;
+  /** Tables or logs available, shown as a hint strip. */
+  tables?: string[];
+}
+
+const { step, id, title, lang = 'kql', tables = [] } = Astro.props;
+const key = `${step}::query::${id}`;
+---
+<section class="my-8 overflow-hidden rounded-xl border-2" data-query={key} style="border-color: var(--navy, #1a3a5c)">
+  <header class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5" style="background: var(--surface-3)">
+    <span class="font-mono text-[0.63rem] uppercase tracking-[0.18em]" style="color: var(--accent)">
+      ⌨ Query challenge · {lang}
+    </span>
+    <h3 class="text-[1rem] font-bold">{title}</h3>
+  </header>
+
+  <div class="p-4 sm:p-5" style="background: var(--surface-2)">
+    <div class="prose-md max-w-none text-[0.94rem]">
+      <slot name="brief" />
+    </div>
+
+    {tables.length > 0 && (
+      <p class="mt-3 flex flex-wrap gap-1.5">
+        {tables.map((t) => (
+          <span
+            class="rounded border px-2 py-0.5 font-mono text-[0.66rem]"
+            style="border-color: var(--rule); background: var(--surface); color: var(--text-3)"
+          >
+            {t}
+          </span>
+        ))}
+      </p>
+    )}
+
+    <label class="mt-4 block">
+      <span class="eyebrow">Your query</span>
+      <textarea
+        data-query-input
+        rows="8"
+        spellcheck="false"
+        placeholder={lang === 'kql' ? 'SecurityEvent\n| where ...' : ''}
+        class="mt-1.5 w-full resize-y rounded-lg border p-3 font-mono text-[0.82rem] leading-relaxed"
+        style="background: var(--surface); border-color: var(--rule); color: var(--text)"
+      ></textarea>
+    </label>
+
+    <div class="mt-3 flex flex-wrap items-center gap-2">
+      <button class="btn text-[0.75rem]" data-query-reveal>Compare with reference</button>
+      <span class="font-mono text-[0.66rem]" style="color: var(--text-3)" data-query-status></span>
+    </div>
+
+    <div class="mt-4 hidden" data-query-model>
+      <div class="prose-md max-w-none">
+        <slot name="solution" />
+      </div>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button class="btn text-[0.73rem]" data-grade="0">Mine was wrong</button>
+        <button class="btn text-[0.73rem]" data-grade="1">Close</button>
+        <button class="btn text-[0.73rem]" data-grade="2">Equivalent or better</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { saveAttempt, getAttempt } from '../../lib/track-store';
+
+  for (const card of document.querySelectorAll<HTMLElement>('[data-query]')) {
+    const key = card.dataset.query!;
+    const input = card.querySelector<HTMLTextAreaElement>('[data-query-input]')!;
+    const btn = card.querySelector<HTMLButtonElement>('[data-query-reveal]')!;
+    const model = card.querySelector<HTMLElement>('[data-query-model]')!;
+    const status = card.querySelector<HTMLElement>('[data-query-status]')!;
+    const LABELS = ['Wrong', 'Close', 'Equivalent'];
+
+    const paint = (grade: number | null) => {
+      for (const b of card.querySelectorAll<HTMLButtonElement>('[data-grade]')) {
+        const on = Number(b.dataset.grade) === grade;
+        b.style.background = on ? 'var(--accent)' : '';
+        b.style.color = on ? '#fff' : '';
+      }
+      if (grade !== null) status.textContent = LABELS[grade];
+    };
+
+    const prev = getAttempt(key);
+    if (prev) {
+      input.value = prev.text;
+      if (prev.text) {
+        model.classList.remove('hidden');
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+      }
+      paint(prev.grade);
+    }
+
+    // Tab inserts two spaces rather than escaping the field.
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      e.preventDefault();
+      const { selectionStart: s, selectionEnd: t, value } = input;
+      input.value = value.slice(0, s) + '  ' + value.slice(t);
+      input.selectionStart = input.selectionEnd = s + 2;
+    });
+
+    let timer: ReturnType<typeof setTimeout>;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        saveAttempt(key, input.value, getAttempt(key)?.grade ?? null);
+        status.textContent = 'Saved';
+      }, 700);
+    });
+
+    btn.addEventListener('click', () => {
+      if (input.value.trim().length < 10) {
+        status.textContent = 'Write a query first, even a broken one.';
+        input.focus();
+        return;
+      }
+      saveAttempt(key, input.value, null);
+      model.classList.remove('hidden');
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    });
+
+    for (const b of card.querySelectorAll<HTMLButtonElement>('[data-grade]')) {
+      b.addEventListener('click', () => {
+        const g = Number(b.dataset.grade) as 0 | 1 | 2;
+        saveAttempt(key, input.value, g);
+        paint(g);
+      });
+    }
+  }
+</script>

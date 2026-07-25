@@ -1,0 +1,221 @@
+---
+title: "Networking for Defenders"
+phase: 1
+order: 1
+summary: "TCP/IP, the handshake, the ports you must know cold, DNS and NAT — learned through packet captures rather than diagrams."
+weeks: "Weeks 2–3"
+minutes: 240
+kind: learn
+pillar: fundamentals
+cost: 0
+prereq: ["00-orientation/02-the-job"]
+academy: ["network/01-protocols"]
+attack: ["T1046", "T1071.004", "T1572"]
+tags: ["tcp-ip", "dns", "wireshark", "fundamentals"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Lab from '../../../components/Lab.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Walk me through what happens when you type a URL into a browser and press enter.">
+This is the most-asked technical interview question in the industry, and it is
+asked *because* it is unbounded — the interviewer watches how deep you can go
+and stops you when you run out. It is also the substrate for everything else:
+you cannot detect DNS tunnelling, read a pcap, understand why an alert fired on
+port 4444, or explain lateral movement without this. CEH assumed you had it.
+You need to actually have it.
+</Why>
+
+## The model that matters
+
+Forget memorising seven OSI layers as a list. Learn the four that generate
+telemetry you will look at, and what each one can tell you:
+
+| Layer | You see | It answers |
+|---|---|---|
+| Link (Ethernet/ARP) | MAC addresses, ARP tables | Which physical device, and is someone poisoning ARP |
+| Network (IP) | Source and destination IPs, TTL | Who talked to whom, roughly where they are |
+| Transport (TCP/UDP) | Ports, flags, sequence numbers | What service, and whether the conversation completed |
+| Application (HTTP/DNS/TLS/SMB) | Hostnames, URIs, certificates, SNI | What was actually being done |
+
+The analyst's habit is to ask, at every layer, *what would this look like if
+someone were lying to me?* A TTL that doesn't match the claimed OS. An SNI that
+doesn't match the certificate. A DNS response with a suspiciously long subdomain.
+
+## The handshake, and why it earns its own section
+
+```
+Client ──── SYN (seq=x) ─────────────▶ Server
+Client ◀─── SYN-ACK (seq=y, ack=x+1) ─ Server
+Client ──── ACK (ack=y+1) ───────────▶ Server
+```
+
+Three packets. Nearly every network detection concept hangs off understanding
+them:
+
+- **Closed port** replies `RST`, not `SYN-ACK`. That's how a port scan
+  distinguishes open from closed, and why a burst of RSTs from one host to many
+  ports is scanning (T1046).
+- **SYN scan** sends SYN, gets SYN-ACK, sends RST instead of completing. Fast
+  and historically quieter, because no session is established to log.
+- **SYN flood** sends SYN and never completes, exhausting the server's
+  half-open connection table.
+- **Teardown** is `FIN`/`FIN-ACK` for a graceful close, `RST` for an abrupt one.
+  Repeated RSTs mid-session are worth a look.
+
+<Callout type="key">
+Interview-grade phrasing: *"SYN, SYN-ACK, ACK establishes state on both ends.
+A closed port answers with RST, which is the whole basis of port scanning, and a
+half-open scan deliberately never sends the final ACK so the connection is never
+fully established and historically wasn't logged by the application."*
+</Callout>
+
+## Ports you must know without thinking
+
+Not a list to memorise for its own sake — these are the ones that appear in
+alerts, and the ones an interviewer will fire at you rapidly.
+
+**Everyday:** 20/21 FTP · 22 SSH · 23 Telnet · 25 SMTP · 53 DNS · 67/68 DHCP ·
+80 HTTP · 110 POP3 · 143 IMAP · 389 LDAP · 443 HTTPS · 445 SMB · 3389 RDP
+
+**Windows and AD:** 88 Kerberos · 135 RPC endpoint mapper · 137–139 NetBIOS ·
+636 LDAPS · 3268 Global Catalog · 5985/5986 WinRM
+
+**Suspicious by convention:** 4444 (Metasploit default) · 1080 (SOCKS proxy) ·
+8080/8888 (proxies and dev servers in odd places) · 6667 (IRC, old-school C2)
+
+The judgement to develop is not "port 4444 is bad" — it's *unusual for this
+host*. A build server talking on 8080 is normal; an accountant's laptop doing it
+at 3am is not.
+
+## DNS, which is where the interesting things happen
+
+DNS is the most abused protocol in enterprise networks, because it is almost
+never blocked. Three patterns to recognise:
+
+**Tunnelling (T1071.004).** Data encoded into subdomain labels:
+`aGVsbG8gd29ybGQ.attacker.com`. Signals: abnormally long or high-entropy
+subdomains, high query volume to one domain, TXT record queries from hosts that
+have no business making them.
+
+**Domain generation algorithms.** Malware generating hundreds of pseudo-random
+domains to find its C2. Signals: a burst of NXDOMAIN responses from one host.
+
+**Fast flux.** One domain resolving to many IPs with a very short TTL, to keep
+takedowns hard.
+
+<Lab title="Read your own traffic" host="M5 MacBook Pro" minutes={90}>
+
+You have Wireshark-capable hardware and a Pi router already sitting between you
+and the internet. Use it.
+
+1. Install Wireshark. Capture on your active interface for sixty seconds while
+   you load a single website.
+2. Find the DNS query and response for that site. Note the query type, the
+   response, and the TTL.
+3. Find the TCP handshake to the resulting IP. Confirm SYN, SYN-ACK, ACK in
+   order. Use `tcp.flags.syn == 1 && tcp.flags.ack == 0` to isolate connection
+   starts.
+4. Find the TLS Client Hello. Read the SNI field — this is the hostname in
+   cleartext even on an HTTPS connection, and it is why SNI is a genuinely
+   useful detection surface.
+5. Now `nmap -sS` your own Pi router from the Mac while capturing. Watch the
+   RSTs come back from closed ports. **This is what a port scan looks like in
+   telemetry**, and you will be asked to describe it.
+
+**Evidence to capture:** a screenshot of the handshake filtered, and a
+screenshot of the scan's RST pattern. Log both in your evidence log.
+
+</Lab>
+
+<Drill
+  step="track/01-foundations/01-networking"
+  id="url-to-page"
+  question="Walk me through what happens when you type a URL into a browser and press enter."
+  seconds={120}
+  hits={[
+    "Browser cache, then OS resolver cache, then hosts file, then DNS — recursive resolver, root, TLD, authoritative",
+    "ARP to find the gateway's MAC if the destination is off-subnet",
+    "TCP three-way handshake to port 443",
+    "TLS handshake — Client Hello with SNI, certificate validation, key exchange, and note that SNI is visible to a network monitor",
+    "HTTP request and response, then rendering",
+    "At least one security observation along the way — DNS is unencrypted unless DoH, SNI leaks the hostname, certificate pinning, HSTS"
+  ]}
+  trap="Stopping at 'DNS resolves it and the page loads'. The interviewer is measuring depth, not correctness. Keep going until they stop you, and drop in the security angle unprompted — that's what separates a networking answer from a security answer."
+/>
+
+<Quiz mid="track/01-foundations/01-networking" title="Networking for Defenders" questions={[
+  {
+    q: "A host sends SYN packets to 1,000 ports on a server and responds to every SYN-ACK with RST. What is happening?",
+    opts: ["A SYN flood denial of service", "A half-open (SYN) port scan", "Normal web browsing", "A DNS zone transfer"],
+    a: 1,
+    why: "The RST-instead-of-ACK is the giveaway: the scanner learns the port is open from the SYN-ACK, then tears down before the connection completes. A SYN flood would send SYN and simply never respond, exhausting the server's half-open table rather than mapping it."
+  },
+  {
+    q: "You see repeated NXDOMAIN responses to one internal host querying dozens of random-looking domains. Most likely:",
+    opts: ["A misconfigured DHCP server", "Malware using a domain generation algorithm hunting for its C2", "Normal CDN behaviour", "An ARP poisoning attack"],
+    a: 1,
+    why: "DGA malware generates many candidate domains and tries them until one resolves; the failures show up as a burst of NXDOMAIN from a single host. It's one of the most reliable DNS-layer detections because legitimate software rarely fails to resolve dozens of random names in sequence."
+  },
+  {
+    q: "Even on an HTTPS connection, which field commonly reveals the destination hostname to a network monitor?",
+    opts: ["The HTTP Host header", "The TLS Client Hello SNI extension", "The TCP sequence number", "The IP options field"],
+    a: 1,
+    why: "SNI is sent in cleartext in the Client Hello so the server knows which certificate to present. It's why network monitoring still has visibility into HTTPS destinations, and why Encrypted Client Hello matters — it closes exactly this window."
+  },
+  {
+    q: "Which port would you expect Kerberos authentication traffic on?",
+    opts: ["88", "389", "445", "3389"],
+    a: 0,
+    why: "88 is Kerberos. 389 is LDAP, 445 is SMB, 3389 is RDP. Worth knowing precisely because Kerberos abuse — Kerberoasting, AS-REP roasting, golden tickets — is central to AD attacks, and you'll want to correlate network-layer evidence on 88 with event 4768/4769 on the domain controller."
+  },
+  {
+    q: "A subdomain query looks like `dGhpcyBpcyBleGZpbA.cdn-update.net`, repeated hundreds of times an hour from one host. This suggests:",
+    opts: ["A content delivery network working normally", "DNS tunnelling for command and control or exfiltration", "A DHCP lease renewal loop", "Certificate revocation checking"],
+    a: 1,
+    why: "High-entropy, base64-shaped subdomain labels at high volume to a single domain is the classic DNS tunnelling signature (T1071.004). Data is encoded into the query name because DNS is almost never blocked outbound. Length and entropy of the label, plus query volume per domain, are the two features most detections key on."
+  },
+  {
+    q: "Why does a defender care about TTL values in IP headers?",
+    opts: ["They control DNS caching", "They can hint at the originating OS and at how many hops away a host really is, which can expose spoofing", "They encrypt the payload", "They set the TCP window size"],
+    a: 1,
+    why: "Different operating systems use different initial TTLs (commonly 64, 128 or 255), so the received TTL plus hop count can suggest the source OS — and a mismatch between the claimed source and the expected TTL is a spoofing indicator. Note the DNS TTL is a different thing entirely with the same name; interviewers occasionally test whether you conflate them."
+  }
+]} />
+
+<TaskList step="track/01-foundations/01-networking" tasks={[
+  { text: "Complete the Wireshark lab and log two screenshots as evidence" },
+  { text: "Recite the port list from memory, twice, on different days", detail: "Spaced repetition on the boring bits is what makes the rapid-fire interview round painless." },
+  { text: "Subnet until it is automatic", detail: "Given 10.20.30.0/26, state the network, broadcast, first and last usable host, and how many hosts. Do ten of these." },
+  { text: "Record yourself answering the URL drill and listen back", detail: "Uncomfortable, and the single fastest way to find your verbal filler and your gaps." },
+  { text: "Capture and identify a DNS TXT query on your own network" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Practical Packet Analysis concepts — Wireshark's own user guide", url: "https://www.wireshark.org/docs/wsug_html_chunked/", type: "ref", note: "Free and complete. Read the display-filter chapter properly; filters are the skill, not the GUI.", primary: true },
+  { title: "Julia Evans — networking zines and posts", by: "Julia Evans", url: "https://jvns.ca/categories/networking/", type: "read", minutes: 12, note: "Short, visual, genuinely clarifying. Ideal for a break — one post per tea break." },
+  { title: "Professor Messer — Network+ video course", by: "Professor Messer", url: "https://www.professormesser.com/network-plus/n10-009/n10-009-video/n10-009-training-course/", type: "watch", note: "The full course, free. You don't need the cert — you need sections on TCP/IP, DNS, DHCP, VLANs, NAT and subnetting." },
+  { title: "Malware Traffic Analysis — exercises with pcaps", by: "Brad Duncan", url: "https://www.malware-traffic-analysis.net/training-exercises.html", type: "do", note: "Real malicious captures with questions and answers. Come back here after Phase 4 step 3 and work through several — it's the best free pcap training that exists." },
+  { title: "subnetting.org practice", url: "https://subnetting.org/", type: "do", minutes: 15, note: "Drill until it's automatic. Ten a day for a week." },
+  { title: "Cloudflare Learning Center — DNS", by: "Cloudflare", url: "https://www.cloudflare.com/learning/dns/what-is-dns/", type: "read", minutes: 20, note: "Clean explanations of DNS, DoH/DoT and DNSSEC. Good phone reading." }
+]} />
+
+<Gate
+  step="track/01-foundations/01-networking"
+  conditions={[
+    "I can draw the TCP handshake and explain what a closed port returns",
+    "I can name the common ports without hesitating",
+    "I have captured and identified a handshake, a DNS query and a TLS Client Hello in Wireshark",
+    "I can subnet a /26 in my head",
+    "I have given the URL answer out loud for at least 90 seconds without drying up",
+    "I can describe two DNS-layer attack patterns and how I'd detect each"
+  ]}
+  unlocks="Next: the Windows side of the same coin — processes, tokens and the event log architecture everything else sits on."
+/>

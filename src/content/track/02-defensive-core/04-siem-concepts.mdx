@@ -1,0 +1,348 @@
+---
+title: "SIEM Concepts & Alert Fatigue"
+phase: 2
+order: 4
+summary: "Correlation, rule types, the precision/recall trade-off and a real tuning methodology — because handling false positives is the job, not an interruption to it."
+weeks: "Weeks 10–11"
+minutes: 240
+kind: learn
+pillar: siem
+cost: 0
+prereq: ["02-defensive-core/03-logging-architecture"]
+academy: ["detection/04-tuning"]
+attack: ["T1110.003", "T1059.001"]
+tags: ["siem", "tuning", "false-positives", "detection-engineering"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="A rule is generating 40 false positives a day. What do you do?">
+Most of your shift will be spent on things that turn out to be nothing. New
+analysts experience that as failure — as if the real job were interrupted by
+noise. It isn't: the noise *is* the job, and the analysts who progress are the
+ones who treat every false positive as a tuning input rather than a chore. This
+step is also where a Tier 1 candidate can distinguish themselves sharply, because
+almost nobody arrives able to describe a tuning methodology.
+</Why>
+
+## What a SIEM actually does
+
+Four functions, in order:
+
+1. **Aggregate** — collect logs from everywhere into one queryable store.
+2. **Normalise** — map disparate formats to a common schema (the previous step).
+3. **Correlate** — apply logic across events, sources and time to produce alerts.
+4. **Present** — dashboards, incidents, investigation and case management.
+
+Correlation is the part that earns the licence fee. A single failed logon means
+nothing. Fifty failed logons across fifty accounts from one IP inside ninety
+seconds, followed by one success, is a story — and only correlation across events
+and time can tell it.
+
+## Rule types
+
+| Type | Fires on | Example |
+|---|---|---|
+| **Signature / atomic** | A single matching event | Known-malicious hash executed |
+| **Threshold** | Count over a window | >20 failed logons in 5 min from one IP |
+| **Aggregation** | A grouped statistical property | One IP against >10 distinct accounts |
+| **Correlation** | Sequence across sources | Failures then success, then privileged logon |
+| **Anomaly / baseline** | Deviation from learned normal | User signs in from a country never seen |
+| **First-seen** | Something never observed before | First RDP between this host pair |
+| **Threat intel match** | Indicator from a feed | Connection to a known C2 IP |
+
+First-seen and aggregation rules give the best value for effort at entry level:
+cheap to write, hard for attackers to avoid, and they don't depend on an
+indicator feed staying current.
+
+## The confusion matrix, and the trade-off it forces
+
+|  | Actually malicious | Actually benign |
+|---|---|---|
+| **Alert fired** | True Positive ✓ | **False Positive** — noise |
+| **No alert** | **False Negative** — miss | True Negative ✓ |
+
+Two derived measures do the real work:
+
+- **Precision** — of everything that fired, how much was real. Low precision means
+  alert fatigue.
+- **Recall** — of everything real, how much fired. Low recall means misses.
+
+<Callout type="key">
+**You cannot maximise both.** Tightening a rule to cut false positives will always
+risk missing edge cases; loosening it to catch everything floods the queue. The
+correct framing in an interview is that the right balance is *severity-dependent*:
+for a ransomware-encryption detection you accept poor precision because a miss is
+catastrophic. For an informational rule you demand high precision because nobody
+will read it otherwise. Saying "it depends on the cost of a miss versus the cost
+of the noise" is the answer.
+</Callout>
+
+## Alert fatigue is a systems problem
+
+An analyst facing 300 alerts a shift, 290 of them noise, will start
+pattern-closing — recognising the shape of the usual false positive and closing it
+in seconds without really looking. Eventually a real one wearing that shape gets
+closed too. This is not laziness; it is the predictable output of the system, and
+it is how real breaches get missed by SOCs that were technically monitoring.
+
+Which is why "close it and move on" is the wrong Tier 1 instinct and "close it
+with evidence and raise a tuning request" is the right one. You are the only
+person who sees the noise; if you don't report it, nobody fixes it.
+
+## A tuning methodology
+
+The thing almost no candidate can describe. Learn this sequence:
+
+**1. Measure before you touch anything.** How often does it fire, over what period,
+and what proportion is genuinely false? "It's noisy" is not a case; "fires 42
+times a day, 40 from the same three service accounts, zero true positives in 60
+days" is.
+
+**2. Find the *shared* property of the false positives.** Not the individual
+instances — the thing they have in common. Same parent process? Same service
+account? Same subnet? Same time window? This is the whole skill.
+
+**3. Choose the narrowest intervention that removes them:**
+
+- **Exclusion / allowlist** — exclude the specific benign condition. Precise, but
+  every exclusion is a hole an attacker could hide in, so scope it tightly. Exclude
+  *"this parent process, on this host, with this command line"*, never *"this host"*.
+- **Threshold change** — raise the count or lengthen the window. Simple, and blunt:
+  it also raises what an attacker must stay under.
+- **Add a condition** — require a second signal before firing. Usually the best
+  option, because it improves precision without creating an exclusion hole.
+- **Change the logic entirely** — sometimes the rule is detecting the wrong thing
+  and should be rewritten against behaviour instead.
+- **Lower the severity** — if it's genuinely informational, stop paging on it and
+  send it to a dashboard.
+- **Fix the environment** — occasionally the right answer isn't a detection change
+  at all. If a misconfigured script causes the noise, fix the script.
+
+**4. Document the change and why.** An undocumented exclusion is a permanent,
+invisible blind spot that nobody dares remove because nobody remembers why it's
+there.
+
+**5. Re-measure, and set a review date.** Exclusions should expire. What was
+benign in March may be an attacker's chosen hiding place by September.
+
+<Callout type="warn">
+The dangerous tuning move is excluding by host or by user, because that is exactly
+what an attacker who has compromised that host or user needs. If you must exclude
+broadly, note the risk explicitly and time-limit it.
+</Callout>
+
+## Metrics you'll hear quoted
+
+- **MTTD** — mean time to detect. Compromise to alert.
+- **MTTA** — mean time to acknowledge. Alert to an analyst picking it up.
+- **MTTR** — mean time to respond, or resolve — ask which, they differ.
+- **Alert volume per analyst per shift** — the fatigue proxy.
+- **True positive rate** — the health-of-tuning proxy.
+
+Be a little sceptical of these in interviews. A SOC can improve MTTA by closing
+alerts faster without investigating them, and can improve its true positive rate
+by deleting rules that fire. Metrics drive behaviour, including bad behaviour.
+Noticing that is a mature observation, and interviewers notice people who make it.
+
+<Scenario
+  step="track/02-defensive-core/04-siem-concepts"
+  id="tune-it"
+  title="Tune a rule that fires 42 times a day"
+  minutes={10}
+>
+<div slot="brief">
+
+You've been given a noisy rule to fix. It's the first tuning task you've been
+trusted with, so it's also an audition.
+
+```text
+RULE:  "Encoded PowerShell execution"
+LOGIC: DeviceProcessEvents
+       | where FileName == "powershell.exe"
+       | where ProcessCommandLine has_any ("-enc", "-e ", "-encodedcommand")
+SEVERITY: High · pages the on-call
+
+60-DAY STATS
+  Total fires:        2,517   (~42/day)
+  True positives:     1        (day 12, confirmed macro dropper)
+  False positives:  2,516
+
+FALSE POSITIVE BREAKDOWN
+  1,890  Parent: ccmexec.exe      Host: all workstations
+         CommandLine contains "-EncodedCommand" + base64 that decodes
+         to an SCCM inventory script. Signed, scheduled, identical daily.
+
+    412  Parent: MonitorAgent.exe Hosts: 40 servers
+         Decodes to a health-check script. Identical every 15 min.
+
+    198  Parent: explorer.exe     Host: WKSTN-0912 only
+         User: k.mercer (IT engineer). Varied commands, mostly
+         admin one-liners. Ad-hoc, business hours.
+
+     16  Parent: winword.exe / excel.exe   Various hosts
+         Varied. Includes the day-12 true positive.
+```
+
+Tune it. Say exactly what you'd change, in what order, and what you'd refuse to do.
+
+</div>
+<div slot="model">
+
+**Read the breakdown before touching the rule.** The four groups are qualitatively
+different and need different treatment — the lazy fix is one broad exclusion, and
+it would destroy the rule's value.
+
+**Group 1 — SCCM (1,890 fires, 75% of the noise).** Machine-generated, identical
+daily, signed parent, decodes to a known inventory script. **Exclude, narrowly.**
+Not "exclude ccmexec.exe" — exclude *parent is `ccmexec.exe` **and** the command
+line matches the known inventory pattern*. That way, if an attacker ever
+compromises SCCM and pushes something different through it, the rule still fires.
+Excluding the parent alone would hand them a perfect hiding place, and SCCM is a
+genuinely attractive target precisely because it can execute on every workstation.
+
+**Group 2 — monitoring agent (412 fires).** Same treatment, same reasoning: parent
+**and** command-line pattern, on the known server set. Time-limit it and review in
+six months.
+
+**Group 3 — the IT engineer (198 fires).** This is the interesting one and the
+place a junior analyst goes wrong. **Do not exclude by user or by host.** An IT
+engineer's workstation is a high-value target and their account is privileged;
+excluding them creates the single most attractive blind spot in the estate. The
+commands are *varied*, so there's no stable pattern to exclude on either.
+
+What to do instead: this is legitimate but risky behaviour that should be visible
+without paging anyone. **Lower its severity and route it to a dashboard** — split
+the rule so that encoded PowerShell from an interactive parent on a known admin
+workstation is Informational, while everything else stays High. And raise it as an
+environment finding: the engineer could use script files or JEA instead of encoded
+one-liners, which would remove the noise at source. That's tuning the environment
+rather than the detection, and it's the better fix where it's available.
+
+**Group 4 — Office parents (16 fires, including the only true positive).**
+**Change nothing here, and if anything raise it.** `winword.exe` or `excel.exe`
+spawning encoded PowerShell has no legitimate explanation, and this group produced
+the one real detection in 60 days. Consider promoting it to its own separate rule
+at Critical severity — it's a far higher-precision detection than the parent rule,
+and separating it means the good signal is no longer diluted by the noise.
+
+**What I'd refuse to do:**
+
+- **Disable the rule.** It caught a real dropper. One true positive in 60 days
+  sounds poor until you consider what the alternative outcome was.
+- **Exclude by host or user.** Explained above — that's building the attacker's
+  hiding place for them.
+- **Raise a threshold.** Encoded PowerShell is an atomic detection; a threshold
+  would only mean an attacker who runs it once gets a free pass.
+
+**Expected result:** roughly 42/day down to around 1–2/day at High severity, with
+the true positive still caught, plus a new Critical rule with excellent precision
+and a dashboard of admin activity that stays visible without waking anyone.
+
+**Document all of it** — each exclusion, its scope, the reasoning, and a review
+date — and re-measure after two weeks to confirm the noise actually went and
+nothing else broke.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/02-defensive-core/04-siem-concepts"
+  id="tuning"
+  question="A rule is generating 40 false positives a day. Walk me through what you'd do."
+  seconds={90}
+  hits={[
+    "Measure first: fire rate, true positive count over a meaningful period, and categorise the false positives",
+    "Find the shared property of the false positives, not the individual instances",
+    "Choose the narrowest intervention — added condition is usually better than an exclusion",
+    "Never exclude by host or user alone; scope exclusions to parent plus command line plus context",
+    "Consider fixing the environment instead of the detection where the noise has a root cause",
+    "Document the change with reasoning and a review date, then re-measure",
+    "Never simply disable a rule that has produced true positives"
+  ]}
+  trap="Answering 'I'd add an exclusion' with no methodology. Everyone says that. The differentiator is measuring first, categorising the noise, and explaining why you'd refuse to exclude by host or user."
+/>
+
+<Quiz mid="track/02-defensive-core/04-siem-concepts" title="SIEM Concepts & Alert Fatigue" questions={[
+  {
+    q: "Why is excluding a specific host or user usually a poor tuning choice?",
+    opts: ["It is technically difficult to implement", "It creates a blind spot exactly where an attacker who compromises that host or account would operate", "It cannot be documented", "It always breaks the rule entirely"],
+    a: 1,
+    why: "Broad exclusions are permanent holes, and the hosts and accounts that generate the most benign noise — admin workstations, IT engineers, management servers — are precisely the highest-value targets. Scope exclusions to a combination of conditions, such as parent process plus command-line pattern, so an attacker abusing the same host still trips the rule."
+  },
+  {
+    q: "Precision and recall trade off against each other. Which framing is correct?",
+    opts: ["Always maximise precision to reduce analyst workload", "Always maximise recall so nothing is missed", "The right balance depends on the cost of a miss versus the cost of the noise, which varies by detection", "Precision and recall are independent and can both be maximised"],
+    a: 2,
+    why: "For a ransomware-encryption detection you tolerate low precision because a false negative is catastrophic. For an informational rule you demand high precision or it'll be ignored. Recognising that the balance is severity-dependent — rather than reciting one as universally better — is what separates a considered answer from a memorised one."
+  },
+  {
+    q: "A rule fires 2,500 times in 60 days with exactly one true positive. The correct first response is:",
+    opts: ["Disable it — the signal-to-noise ratio is unacceptable", "Categorise the false positives to find shared properties, then tune narrowly while preserving the detection", "Raise the severity so analysts pay more attention", "Increase the threshold until it stops firing"],
+    a: 1,
+    why: "It caught something real, so disabling it trades a known detection for silence. The work is categorisation: grouping the noise by shared properties usually reveals that a small number of benign patterns account for most of the volume, and each can be excluded narrowly without touching the rule's ability to catch the real thing."
+  },
+  {
+    q: "Why should tuning exclusions carry a documented review date?",
+    opts: ["Compliance frameworks require annual review", "Behaviour that is benign today may be an attacker's chosen hiding place later, and undocumented exclusions become permanent invisible blind spots", "SIEM licences expire", "Exclusions degrade query performance over time"],
+    a: 1,
+    why: "An exclusion added in March for a legitimate script is still there in September when an attacker discovers that mimicking that script is a free pass. Undocumented exclusions are worse still: nobody remembers why they exist, so nobody dares remove them. Documentation plus expiry keeps the blind spot from becoming permanent."
+  },
+  {
+    q: "Which rule type generally offers the best value for effort at entry level?",
+    opts: ["Threat intel indicator matching", "First-seen and aggregation rules", "Signature matching on file hashes", "Machine-learning anomaly models"],
+    a: 1,
+    why: "First-seen rules ('this host pair has never used RDP before') and aggregation rules ('one source, many distinct accounts') are cheap to write, don't depend on an external feed staying current, and are difficult for an attacker to avoid because they key on behaviour rather than indicators. Hash and IOC matching is trivially defeated by a recompile or a new IP."
+  },
+  {
+    q: "An analyst pattern-closes alerts — recognising the usual false positive shape and closing without investigating. This is best understood as:",
+    opts: ["Individual negligence requiring performance management", "A predictable systemic outcome of excessive alert volume, which is why noise must be treated as a tuning input", "Correct efficient behaviour", "A training gap"],
+    a: 1,
+    why: "Any human facing 300 alerts a shift with 290 being noise will eventually close a real one wearing the familiar shape. Treating it as an individual failing misses the cause; the fix is reducing the noise through tuning, which is why reporting false positives rather than silently absorbing them is a core Tier 1 responsibility."
+  },
+  {
+    q: "Why should you be sceptical of a SOC reporting a rapidly improving MTTA?",
+    opts: ["MTTA is not a real metric", "Acknowledgement time can be improved by closing alerts faster without investigating them properly", "MTTA only applies to Tier 2", "It indicates the SIEM is under-licensed"],
+    a: 1,
+    why: "Metrics drive behaviour, including undesirable behaviour. MTTA improves if analysts triage superficially; true positive rate improves if you delete rules that fire. Noticing that a metric can be gamed by the very behaviour it's meant to discourage is a mature observation and one interviewers remember."
+  }
+]} />
+
+<TaskList step="track/02-defensive-core/04-siem-concepts" tasks={[
+  { text: "Write the tuning methodology out as a five-step checklist from memory" },
+  { text: "Complete the tuning scenario, then write your changes as an actual tuning request", detail: "Rule name, current stats, proposed change with scope, justification, risk, review date. This is a real artifact — keep it." },
+  { text: "Draw the confusion matrix and define precision and recall in your own words" },
+  { text: "Deliberately create a noisy rule in your own lab, then tune it", detail: "Alert on all PowerShell execution. Live with it for 48 hours. Then tune it properly and measure the before/after. This becomes blog post 2 material." },
+  { text: "Rehearse the 40-false-positives answer until it's fluent", detail: "This is one of the two or three most likely technical questions in a Tier 1 interview." },
+  { text: "List the metrics and, for each, one way it could be gamed" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Alerting and Detection Strategy framework", by: "Palantir", url: "https://github.com/palantir/alerting-detection-strategy-framework", type: "read", minutes: 30, note: "A structured template for documenting a detection: goal, categorisation, strategy abstract, technical context, blind spots, false positives, validation. Adopt it for your own lab rules — it's what mature teams do.", primary: true },
+  { title: "Detection Engineering maturity", by: "Kyle Bailey", url: "https://kyle-bailey.medium.com/detection-engineering-maturity-matrix-f4f3181a5cc7", type: "read", minutes: 20, note: "How detection practice matures from ad-hoc rules to a managed lifecycle. Useful vocabulary for interviews." },
+  { title: "Microsoft — Handle false positives in Sentinel", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/false-positives", type: "read", minutes: 20, note: "The mechanics of automation rules versus modifying analytics rules, with the trade-offs. Directly SC-200 relevant." },
+  { title: "Capability Abstraction", by: "SpecterOps", url: "https://posts.specterops.io/capability-abstraction-fbeaeeb26384", type: "read", minutes: 25, note: "Why detecting a tool is weak and detecting the underlying behaviour is strong. Sets up the next step perfectly." },
+  { title: "Detection Engineering Weekly", url: "https://www.detectionengineering.net/", type: "read", minutes: 15, note: "Free newsletter. Subscribe now — being able to reference something published this month is cheap interview currency." },
+  { title: "Sigma rule specification", url: "https://github.com/SigmaHQ/sigma/wiki/Specification", type: "ref", note: "Note the falsepositives field is a required part of the format. The industry considers documenting expected noise part of writing a rule." }
+]} />
+
+<Gate
+  step="track/02-defensive-core/04-siem-concepts"
+  conditions={[
+    "I can name the seven rule types and give an example of each",
+    "I can draw the confusion matrix and explain the precision/recall trade-off",
+    "I can recite a five-step tuning methodology",
+    "I can explain why excluding by host or user is dangerous",
+    "I have created and tuned a noisy rule in my own lab and measured the difference",
+    "I can answer the 40-false-positives question fluently and without hesitation"
+  ]}
+  unlocks="Final Phase 2 step: the Pyramid of Pain — why the detections you just learned to tune should target behaviour rather than indicators."
+/>

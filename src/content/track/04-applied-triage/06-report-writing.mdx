@@ -1,0 +1,365 @@
+---
+title: "Writing the Investigation Report"
+phase: 4
+order: 6
+summary: "Ticket notes, escalations and incident reports - the skill that decides whether your analysis is believed, acted on, and remembered."
+weeks: "Week 24"
+minutes: 220
+kind: writing
+pillar: interview
+cost: 0
+prereq: ["04-applied-triage/05-log-analysis"]
+tags: ["writing", "reporting", "escalation", "communication"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Show me an example of your written work.">
+Analysis that nobody can follow has the same value as no analysis. Your tickets
+are the durable output of your shift, the thing Tier 2 acts on, the thing a
+post-incident review reads six months later, and the thing that forms your
+reputation before anyone has met you. It is also a graded component of BTL1, and
+it is the artifact most likely to be requested at interview - which makes it the
+highest-leverage soft skill in this entire track and the one candidates most
+consistently neglect.
+</Why>
+
+## Write for the person who was not there
+
+Every reader is missing the context you have right now. Assume they know the
+platform but not this alert, and that they are reading under time pressure. Three
+audiences, three different documents:
+
+| Audience | Wants | Length |
+|---|---|---|
+| **Tier 2 / next shift** | What you did, what you found, what is unresolved | Ticket notes |
+| **Incident manager** | Impact, scope, confidence, recommended action | Escalation summary |
+| **Business / executive** | What happened, what it means, what is being done | Executive summary |
+
+## BLUF - bottom line up front
+
+Lead with the conclusion. Not the chronology of your investigation, not what fired
+first - the answer.
+
+**Weak:** *"I received an alert at 09:14 and began by checking the sign-in logs.
+I then looked at the device compliance status, and after that I reviewed..."*
+
+**Strong:** *"Confirmed account compromise of p.osei via token replay, with
+subsequent access to 847 HR-confidential files and 3.8 GB exfiltrated. Containment
+recommended immediately. Detail below."*
+
+The reader can now decide how urgently to read the rest. That is the entire
+purpose.
+
+## The escalation template
+
+The one you will use most. Six sections, in this order:
+
+```text
+1. SUMMARY        One or two sentences. The conclusion and the ask.
+2. SEVERITY       Your rating, with the reasoning in one line.
+3. TIMELINE       Normalised to UTC. Timestamp, source, what happened.
+4. EVIDENCE       What you checked and what it showed. Queries, event
+                  IDs, artifact names. Enough for someone to verify.
+5. ASSESSMENT     What you conclude, your confidence, and what would
+                  change it.
+6. RECOMMENDATION Specific actions, in priority order. Say what is
+                  within your authority and what is not.
+```
+
+<Callout type="key">
+Section 5 is the one that separates good analysts. **State your confidence and
+what would change it.** "High confidence - the combination of Tor-exit source,
+unregistered device and post-sign-in file access has no benign explanation I can
+construct. This would change if the user confirms travelling with a new device,
+which I have asked IT to verify." That sentence tells the reader exactly how much
+weight to put on your conclusion, which is worth more than false certainty.
+</Callout>
+
+## Language discipline
+
+**Distinguish observation from inference.** "The process opened a handle to
+lsass.exe with access mask 0x1010" is an observation. "The attacker dumped
+credentials" is an inference. Both belong in the report - clearly labelled as what
+they are. Blurring them is how wrong conclusions get repeated as fact by people
+three steps removed from the evidence.
+
+**Use calibrated confidence language** and use it consistently:
+
+- *Confirmed* - directly observed in the evidence
+- *High confidence* - strong evidence, no reasonable alternative explanation
+- *Moderate confidence* - evidence supports it, alternatives exist
+- *Low confidence / possible* - consistent with, but far from established
+- *Unable to determine* - a legitimate and respectable finding
+
+**Avoid hedging that means nothing.** "It appears that there may possibly have
+been some suspicious activity" says less than "unable to determine whether the
+file was executed; no process creation event was recorded."
+
+**Write plainly.** No "in today's evolving threat landscape". No "leveraged" where
+"used" works. The reader is busy.
+
+<Callout type="warn">
+Never write "closed, false positive" or "closed, benign" without evidence. The
+next analyst cannot verify it, the tuning team cannot act on it, and if the
+decision was wrong nobody can reconstruct why. A closure needs the same rigour as
+an escalation, just less of it - what you checked, what it showed, why it is
+benign.
+</Callout>
+
+<Scenario
+  step="track/04-applied-triage/06-report-writing"
+  id="write-escalation"
+  title="Turn raw findings into an escalation"
+  minutes={15}
+>
+<div slot="brief">
+
+These are your working notes from the previous step's investigation - the state
+your notepad is genuinely in mid-shift. Write the escalation.
+
+```text
+raw notes:
+- alert impossible travel p.osei 0914
+- tor exit 185.220.x.x, 34 fails before it, one each, diff accounts
+- p.osei success 0914 MFA ok BUT device unregistered <- odd
+- real user logged in 0931 from home, compliant device
+- file-srv-02 logs are BST!! converted
+- 0922 logon type3 from laptop, 0922 4672 privs
+- 0924 read 847 files HR-Confidential share
+- 0941 svc_backup from the LAPTOP not backup-01
+- 0941 new service WinTelemetrySvc c:\windows\temp\wts.exe
+- fw: beacon 60s to tor ip from 0947, 62 conns
+- fw: 1052 3.8GB out to 45.61.x.x one flow
+- laptop = LAPTOP-P-OSEI = 10.20.9.14
+- havent checked: other sprayed accts, oauth grants, where else svc_backup used
+```
+
+Write the full escalation using the six-section template. Then compare.
+
+</div>
+<div slot="model">
+
+```text
+────────────────────────────────────────────────────────────────
+ESCALATION - INC-2026-0714-003
+Account compromise with confirmed data exfiltration
+Analyst: [name] · Raised: 14 Jul 2026 11:20 UTC
+────────────────────────────────────────────────────────────────
+
+1. SUMMARY
+Confirmed compromise of user account p.osei via probable token
+replay, following a successful password spray from a Tor exit
+node. The attacker accessed 847 files on an HR-confidential
+share, compromised the svc_backup service account, established
+service persistence, and exfiltrated 3.8 GB to an external
+host. Immediate containment is recommended. Personal data is
+likely in scope.
+
+2. SEVERITY: CRITICAL
+Confirmed exfiltration of HR-confidential material, two
+compromised identities including a privileged service account,
+and active persistence at time of writing.
+
+3. TIMELINE (all times UTC; FILE-SRV-02 logs converted from BST)
+
+09:12:04  Password spray begins, 185.220.x.x (Tor exit).
+          34 accounts, one attempt each, all status 50126.
+09:14:41  p.osei signs in successfully from 185.220.x.x.
+          MFA satisfied. Device UNREGISTERED.
+09:22:09  Network logon (4624 type 3) to FILE-SRV-02 from
+          LAPTOP-P-OSEI (10.20.9.14).
+09:22:11  4672 - special privileges assigned to session.
+09:24:53  5145 - 847 files read from \\FILE-SRV-02\
+          HR-Confidential.
+09:31:18  p.osei signs in from 92.40.x.x on compliant device
+          LAPTOP-P-OSEI. Assessed as the legitimate user.
+09:41:02  svc_backup authenticates from LAPTOP-P-OSEI.
+          Expected source is BACKUP-01 only.
+09:41:30  7045 - service "WinTelemetrySvc" created,
+          ImagePath C:\Windows\Temp\wts.exe.
+09:47:55  Outbound beaconing begins to 185.220.x.x:443.
+          62 connections at ~60s intervals, ~1.2 KB each.
+10:52:14  Single outbound flow, 3.8 GB, to 45.61.x.x:443.
+
+4. EVIDENCE CHECKED
+- Entra sign-in logs: spray pattern (one attempt per account
+  across 34 accounts), success for p.osei, device registration
+  state and MFA method on both sign-ins.
+- FILE-SRV-02 Security log: 4624 type 3, 4672, 5145 share
+  access with file count.
+- Perimeter firewall: connection records for 10.20.9.14,
+  interval and byte counts.
+- Asset inventory: 10.20.9.14 confirmed as LAPTOP-P-OSEI;
+  svc_backup expected source confirmed as BACKUP-01.
+
+5. ASSESSMENT
+High confidence this is a genuine compromise, not a false
+positive. The combination of a Tor-exit source, an
+unregistered device satisfying MFA, and privileged file
+access seventeen minutes before the legitimate user signed
+in from home has no benign explanation I can construct.
+
+MFA satisfaction from an unregistered device indicates token
+replay rather than credential-only compromise (T1550.001).
+Password reset alone will therefore NOT terminate access.
+
+svc_backup authenticating from a user laptop is assessed as
+credential theft rather than misconfiguration, given the
+timing relative to the file access.
+
+Confidence would reduce if: the 09:14 sign-in is explained by
+a corporate VPN egressing via that IP range (assessed
+unlikely - Tor exit), or if svc_backup is legitimately used
+from endpoints (needs confirmation from the platform team).
+
+TECHNIQUES: T1110.003, T1078.004, T1550.001, T1021.002,
+T1039, T1543.003, T1071.001, T1041
+
+6. RECOMMENDATIONS (priority order)
+a. Isolate LAPTOP-P-OSEI, preserving memory. Do not power
+   off - the beacon process and any unpacked payload are in
+   volatile memory.
+b. Revoke all sessions and refresh tokens for p.osei.
+   A password reset alone is insufficient.
+c. Identify all systems using svc_backup BEFORE disabling,
+   then rotate. Disabling blind will break backups.
+d. Block 185.220.x.x and 45.61.x.x at the perimeter.
+e. Determine the contents of the 847 files - this drives
+   any notification obligation and the clock has started.
+f. Review Entra audit log for OAuth consent grants, inbox
+   rules and MFA method changes on p.osei.
+
+OUTSTANDING - not yet completed by me:
+- Which of the 34 sprayed accounts are valid, and did any
+  other succeed
+- Estate-wide hunt for the beacon interval and both IPs
+- Whether svc_backup authenticated to any other host
+
+Actions a-d are outside Tier 1 authority and are raised as
+recommendations.
+────────────────────────────────────────────────────────────────
+```
+
+**What makes this work, and what to copy into your own template:**
+
+- **The summary answers the question before any detail.** A manager reading only
+  section 1 knows the severity, the impact and the ask.
+- **The timezone conversion is stated explicitly** in the timeline header. Anyone
+  re-checking your work knows what you did.
+- **Evidence is separated from assessment.** Section 4 is what the logs say;
+  section 5 is what you think it means. A reader can disagree with your conclusion
+  while still trusting your facts.
+- **Confidence is calibrated and falsifiable.** You said what would change your
+  mind and who needs to confirm it.
+- **The recommendations are specific and ordered**, and two of them carry a warning
+  about *how* to execute - don't power off, don't disable svc_backup blind. That
+  operational awareness is what earns trust.
+- **The outstanding section is honest.** Listing what you have not done is not an
+  admission of failure; it prevents Tier 2 assuming coverage that does not exist,
+  and that assumption is how things get missed during handover.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/04-applied-triage/06-report-writing"
+  id="written-work"
+  question="Show me an example of your written work, and talk me through how you structure an escalation."
+  seconds={90}
+  hits={[
+    "BLUF - the conclusion and the ask come first, not the chronology",
+    "Six sections: summary, severity, timeline, evidence, assessment, recommendation",
+    "Timeline normalised to UTC with the conversion stated",
+    "Evidence kept separate from assessment, so a reader can trust the facts while questioning the conclusion",
+    "Calibrated confidence language, and explicitly what would change my mind",
+    "Recommendations specific, prioritised, and flagged as inside or outside my authority",
+    "An outstanding section listing what I have not yet checked"
+  ]}
+  trap="Having no example to show. Bring one - a redacted write-up from your lab or a public challenge. 'I'd structure it with a summary and a timeline' is theory; handing over a real document is proof, and almost no entry-level candidate does it."
+/>
+
+<Quiz mid="track/04-applied-triage/06-report-writing" title="Writing the Investigation Report" questions={[
+  {
+    q: "Why should an escalation lead with the conclusion rather than the investigation chronology?",
+    opts: ["It makes the report shorter", "The reader is under time pressure and needs to decide immediately how urgently to act", "Chronology is not relevant to incidents", "It is required by NIST"],
+    a: 1,
+    why: "BLUF lets an incident manager read one sentence and know whether to mobilise. The chronology still belongs in the report - as the timeline section - but making the reader work through your investigative path to reach the answer wastes the attention of the person best placed to act on it."
+  },
+  {
+    q: "Which statement is an observation rather than an inference?",
+    opts: ["The attacker dumped credentials from memory", "A process opened a handle to lsass.exe with access mask 0x1010", "The account was compromised via phishing", "The intrusion began at 09:12"],
+    a: 1,
+    why: "The access-mask detail is directly visible in the telemetry; the others are conclusions drawn from evidence. Both belong in a report, but they must be labelled distinctly - blurring them is how an inference gets repeated as established fact by people several steps removed from the original evidence."
+  },
+  {
+    q: "What makes 'unable to determine' a legitimate finding?",
+    opts: ["It avoids committing to a position that could be wrong", "It accurately conveys the limits of the available evidence, which is more useful than false certainty", "It transfers responsibility to Tier 2", "It is never appropriate in a report"],
+    a: 1,
+    why: "If process creation events were not being collected, you genuinely cannot say whether the file executed, and pretending otherwise misleads everyone downstream. Stating the limit - ideally with why, since that identifies a telemetry gap worth fixing - is honest and actionable. False certainty is the failure mode, not uncertainty."
+  },
+  {
+    q: "Why should a report state what would change the analyst's conclusion?",
+    opts: ["To demonstrate humility", "It tells the reader how much weight to place on the conclusion and identifies exactly what to verify next", "It is a compliance requirement", "It shortens the assessment section"],
+    a: 1,
+    why: "A falsifiable conclusion is a useful one. Naming the specific evidence that would flip your assessment converts a bare judgement into something the reader can test, and it hands the next person a concrete verification task rather than leaving them to guess at your reasoning."
+  },
+  {
+    q: "What is wrong with closing a ticket as 'closed, false positive'?",
+    opts: ["False positive is the wrong terminology", "It records a conclusion with no evidence, so it cannot be verified, reused for tuning, or reconstructed if it was wrong", "Closures should always be escalated first", "It should include the analyst's name only"],
+    a: 1,
+    why: "Closures need the same rigour as escalations, just less volume: what you checked, what it showed, why it is benign. Without that, the tuning team has nothing to act on, a reviewer cannot verify the decision, and if the closure was mistaken nobody can work out how. It is the single most common documentation failure in Tier 1."
+  },
+  {
+    q: "Why include an 'outstanding' section listing what you did not check?",
+    opts: ["To protect yourself from blame", "It prevents the next analyst assuming coverage that does not exist, which is how gaps survive handover", "It fills space in the template", "Regulators require it"],
+    a: 1,
+    why: "Handover failures are a major source of missed activity: Tier 2 reasonably assumes anything unmentioned was covered. Explicitly listing the unchecked pivots makes the gap visible and actionable. It reads as thoroughness rather than weakness, because it is."
+  },
+  {
+    q: "A recommendation reads 'isolate the host, preserving memory - do not power off'. What makes this stronger than 'isolate the host'?",
+    opts: ["It is longer and therefore more thorough", "It anticipates how the action could be executed badly and prevents destruction of volatile evidence", "It transfers the decision to the reader", "It satisfies the chain of custody requirement"],
+    a: 1,
+    why: "Whoever executes the action may not have your forensic context, and 'isolate' is easily interpreted as 'shut it down'. Specifying how to do it preserves memory-resident evidence such as the beacon process and any unpacked payload. Operational awareness of this kind is what earns an analyst trust beyond their tier."
+  }
+]} />
+
+<TaskList step="track/04-applied-triage/06-report-writing" tasks={[
+  { text: "Write the escalation in the scenario before reading the model" },
+  { text: "Build your own six-section escalation template and save it", detail: "You will use it for every investigation from here, including in BTL1 and in interviews." },
+  { text: "Rewrite three of your earlier scenario answers as proper escalations", detail: "The Kerberoast, the AiTM takeover, and the cryptominer. You now have three portfolio-ready write-ups." },
+  { text: "Write one benign closure with full reasoning", detail: "The certutil case. Practising good closures matters more than practising escalations, because you will write far more of them." },
+  { text: "Write an executive summary of one incident in under 150 words", detail: "No jargon, no event IDs. What happened, what it means, what is being done. Genuinely harder than the technical version." },
+  { text: "Have someone non-technical read one of your reports", detail: "Anything they stumble on is something an incident manager will stumble on at 3am." },
+  { text: "Redact one write-up and keep it as your interview sample", detail: "Bring it, print it, or link it. Almost no entry-level candidate does this." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "SANS - Writing effective incident reports", by: "SANS", url: "https://www.sans.org/white-papers/", type: "read", minutes: 40, note: "Search their free whitepaper library for incident documentation and reporting. Several are directly on structure and audience.", primary: true },
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Read these now as writing models rather than technical content. Note how they open, how they separate evidence from assessment, and how they present timelines." },
+  { title: "CISA incident reporting guidance", url: "https://www.cisa.gov/report", type: "ref", note: "What external reporting requires. Useful for understanding what an escalation eventually feeds into." },
+  { title: "Microsoft IR playbooks - report structure", by: "Microsoft", url: "https://learn.microsoft.com/en-us/security/operations/incident-response-playbooks", type: "read", minutes: 30, note: "Read them for their documentation structure as much as their technical content - they are effectively worked examples." },
+  { title: "Analytic confidence and words of estimative probability", url: "https://www.cia.gov/resources/csi/studies-in-intelligence/", type: "read", minutes: 25, note: "The intelligence community solved calibrated confidence language decades ago and security borrowed it. Search the archive for words of estimative probability." },
+  { title: "Plain English Campaign - free guides", url: "https://www.plainenglish.co.uk/free-guides.html", type: "read", minutes: 20, note: "Unglamorous and genuinely useful. Clear writing is a security skill, and this is the fastest way to improve it." }
+]} />
+
+<Gate
+  step="track/04-applied-triage/06-report-writing"
+  conditions={[
+    "I have a six-section escalation template and use it consistently",
+    "I lead with the conclusion, not the chronology",
+    "I separate observation from inference and label both",
+    "I use calibrated confidence language and state what would change my conclusion",
+    "I write closures with evidence, never 'closed, FP'",
+    "I have at least three redacted write-ups ready to show at interview"
+  ]}
+  unlocks="Phase 4 complete. You can now triage email, endpoint, network, malware and multi-source logs, and write up the result so it gets acted on. Next: the lab work in Phase 5 turns this into public evidence."
+/>

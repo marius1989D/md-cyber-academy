@@ -1,0 +1,287 @@
+---
+title: "Cloud & Identity Basics"
+phase: 1
+order: 6
+summary: "Entra ID, sign-in logs, conditional access and the identity-first attacks — token theft, MFA fatigue, OAuth consent abuse — that never touch an endpoint."
+weeks: "Week 7"
+minutes: 240
+kind: learn
+pillar: fundamentals
+cost: 0
+prereq: ["01-foundations/05-linux"]
+academy: ["network/03-cloud-identity"]
+attack: ["T1078.004", "T1528", "T1621", "T1550.001", "T1098.001"]
+tags: ["cloud", "entra", "identity", "oauth", "conditional-access", "fundamentals"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="A user's account shows a successful sign-in from an unusual country. Walk me through your triage.">
+The perimeter moved. For most modern organisations the real front door is Entra
+ID, and a huge share of actual incidents now begin with an identity — a phished
+token, an MFA-fatigued user, a malicious OAuth consent — and never drop a single
+file on an endpoint. A SOC that only watches endpoints misses these entirely.
+This is the newest material in Phase 1, the part CEH doesn't touch at all, and
+increasingly the first question in a modern SOC interview.
+</Why>
+
+## The model: identity as the control plane
+
+In a cloud-first environment, **identity is the perimeter**. Entra ID (formerly
+Azure AD) is Microsoft's identity provider, and the objects you'll triage against
+are:
+
+- **Users** and **groups** — as in on-prem AD, often synced from it.
+- **Service principals** and **app registrations** — non-human identities for
+  applications. Frequently over-permissioned and under-watched, which makes them
+  a rising attack surface.
+- **Managed identities** — Azure-assigned identities for resources, so code
+  authenticates without stored secrets.
+- **Conditional Access policies** — the rules engine: *if* this user, from this
+  location, on this device, *then* require MFA / block / grant. This is where much
+  of the actual security lives, and gaps in it are what attackers hunt for.
+
+<Callout type="key">
+The mental shift from the AD step: on-prem you think in tickets and hashes; in
+the cloud you think in **tokens and consent**. An access token or refresh token
+is the cloud equivalent of a Kerberos ticket — steal it and you're authenticated
+without a password *and without triggering MFA*, because MFA already happened
+when the token was issued.
+</Callout>
+
+## The log that matters: Entra sign-in logs
+
+The sign-in logs are your 4624 for the cloud. The high-value fields:
+
+- **Result** — success or failure, plus a failure reason code.
+- **IP address and location** — geo-derived, the basis of impossible-travel.
+- **Application** — what was being signed into.
+- **Conditional Access** — which policies applied and what they did.
+- **Authentication requirement** — single-factor or multi-factor, and *how* MFA
+  was satisfied.
+- **Device** — managed/compliant or unknown.
+
+Two failure reason codes worth recognising, because they distinguish attack
+shapes:
+
+- **50126** — invalid username or password. Volume across many accounts is cloud
+  password spraying (T1110.003).
+- **50053** — account locked, or *smart lockout* triggered. A cluster suggests an
+  active spray being throttled.
+- **50074 / 500121** — MFA challenge not satisfied / failed. A run of these against
+  one user, followed by a success, is the MFA-fatigue signature.
+
+The other essential log is the **audit log** — directory changes: consent grants,
+role assignments, new app registrations, credential additions to service
+principals. That's where persistence and privilege escalation show up in the cloud.
+
+## The identity-first attacks
+
+Each paired with what it looks like in the logs — the same discipline as the AD step.
+
+| Attack | What it does | Signal |
+|---|---|---|
+| **Password spray** (T1110.003) | One password across many cloud accounts | Many 50126s from few IPs; distributed across accounts |
+| **MFA fatigue / bombing** (T1621) | Spams push approvals until the user taps accept | Repeated MFA challenges then a success; user later denies it |
+| **Token theft / pass-the-token** (T1550.001) | Steals an access/refresh token, replays it | Token used from a new IP, ASN, or device; session anomalies |
+| **AiTM phishing** | Proxies the login to capture the *post-MFA* token | Sign-in from a proxy IP; impossible travel; new device registration right after |
+| **Illicit OAuth consent** (T1528) | Tricks a user into granting an app broad permissions | Audit log: consent to an unknown app requesting mail/files scopes |
+| **Service principal abuse** (T1098.001) | Adds credentials to an app to persist | Audit log: new client secret or certificate on a service principal |
+
+<Callout type="detect">
+**Illicit consent is the one juniors miss because it doesn't look like an attack.**
+There's no failed login, no malware — a user simply clicks "Accept" on an app
+asking for `Mail.Read` and `Files.ReadWrite.All`, and now an attacker's app has
+standing access to their mailbox that survives password resets and MFA. The
+detection lives entirely in the **audit log** consent events, not the sign-in
+logs. Being able to describe this attack marks you out as current.
+</Callout>
+
+## Why token theft beats MFA
+
+Worth internalising because interviewers probe it: MFA is checked when a token is
+**issued**, not on every use. An attacker who steals a valid token (via AiTM
+phishing, or malware reading it from a browser) replays it and is already
+authenticated — the MFA prompt never re-fires because the session is considered
+established. This is why the defensive frontier has moved to **token protection**,
+**conditional access on device compliance**, and **shortened token lifetimes**,
+rather than MFA alone. "MFA solves phishing" is a claim a good interviewer will
+push on, and the correct answer is that AiTM and token theft route around it.
+
+<Scenario
+  step="track/01-foundations/06-cloud-identity"
+  id="impossible-travel"
+  title="A sign-in from two countries in ten minutes"
+  minutes={8}
+>
+<div slot="brief">
+
+An impossible-travel alert lands. You pull the sign-in and audit logs for the
+user:
+
+```text
+User: r.okonkwo@corp.com
+
+Sign-in 1  08:41  London, GB       IP 82.x (corp VPN egress)
+           App: Office 365        MFA: satisfied (authenticator)
+           Device: compliant       Result: success
+
+Sign-in 2  08:49  Lagos, NG        IP 105.x (hosting provider ASN)
+           App: Office 365        MFA: satisfied (token)
+           Device: unregistered    Result: success
+           Conditional Access: "Require compliant device" — NOT applied
+                                (policy scoped to Exchange only)
+
+Audit log  08:52  Consent granted to app "Mail Backup Pro"
+                  Scopes: Mail.Read, Mail.ReadWrite, offline_access
+                  Consent type: user
+
+Audit log  08:53  Inbox rule created: move messages containing
+                  "invoice","payment","bank" to RSS Feeds; mark read
+```
+
+Triage it. What happened, and what's your call?
+
+</div>
+<div slot="model">
+
+**This is an account takeover via AiTM phishing, now establishing persistence and
+preparing for business email compromise.** Read the sequence:
+
+1. **Two successful sign-ins, 8 minutes apart, London then Lagos.** Physically
+   impossible, so one is not the real user. The London one — corp VPN, compliant
+   device, authenticator MFA — is genuine. The Lagos one is the attacker.
+2. **The Lagos sign-in "satisfied MFA" via token, from an unregistered device on a
+   hosting ASN.** This is the tell for **token theft** — the attacker phished the
+   user through an AiTM proxy, captured the *post-MFA* token, and replayed it. MFA
+   didn't re-challenge because the token was already minted. Hosting-provider ASN
+   is not where a real user in Lagos would be.
+3. **Conditional Access didn't save it** — "require compliant device" existed but
+   was scoped to Exchange only, so the Office 365 sign-in slipped through. That
+   policy gap is a finding in its own right and worth flagging to whoever owns CA.
+4. **Illicit OAuth consent to "Mail Backup Pro"** at 08:52 — the attacker grants
+   their own app persistent mailbox access. This survives a password reset *and* a
+   token revocation, which is why it's the most important artifact here. Killing
+   the session alone won't remove it.
+5. **The inbox rule** hiding invoice/payment/bank mail is classic BEC staging —
+   they're hunting for a payment thread to hijack and hiding the evidence from the
+   real user.
+
+**Order:** AiTM phish → token replay from Lagos → OAuth consent for persistence →
+inbox rule for BEC prep. Minutes apart, fully automated in places.
+
+**Your call — escalate now, this is a live BEC in progress:**
+
+- **Recommend immediate response**, and be specific that password reset is *not
+  sufficient*: the session tokens must be revoked **and** the OAuth grant to "Mail
+  Backup Pro" removed, or the attacker retains access. This is the detail that
+  distinguishes a real answer.
+- **Recommend removing the inbox rule** and reviewing what mail was already
+  accessed.
+- **Flag the Conditional Access gap** — the compliant-device policy scoped to
+  Exchange only let this through; that's a systemic fix beyond this one incident.
+- **Scope it:** was "Mail Backup Pro" consented by anyone else? A malicious app is
+  rarely aimed at one user. Pivot on the app ID across the tenant.
+
+**What would change it:** if `r.okonkwo` were genuinely travelling and using a
+personal device via a Lagos hosting VPN, sign-in 2 could be benign — but the
+OAuth consent and the invoice-hiding inbox rule are not explainable by travel.
+Those two artifacts are what turn "possible false positive" into "confirmed
+compromise", and they're why you read the audit log, not just the sign-in log.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/01-foundations/06-cloud-identity"
+  id="impossible-travel-triage"
+  question="A user's account shows a successful sign-in from an unusual country. Walk me through your triage."
+  seconds={90}
+  hits={[
+    "Don't assume malicious — first rule out VPN, travel, and a cloud provider the user legitimately uses",
+    "Check the sign-in details: IP/ASN, device (managed vs unknown), how MFA was satisfied, which app",
+    "Look for impossible travel against the prior sign-in, and whether a second concurrent session exists",
+    "Pull the audit log, not just sign-ins: OAuth consents, new inbox rules, MFA method changes, role changes",
+    "Token theft framing: a token replayed from a new device 'satisfies MFA' without re-prompting",
+    "Escalation with the right remediation: revoke sessions AND remove any OAuth grant, not just reset the password"
+  ]}
+  trap="Jumping straight to 'block the account' without checking the audit log. If they've planted an OAuth grant or an inbox rule, a password reset leaves the attacker with access — and missing that is the difference between a real answer and a textbook one."
+/>
+
+<Quiz mid="track/01-foundations/06-cloud-identity" title="Cloud & Identity Basics" questions={[
+  {
+    q: "Why can a stolen access token let an attacker bypass MFA?",
+    opts: ["Tokens contain the user's password", "MFA is validated when the token is issued, not on each use, so replaying a valid token skips the prompt", "Tokens disable MFA permanently", "MFA does not apply to cloud apps"],
+    a: 1,
+    why: "The token represents an already-authenticated session, MFA included. Replaying it presents an established session, so no new challenge fires. This is why AiTM phishing captures the post-MFA token specifically, and why the defensive frontier has moved to token protection, device-bound sessions and shorter token lifetimes rather than relying on MFA alone."
+  },
+  {
+    q: "Illicit OAuth consent is dangerous primarily because:",
+    opts: ["It generates many failed logins", "It grants an attacker's app standing access to data that survives password resets and MFA", "It only affects the user's local device", "It requires administrator privileges to exploit"],
+    a: 1,
+    why: "A user consenting to an app's requested scopes grants that app ongoing access via its own tokens, independent of the user's password. Resetting the password or re-doing MFA doesn't revoke it — only removing the app grant does. It's a persistence and data-access technique (T1528) that leaves no failed-login trail, so the detection lives in the audit log's consent events."
+  },
+  {
+    q: "In Entra sign-in logs, a burst of failure code 50126 across many accounts from a few IPs indicates:",
+    opts: ["A service outage", "Cloud password spraying", "Normal single sign-on behaviour", "Certificate expiry"],
+    a: 1,
+    why: "50126 is invalid username or password. Spread thinly across many accounts from a small set of source IPs is the spray signature — one password tried broadly to stay under lockout thresholds, the cloud analogue of the on-prem 4625 pattern. Clusters of 50053 (smart lockout) alongside it confirm throttling is kicking in."
+  },
+  {
+    q: "Which log would you check to find that an attacker added a client secret to a service principal for persistence?",
+    opts: ["The sign-in logs", "The Entra audit log", "The Windows security event log", "The DNS query log"],
+    a: 1,
+    why: "Credential additions to app registrations and service principals are directory changes, which appear in the audit log, not the sign-in log. Service principal abuse (T1098.001) is a growing cloud persistence method precisely because these non-human identities are under-monitored — knowing to look in the audit log for new secrets/certificates is the key skill."
+  },
+  {
+    q: "A run of MFA challenges to one user followed by a success, after which the user says they approved a prompt they didn't initiate, is:",
+    opts: ["Normal MFA behaviour", "MFA fatigue (push bombing)", "A conditional access misconfiguration", "A token expiry event"],
+    a: 1,
+    why: "MFA fatigue (T1621) floods the user with push approvals until they tap accept out of annoyance or confusion, often at an odd hour. The signature is repeated MFA challenges then an approval, with the user later disowning it. Number-matching and limiting push attempts are the mitigations, and they're worth naming as the fix."
+  },
+  {
+    q: "What is the main risk of a Conditional Access policy scoped too narrowly, e.g. to one application?",
+    opts: ["It slows down sign-ins", "Sign-ins to other applications bypass the control entirely", "It blocks legitimate users", "It disables MFA globally"],
+    a: 1,
+    why: "Conditional Access only applies where its conditions match. A 'require compliant device' policy scoped to Exchange does nothing for a sign-in to Office 365 or the Graph API, leaving a gap an attacker can walk through. Scoping gaps are a common real-world weakness, and spotting one during triage — as in the scenario — is a finding in itself."
+  }
+]} />
+
+<TaskList step="track/01-foundations/06-cloud-identity" tasks={[
+  { text: "Create a free Entra ID tenant and generate your own sign-in and audit logs", detail: "Microsoft's free developer tenant. Sign in, fail MFA, grant an app consent — then read what each action logged." },
+  { text: "Build the identity-attack table from memory", detail: "Attack, what it does, where the signal is (sign-in log vs audit log). This is the interview payload." },
+  { text: "Write out why token theft defeats MFA in two sentences", detail: "You will be asked. Have it ready and crisp." },
+  { text: "Explore Conditional Access in the free tenant and build one policy", detail: "Understand scope, conditions and grant controls hands-on — it demystifies the scoping-gap finding." },
+  { text: "Read one real AiTM / BEC incident write-up end to end" },
+  { text: "Retake the Phase 0 baseline quiz and compare your score" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Microsoft Learn — Entra ID fundamentals", by: "Microsoft", url: "https://learn.microsoft.com/en-us/entra/fundamentals/", type: "read", note: "The legitimate architecture, free and mobile-friendly. Also directly feeds SC-900 and SC-200 later.", primary: true },
+  { title: "Microsoft — Investigate sign-in logs", by: "Microsoft", url: "https://learn.microsoft.com/en-us/entra/identity/monitoring-health/concept-sign-ins", type: "ref", note: "Every field in the sign-in logs, and the failure reason codes. Bookmark the error-code reference." },
+  { title: "Microsoft Incident Response playbooks", by: "Microsoft", url: "https://learn.microsoft.com/en-us/security/operations/incident-response-playbooks", type: "read", minutes: 30, note: "Official playbooks for password spray, app consent grant and compromised accounts. This is essentially a SOC runbook — read the consent-grant one." },
+  { title: "TryHackMe — Microsoft Entra / Azure AD rooms", url: "https://tryhackme.com/", type: "do", cost: "Free tier", note: "Hands-on cloud identity content on the free tier. Search the room catalogue for Entra and Azure." },
+  { title: "Set up a free Microsoft 365 developer tenant", by: "Microsoft", url: "https://developer.microsoft.com/en-us/microsoft-365/dev-program", type: "do", note: "Your own sandbox tenant to generate real logs and try Conditional Access without touching anything live." },
+  { title: "The DFIR Report / Huntress — identity incidents", url: "https://www.huntress.com/blog", type: "read", minutes: 20, note: "Search their blogs for AiTM, token theft and BEC — accessible real-world write-ups at exactly your level." }
+]} />
+
+<Gate
+  step="track/01-foundations/06-cloud-identity"
+  conditions={[
+    "I can explain why identity is the modern perimeter and think in tokens and consent",
+    "I know the difference between the Entra sign-in log and the audit log, and what each catches",
+    "I can reproduce the identity-attack table from memory",
+    "I can explain clearly why token theft bypasses MFA",
+    "I have generated and read real sign-in and audit logs in a free tenant",
+    "I can spot a Conditional Access scoping gap and know remediation is more than a password reset"
+  ]}
+  unlocks="Phase 1 complete. Your fundamentals now cover network, Windows, AD, Linux and cloud identity — the whole surface a Tier 1 analyst triages. Phase 2 turns this into defensive discipline: the IR lifecycle, ATT&CK as a working tool, and why false positives are the actual job."
+/>

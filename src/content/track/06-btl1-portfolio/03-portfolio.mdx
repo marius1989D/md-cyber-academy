@@ -1,0 +1,239 @@
+---
+title: "Build the Public Portfolio"
+phase: 6
+order: 3
+summary: "Assemble thirty weeks of work into something a recruiter understands in sixty seconds and a hiring manager wants to read properly."
+weeks: "Weeks 32-34"
+minutes: 360
+kind: writing
+pillar: evidence
+cost: 0
+prereq: ["06-btl1-portfolio/02-btl1-exam"]
+tags: ["portfolio", "github", "blog", "personal-brand", "writing"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import BlogBrief from '../../../components/track/BlogBrief.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Talk me through your portfolio.">
+You have done the work. The risk now is that nobody can see it. A recruiter
+screening forty applications gives each one somewhere between twenty and ninety
+seconds, and a hiring manager will click at most two links. Everything in this
+step is about making those seconds count - not by adding new work, but by
+organising what exists so its value is legible to someone who was not there.
+</Why>
+
+## The sixty-second test
+
+Open your portfolio in a private browser window and time yourself. Within sixty
+seconds a stranger should be able to answer:
+
+1. **What can this person do?**
+2. **What evidence supports that?**
+3. **What would I ask them about in an interview?**
+
+If any answer requires scrolling past the first screen or opening a second page,
+restructure. This is the only test that matters, and almost every entry-level
+portfolio fails it by burying the good work three clicks deep.
+
+## Repo structure
+
+One repository, clearly organised. Not five scattered ones.
+
+```text
+md-cyber-range/
+├── README.md                    ← does all the work
+├── 01-lab/
+│   ├── architecture.md          diagram, build, cost controls
+│   └── blind-spots.md           what this lab cannot see
+├── 02-telemetry/
+│   └── technique-telemetry.md   the ATT&CK table from Phase 5
+├── 03-detections/
+│   ├── README.md                methodology and validation approach
+│   ├── kql/                     rules, one file each
+│   ├── sigma/                   portable versions
+│   └── ads/                     ADS documents per rule
+├── 04-automation/
+│   └── playbooks/               exported Logic Apps + screenshots
+└── 05-investigations/
+    └── *.md                     redacted write-ups
+```
+
+<Callout type="key">
+**The README is the portfolio.** Most visitors read it and nothing else, so it
+must stand alone: what this is, what you built, what you found, what you would do
+differently. Lead with a short summary and a diagram, then link into the detail.
+A repo whose README says "see folders" has wasted the click.
+</Callout>
+
+**In the README, include numbers.** "Wrote 12 detections across 8 ATT&CK
+techniques, validated against 31 atomics, with 3 documented blind spots" is
+concrete. "Built a home lab and wrote some detections" is not.
+
+## The GitHub Pages site
+
+Free, and it demonstrates you can use git and a static site generator - a small
+signal, but a real one.
+
+Keep it to four pages: **home** (who you are, three lines, and the three strongest
+links), **projects** (the lab, with the diagram), **writing** (the four posts), and
+**contact** (LinkedIn, GitHub, email). Nothing else. A portfolio site with a blog
+categories sidebar and a tag cloud and eleven navigation items reads as someone
+performing professionalism rather than demonstrating it.
+
+## What to leave out
+
+As important as what to include:
+
+- **Course completion certificates** other than the credentials themselves. Nobody
+  cares about a Udemy certificate.
+- **CTF flags with no write-up.** The write-up is the value; the flag is not.
+- **Anything from a real employer or customer**, even redacted, unless you have
+  explicit written permission. This is the VirusTotal principle from Phase 4 -
+  discretion is itself a hiring signal, and its absence is disqualifying.
+- **Tutorial follow-alongs presented as original work.** If you followed a guide,
+  say so and describe what you changed or found.
+- **Half-finished projects.** Three complete things beat eight abandoned ones.
+
+<BlogBrief
+  step="track/06-btl1-portfolio/03-portfolio"
+  number={3}
+  title="Anatomy of an Investigation: Working a Simulated Intrusion End to End"
+  words="1,800-2,200"
+  publish="GitHub Pages as canonical, cross-posted to LinkedIn. This is the one you link directly from your CV."
+  hook="The executive summary at the top, written for a non-technical reader, followed by the confidence statements throughout the detailed findings. Almost every entry-level write-up is a wall of technical detail with no summary and no calibrated language. Opening with a plain-English impact statement and then saying 'high confidence, and here is what would change my assessment' demonstrates you can communicate upward - which is what separates a Tier 1 analyst who progresses from one who does not."
+  outline={[
+    "**Executive summary first.** 150 words, plain English, no jargon, no event IDs. What happened, what was affected, what the impact was. Write this last, place it first.",
+    "One paragraph on the source - a CyberDefenders challenge or your own lab scenario. Be explicit that it is simulated. Never imply real-world incident access you do not have.",
+    "**The timeline.** UTC, chronological, one line per event, with the source of each. State the timezone normalisation you performed.",
+    "**Detailed findings**, one section each. For every finding: what you observed, the evidence (screenshot or query), and what you infer from it - clearly separated.",
+    "**The pivot that cracked it.** Every good investigation has one moment where a fact from one source unlocked another. Tell it as a small narrative. This is the most readable part of the post.",
+    "**What you got wrong first.** A hypothesis you pursued that turned out to be incorrect, and how the evidence corrected you. Include this - it is the single most credible paragraph you can write.",
+    "**Indicators of compromise**, listed cleanly and copy-pasteable.",
+    "**ATT&CK mapping** as a table.",
+    "**Recommendations**, prioritised, split into containment, eradication and prevention.",
+    "**Limitations.** What you could not establish and what data would have been needed. Honest gaps, exactly as in the BTL1 report."
+  ]}
+>
+
+**The two paragraphs that make this post work** are the executive summary and the
+"what I got wrong first" section. Everyone can produce technical detail; almost
+nobody writes a plain-English impact statement or admits a corrected hypothesis.
+Those two are what a hiring manager remembers.
+
+**Before publishing:** verify every claim against your evidence. A confident
+statement you cannot support is the one thing that will be found in an interview.
+
+**Then log it**, and link it from your CV's projects section by name.
+
+</BlogBrief>
+
+## The fourth post
+
+Blog post 4 - the career-change narrative - belongs in Phase 7 alongside the CV and
+LinkedIn work, because it is a campaign asset rather than a technical one. Note it
+now so the writing is planned, but write it when you build the narrative.
+
+<Drill
+  step="track/06-btl1-portfolio/03-portfolio"
+  id="walk-portfolio"
+  question="Talk me through your portfolio."
+  seconds={120}
+  hits={[
+    "Open with the shape: a lab I built, attacked, detected against, and documented - one coherent project rather than scattered exercises",
+    "Give numbers - techniques simulated, detections written, atomics validated against, false positive reduction achieved",
+    "Name the strongest single artifact and why it is strongest",
+    "Mention the blind spots documentation unprompted - it demonstrates I understand the limits of my own work",
+    "Reference the write-ups as evidence of written communication, not just technical work",
+    "Close with what I would build next and why"
+  ]}
+  trap="Listing everything you made. The interviewer wants the shape and one thing in depth, not an inventory. Pick your strongest artifact and be ready to go three questions deep on it - including what is wrong with it."
+/>
+
+<Quiz mid="track/06-btl1-portfolio/03-portfolio" title="Build the Public Portfolio" questions={[
+  {
+    q: "What is the single most important element of a GitHub portfolio repository?",
+    opts: ["The number of commits", "The README, because most visitors read it and nothing else", "The folder structure", "The programming languages used"],
+    a: 1,
+    why: "A recruiter or hiring manager typically opens one page and skims it. If the README does not stand alone - what this is, what you built, what you found, with numbers - the click is wasted regardless of how good the underlying work is. 'See folders' is a failed README."
+  },
+  {
+    q: "Why should you never include material from a real employer or customer in a portfolio?",
+    opts: ["It would be too technically detailed", "It breaches confidentiality even when redacted, and discretion is itself a hiring signal whose absence is disqualifying", "GitHub prohibits it", "It is difficult to redact effectively"],
+    a: 1,
+    why: "This is the VirusTotal principle from Phase 4 applied to your public presence. A candidate who publishes customer material demonstrates they cannot be trusted with the next employer's either. The reasoning is the same one that governs sample handling, and interviewers notice when a candidate volunteers it."
+  },
+  {
+    q: "Which of these adds the least value to an entry-level security portfolio?",
+    opts: ["A documented detection with validation results", "A CTF flag with no accompanying write-up", "An honest blind-spots document", "A redacted investigation report"],
+    a: 1,
+    why: "The flag proves you solved a puzzle; the write-up proves you can reason and communicate, which is what is being hired. Without the write-up there is nothing to assess. The same logic applies to course certificates - the credential matters, the completion badge does not."
+  },
+  {
+    q: "Why include a section on what you got wrong during an investigation write-up?",
+    opts: ["To pad the length", "It is the most credible paragraph in the post - it demonstrates hypothesis correction by evidence rather than a fabricated clean narrative", "Graders require it", "It reduces liability for errors"],
+    a: 1,
+    why: "Real investigations involve wrong turns, and a write-up where everything worked first time reads as either inexperienced or dishonest. Showing a hypothesis, the evidence that contradicted it, and the correction demonstrates exactly the analytical discipline the job requires - and very few candidates do it."
+  },
+  {
+    q: "What should the executive summary of an investigation write-up contain?",
+    opts: ["The full technical timeline", "A plain-English account of what happened, what was affected and the impact, with no jargon or event IDs", "A list of tools used", "The ATT&CK technique IDs"],
+    a: 1,
+    why: "The executive summary is written for someone who will never read the detail - a manager, a customer, a regulator. Including event IDs or tool names defeats its purpose. Writing it well demonstrates you can communicate upward, which is what distinguishes analysts who progress from those who stay technical."
+  },
+  {
+    q: "A portfolio site has eleven navigation items, a tag cloud and a categories sidebar. The likely effect is:",
+    opts: ["It demonstrates thorough documentation", "It reads as performing professionalism rather than demonstrating it, and buries the strong work", "It improves search ranking meaningfully", "It shows web development capability"],
+    a: 1,
+    why: "Structure should serve the sixty-second test - what can this person do, what evidence supports it, what would I ask them about. Additional navigation dilutes attention across pages nobody will visit. Four pages with the three strongest links on the home page outperforms an elaborate site every time."
+  },
+  {
+    q: "In the README, which framing is more effective?",
+    opts: ["\"Built a home lab and wrote some detections\"", "\"12 detections across 8 ATT&CK techniques, validated against 31 atomics, 3 documented blind spots\"", "\"Passionate about detection engineering\"", "\"Extensive experience with Microsoft Sentinel\""], 
+    a: 1,
+    why: "Numbers are checkable and specific, and they signal that the work was measured rather than merely done. Vague enthusiasm is what every applicant writes, and unsupported claims of experience invite a question you cannot answer. Concrete counts also give an interviewer an obvious place to start."
+  }
+]} />
+
+<TaskList step="track/06-btl1-portfolio/03-portfolio" tasks={[
+  { text: "Consolidate everything into one well-structured repository", detail: "Use the folder layout above. One repo, not five." },
+  { text: "Write the README so it stands alone, with numbers", detail: "Techniques, detections, atomics validated, false positive reduction, blind spots documented." },
+  { text: "Build the GitHub Pages site - four pages, no more" },
+  { text: "Apply the sixty-second test in a private window and fix what fails", detail: "Ask someone else to try it too. You cannot judge your own navigation." },
+  { text: "Write and publish blog post 3" },
+  { text: "Cross-post all three posts to LinkedIn as articles", detail: "Same content, published natively. LinkedIn suppresses external links, so native articles reach further." },
+  { text: "Remove anything half-finished or low-value", detail: "Three complete things beat eight abandoned ones. Deleting is part of the work." },
+  { text: "Add the portfolio URL to your CV, LinkedIn and email signature" },
+  { text: "Log every artifact in your evidence log with CV-bullet notes" },
+  { text: "Prepare to go three questions deep on your strongest artifact", detail: "Including what is wrong with it. That is where the interview will go." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "GitHub Pages documentation", by: "GitHub", url: "https://docs.github.com/en/pages", type: "do", cost: "Free", note: "Free hosting from a repository, with a custom domain if you want one. Publishing from a repo is itself a small competence signal.", primary: true },
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Read these purely as structural models for post 3 - how they open, sequence findings, present the timeline and list IOCs." },
+  { title: "Awesome README examples", url: "https://github.com/matiassingers/awesome-readme", type: "read", minutes: 20, note: "Curated examples of READMEs that work. Note how the good ones front-load what the project is and what it demonstrates." },
+  { title: "Simply Cyber - building a cyber portfolio", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 25, note: "Practical guidance aimed at people breaking in. Search his channel for portfolio and personal branding content." },
+  { title: "Plain English Campaign free guides", url: "https://www.plainenglish.co.uk/free-guides.html", type: "read", minutes: 20, note: "For the executive summary specifically. Writing clearly for a non-technical reader is a distinct skill and this is the fastest way to improve it." },
+  { title: "CyberDefenders challenges", url: "https://cyberdefenders.org/blueteam-ctf-challenges/", type: "do", cost: "Free tier", note: "Source material for blog post 3 if you would rather write up a challenge than a lab scenario. Check the terms on publishing solutions before you post." }
+]} />
+
+<Gate
+  step="track/06-btl1-portfolio/03-portfolio"
+  conditions={[
+    "Everything is consolidated into one well-structured repository",
+    "The README stands alone and contains concrete numbers",
+    "The GitHub Pages site exists and is four pages or fewer",
+    "The portfolio passes the sixty-second test with someone else driving",
+    "Blog post 3 is published and cross-posted to LinkedIn",
+    "Nothing half-finished or confidential is published",
+    "I can go three questions deep on my strongest artifact, including its weaknesses"
+  ]}
+  unlocks="Phase 6 complete. You have the credential, the evidence and the writing. Phase 7 turns all of it into applications and interviews - starting with the CV, and the narrative that connects the shop floor to a SOC."
+/>

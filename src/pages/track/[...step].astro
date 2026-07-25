@@ -1,0 +1,127 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { PHASES, PILLARS, KIND_ICON, type PhaseId } from '../../lib/roadmap';
+
+export async function getStaticPaths() {
+  const steps = (await getCollection('track', ({ data }) => data.published)).sort(
+    (a, b) => a.data.phase - b.data.phase || a.data.order - b.data.order,
+  );
+
+  return steps.map((entry, i) => ({
+    params: { step: entry.id },
+    props: { entry, prev: steps[i - 1], next: steps[i + 1] },
+  }));
+}
+
+const { entry, prev, next } = Astro.props;
+const { Content, headings } = await render(entry);
+const phase = PHASES[entry.data.phase as PhaseId];
+const sections = headings.filter((h) => h.depth === 2);
+
+/**
+ * Cross-links into the course library are authored ahead of the courses
+ * themselves, so filter to modules that actually exist. A planned link that
+ * silently disappears is far better than one that 404s.
+ */
+const published = new Set(
+  (await getCollection('modules', ({ data }) => data.published)).map((m) => m.id),
+);
+const academyLinks = entry.data.academy.filter((id) => published.has(id));
+---
+
+<Base title={entry.data.title} description={entry.data.summary}>
+  <article data-track-step={entry.id}>
+    <header class="border-b pb-6">
+      <p class="eyebrow">
+        <a href="/track/" class="hover:underline">Track 6</a>
+        <span class="mx-1.5" aria-hidden="true">›</span>
+        Phase {entry.data.phase} · {phase.name}
+      </p>
+
+      <h1 class="mt-2 text-[clamp(1.75rem,1.3rem+2vw,2.6rem)]">
+        <span aria-hidden="true" style="color: var(--text-3)">{KIND_ICON[entry.data.kind]}</span>{' '}
+        {entry.data.title}
+      </h1>
+
+      <p class="mt-3 max-w-[60ch] text-[1.02rem]" style="color: var(--text-2)">
+        {entry.data.summary}
+      </p>
+
+      <div class="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[0.7rem]" style="color: var(--text-3)">
+        <span>{entry.data.weeks}</span>
+        <span>~{entry.data.minutes} min</span>
+        <span>{PILLARS[entry.data.pillar].label}</span>
+        <span style={entry.data.cost > 0 ? 'color: var(--accent)' : 'color: var(--ok)'}>
+          {entry.data.cost > 0 ? `£${entry.data.cost}` : 'Free'}
+        </span>
+      </div>
+
+      {academyLinks.length > 0 && (
+        <div class="mt-4 rounded-lg border-l-[3px] px-3.5 py-2.5" style="border-color: var(--gold,#b8860b); background: var(--surface-2)">
+          <p class="eyebrow" style="color: var(--gold,#b8860b)">Also in the library</p>
+          <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {academyLinks.map((id) => (
+              <li>
+                <a href={`/module/${id}/`} class="text-[0.85rem] underline decoration-dotted underline-offset-2">
+                  {id.split('/').pop()?.replace(/^\d+-/, '').replace(/-/g, ' ')}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(entry.data.attack.length > 0 || entry.data.objectives.length > 0) && (
+        <div class="mt-4 flex flex-wrap gap-1.5">
+          {[...entry.data.attack, ...entry.data.objectives].map((ref) => (
+            <span
+              class="rounded border px-2 py-0.5 font-mono text-[0.65rem]"
+              style="border-color: var(--rule); color: var(--text-3); background: var(--surface-2)"
+            >
+              {ref}
+            </span>
+          ))}
+        </div>
+      )}
+    </header>
+
+    <div class="lg:flex lg:gap-12">
+      <div class="prose-md min-w-0 flex-1 pt-8" data-pagefind-body>
+        <Content />
+      </div>
+
+      {sections.length > 2 && (
+        <nav class="hidden w-52 shrink-0 pt-8 lg:block" aria-label="On this page">
+          <div class="sticky top-8">
+            <p class="eyebrow">On this page</p>
+            <ul class="mt-2 space-y-1.5 border-l pl-3">
+              {sections.map((h) => (
+                <li>
+                  <a href={`#${h.slug}`} class="block text-[0.8rem] leading-snug hover:underline" style="color: var(--text-3)">
+                    {h.text}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </nav>
+      )}
+    </div>
+
+    <nav class="mt-12 flex flex-wrap gap-3 border-t pt-6">
+      {prev && (
+        <a href={`/track/${prev.id}/`} class="btn text-[0.78rem]">← {prev.data.title}</a>
+      )}
+      {next && (
+        <a href={`/track/${next.id}/`} class="btn ml-auto text-[0.78rem]">{next.data.title} →</a>
+      )}
+    </nav>
+  </article>
+</Base>
+
+<script>
+  import { markVisited } from '../../lib/store';
+  const el = document.querySelector<HTMLElement>('[data-track-step]');
+  if (el?.dataset.trackStep) markVisited(el.dataset.trackStep);
+</script>

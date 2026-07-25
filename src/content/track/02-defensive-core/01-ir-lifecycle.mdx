@@ -1,0 +1,324 @@
+---
+title: "The Incident Response Lifecycle"
+phase: 2
+order: 1
+summary: "NIST 800-61 as a working process rather than a diagram — severity, escalation criteria, evidence order, and the judgement calls that actually sit with Tier 1."
+weeks: "Weeks 6–7"
+minutes: 210
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["01-foundations/06-cloud-identity"]
+academy: ["forensics/01-incident-response"]
+tags: ["incident-response", "nist", "triage", "escalation"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="You've decided an alert is a real incident. Walk me through what happens next.">
+Phase 1 taught you to read evidence. This phase teaches you what to *do* with it,
+and the honest answer for Tier 1 is narrower than most candidates assume — you
+detect, analyse, document and escalate, and you recommend containment rather than
+performing it. Candidates who claim they'd isolate hosts and reset credentials on
+their own authority get marked down, because it shows they don't understand where
+the decision rights sit. Knowing your lane precisely is itself a hiring signal.
+</Why>
+
+## The framework everyone actually uses
+
+NIST SP 800-61 defines four phases, and the arrows matter as much as the boxes:
+
+```text
+   ┌─────────────────┐
+   │ 1. Preparation  │◀──────────────────┐
+   └────────┬────────┘                   │
+            ▼                            │
+   ┌─────────────────────┐               │
+   │ 2. Detection &      │◀────┐         │
+   │    Analysis         │     │         │
+   └────────┬────────────┘     │ loop    │
+            ▼                  │         │
+   ┌──────────────────────────┴──┐       │
+   │ 3. Containment, Eradication │       │
+   │    & Recovery               │       │
+   └────────┬────────────────────┘       │
+            ▼                            │
+   ┌──────────────────────────┐          │
+   │ 4. Post-Incident Activity├──────────┘
+   └──────────────────────────┘
+```
+
+Two things people get wrong:
+
+- **Phase 3 loops back to phase 2.** Containment reveals new evidence, which
+  drives more analysis, which reveals more to contain. It is not a one-way street,
+  and describing it as one is a tell that you've only read the diagram.
+- **Phase 4 feeds phase 1.** Lessons learned change the preparation — new
+  detections, new runbooks, new logging. An IR process with no feedback loop just
+  repeats the same incident.
+
+<Callout type="key">
+SANS teaches the same thing as six steps — **PICERL**: Preparation,
+Identification, Containment, Eradication, Recovery, Lessons Learned. It's the
+same process with containment split out. Either is fine to cite; know both names
+so a question phrased in the other vocabulary doesn't wrong-foot you.
+</Callout>
+
+## Event, alert, incident — the words matter
+
+Used loosely in conversation, precisely in interviews:
+
+- **Event** — any observable occurrence. A logon. Billions per day. Not inherently
+  interesting.
+- **Alert** — an event or pattern that matched a detection rule. Hundreds per day.
+  Most are not incidents.
+- **Incident** — a confirmed or suspected violation of security policy that
+  warrants response. A handful.
+
+Tier 1's job is the funnel between the second and the third. Getting the funnel
+right in both directions is the skill: false negatives let real attacks through,
+false positives burn Tier 2 and destroy the SOC's tolerance for your escalations.
+
+## Severity, priority, and why they differ
+
+**Severity** is how bad this is if it's real. **Priority** is what you work first.
+They aren't the same, and confusing them is why queues get triaged badly.
+
+A rough functional-impact model:
+
+| | Low information impact | High information impact |
+|---|---|---|
+| **Low functional impact** | Routine — batch it | High — sensitive data at risk |
+| **High functional impact** | High — business disrupted | **Critical — drop everything** |
+
+Priority then adjusts for two more things: **how time-sensitive the response is**
+(an active encryption event decays in minutes; a month-old dormant webshell does
+not), and **how many assets are affected**.
+
+<Callout type="warn">
+The most common Tier 1 prioritisation mistake is working the *loudest* alert
+rather than the most *time-critical* one. A thousand-event brute force that is
+still failing can wait twenty minutes. A single successful authentication
+following it cannot.
+</Callout>
+
+## Order of volatility — why sequence matters
+
+If evidence is being collected, it goes from most to least perishable:
+
+1. CPU registers, cache
+2. **RAM** — running processes, network connections, injected code, keys
+3. Network state — connections, ARP, routing
+4. Running processes and open files
+5. Disk
+6. Remote and archived logs
+7. Physical configuration, backups
+
+The Tier 1 relevance is narrow but real: **don't recommend a reboot or a reimage
+before someone has decided whether memory needs capturing.** "Turn it off and on
+again" destroys everything in the top three tiers. Suggesting isolation rather
+than shutdown is the right instinct — it cuts the attacker off while preserving
+the volatile evidence.
+
+## What Tier 1 actually decides
+
+Be precise about your lane, because interviewers test it:
+
+**You do:** triage the alert, gather supporting evidence, determine whether it's
+a true positive, assign an initial severity, document your reasoning, escalate
+with a clear write-up, and *recommend* containment actions.
+
+**You generally don't:** isolate production hosts, disable accounts, block at the
+firewall, or contact the customer — unless your SOC has explicitly delegated
+those actions with a runbook that says so. Many MSSPs do delegate some of them,
+which is why the correct interview answer is *"I'd escalate with a containment
+recommendation, and take the action myself if it's within my delegated authority
+under the runbook."* That sentence shows you understand the concept **and** that
+the answer is organisation-specific.
+
+## Triage the queue
+
+<Scenario
+  step="track/02-defensive-core/01-ir-lifecycle"
+  id="queue-priority"
+  title="03:40 — four alerts, one of you"
+  minutes={8}
+>
+<div slot="brief">
+
+You are the only Tier 1 on shift. Four alerts land within two minutes of each
+other. Tier 2 is on-call but waking them has a cost — you're expected to use
+judgement.
+
+```text
+[A]  Severity: HIGH    "Brute force detected"
+     FIN-APP-03 · 4,120 × event 4625 over 40 min, still ongoing
+     All failures. Source: 91.x.x.x (external, blocked at edge)
+
+[B]  Severity: MEDIUM  "Suspicious PowerShell"
+     WKSTN-1188 · encoded command, parent excel.exe
+     Fired 90 seconds ago. Host still online.
+
+[C]  Severity: CRITICAL "Malware detected — quarantined"
+     WKSTN-0435 · EICAR test file in Downloads
+     EDR action: quarantined successfully
+
+[D]  Severity: LOW     "Impossible travel"
+     m.reeves@corp.com · London 03:12 → Dublin 03:31
+     Both sign-ins successful, both MFA satisfied, both managed devices
+```
+
+Order them, justify the order, and say what you do with each.
+
+</div>
+<div slot="model">
+
+**Order: B, D, A, C.** The stated severities are almost inverted, and that's the
+point of the exercise — severity labels come from the rule author, priority comes
+from you.
+
+**B first — Suspicious PowerShell, MEDIUM.** This is the only alert showing an
+*active, unresolved* compromise. `excel.exe` as the parent of an encoded
+PowerShell command is macro-based initial access; nothing legitimate looks like
+this. It fired 90 seconds ago and the host is still online, so the attacker is
+plausibly still executing. **Time-criticality, not label severity, puts this
+first.** Investigate immediately: decode the command, pull the child process tree,
+check for LSASS access and outbound connections. If it confirms, escalate and
+recommend isolating the host.
+
+**D second — Impossible travel, LOW.** Rated low, but it is a *successful
+authentication* anomaly, and successful auth anomalies outrank failing ones. That
+said, read the detail: both sign-ins MFA-satisfied, both from managed compliant
+devices, London to Dublin in 19 minutes. That's a VPN egress change or a
+geo-IP artefact far more often than an attack — a real AiTM would typically show
+an unmanaged device or an unusual ASN. So: check the audit log for OAuth consents,
+inbox rules and MFA method changes, confirm the device IDs match the user's known
+devices, and if it's clean, close it *with that reasoning written down*. Ten
+minutes of work, and it's second because a successful login you haven't explained
+is a worse thing to leave sitting than a failing one.
+
+**A third — Brute force, HIGH.** 4,120 failures sounds alarming and is the noisiest
+thing on the screen. But every attempt **failed**, and the source is **already
+blocked at the edge**. The control worked. What actually matters is the single
+question: *did any attempt succeed?* Query for a 4624 from that source or against
+those accounts. If none, this is a monitoring note and a possible tuning
+candidate, not an incident. Volume is not severity.
+
+**C last — Malware detected, CRITICAL.** EICAR is the industry-standard *test*
+file. It is deliberately harmless and exists precisely to verify that AV is
+working. It was quarantined successfully. This alert is evidence the control
+functions. Close it, and note who dropped it — usually IT testing, occasionally
+a curious user. If EICAR alerts are firing as CRITICAL regularly, that's a tuning
+request.
+
+**The transferable principle:** rank by *time-criticality × certainty of
+compromise*, not by the label. Ask of every alert: is something bad happening
+**right now**, and does the evidence show a control **failed** or **held**?
+Failures that were blocked are noise; successes you can't explain are the job.
+
+**On waking Tier 2:** escalate B if the process tree confirms execution beyond the
+PowerShell. Don't wake anyone for A, C or D. Being trusted to make that call is
+most of what separates a good Tier 1 from a pager relay.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/02-defensive-core/01-ir-lifecycle"
+  id="real-incident"
+  question="You've decided an alert is a real incident. Walk me through what happens next."
+  seconds={90}
+  hits={[
+    "Confirm and document the finding first — what fired, what you checked, what you found, with timestamps",
+    "Assign severity based on functional and information impact, and scope: how many hosts, accounts, data",
+    "Escalate to Tier 2 with a written summary rather than continuing to investigate alone",
+    "Recommend containment — isolate rather than power off, to preserve volatile evidence",
+    "Flag credential exposure: any account with a session on an affected host is suspect",
+    "Note that containment authority is organisation-specific and I'd act within delegated runbook authority"
+  ]}
+  trap="Saying 'I'd isolate the machine and reset the passwords'. Unless a runbook delegates it, that's above Tier 1, and powering a host off destroys memory evidence. Recommend, don't unilaterally act — and say why."
+/>
+
+<Quiz mid="track/02-defensive-core/01-ir-lifecycle" title="The Incident Response Lifecycle" questions={[
+  {
+    q: "In NIST 800-61, why does the Containment/Eradication/Recovery phase loop back to Detection & Analysis?",
+    opts: ["Because containment always fails the first time", "Because containment surfaces new evidence that requires further analysis, which may reveal more to contain", "Because NIST requires two analysts to agree", "Because recovery must be tested before containment"],
+    a: 1,
+    why: "Investigation and response interleave. Isolating a host reveals what it was talking to, which reveals more hosts, which needs more analysis. Describing IR as a strictly linear four-step march is a common tell that someone has memorised the diagram without having worked an incident."
+  },
+  {
+    q: "An alert shows 4,000 failed logons from an external IP that is already blocked at the perimeter. The most important next question is:",
+    opts: ["How many total attempts were there?", "Did any authentication attempt succeed?", "What country is the IP in?", "Which firewall rule blocked it?"],
+    a: 1,
+    why: "Volume is not severity. Thousands of failures where the control held is a monitoring note; one success is an incident. Pivoting immediately from 'failures happened' to 'did anything succeed' is the single most valuable triage reflex, and it applies equally to on-prem 4625/4624 and cloud sign-in logs."
+  },
+  {
+    q: "Why should you recommend network isolation rather than powering off a suspected compromised host?",
+    opts: ["Powering off takes longer", "Powering off destroys volatile evidence in memory, while isolation cuts the attacker off and preserves it", "Isolation is always reversible and powering off is not", "Powering off alerts the attacker"],
+    a: 1,
+    why: "Order of volatility puts RAM near the top: running processes, network connections, injected code and encryption keys all live there and vanish on shutdown. Isolation severs attacker access while keeping memory intact for capture. This distinction is a favourite interview probe because it separates people who've thought about evidence from people who've thought only about stopping the bleeding."
+  },
+  {
+    q: "What is the difference between severity and priority?",
+    opts: ["They are interchangeable terms", "Severity is how damaging the incident is if real; priority is what you work first, factoring in time-criticality and scope", "Severity is set by Tier 2, priority by Tier 1", "Priority applies only to closed tickets"],
+    a: 1,
+    why: "A critical-severity alert about something already contained can wait; a medium-severity alert about something happening right now cannot. Priority is severity adjusted for how fast the situation is decaying and how many assets are involved. Working the queue by label alone is the most common junior triage mistake."
+  },
+  {
+    q: "In most SOCs, which of these is normally outside a Tier 1 analyst's authority?",
+    opts: ["Documenting findings in a ticket", "Assigning an initial severity", "Unilaterally isolating a production server", "Escalating to Tier 2"],
+    a: 2,
+    why: "Containment actions on production systems carry business impact and usually sit with Tier 2, an incident manager, or a delegated runbook. The strong interview answer acknowledges both sides: recommend containment, and take the action if your SOC's runbook explicitly delegates it — which shows you know the answer is organisation-specific."
+  },
+  {
+    q: "What distinguishes an 'event' from an 'alert' from an 'incident'?",
+    opts: ["They describe the same thing at different severities", "An event is any observable occurrence; an alert is an event matching a detection rule; an incident is a confirmed or suspected policy violation warranting response", "An event is external, an alert internal, an incident regulatory", "Only incidents are logged"],
+    a: 1,
+    why: "The funnel narrows sharply: billions of events, hundreds of alerts, a handful of incidents. Tier 1 owns the alert-to-incident decision in both directions — missing real ones lets attacks through, promoting noise burns Tier 2's trust in your escalations."
+  },
+  {
+    q: "Why does the Post-Incident Activity phase feed back into Preparation?",
+    opts: ["To satisfy compliance auditors", "Because lessons learned should change detections, runbooks and logging so the same incident is caught faster next time", "Because the incident must be formally closed before new alerts are accepted", "Because Preparation is the only phase with a budget"],
+    a: 1,
+    why: "Without the feedback loop, an organisation works the same incident repeatedly. The output of a review should be concrete: a new detection rule, a tuning change, an added log source, a corrected runbook. Being able to name what a lessons-learned review should *produce* is stronger than just naming the phase."
+  }
+]} />
+
+<TaskList step="track/02-defensive-core/01-ir-lifecycle" tasks={[
+  { text: "Draw the NIST four-phase cycle from memory, including both feedback loops" },
+  { text: "Write your own one-page escalation criteria", detail: "What must be true for you to escalate? Make it specific enough that someone else could apply it. This becomes an interview talking point." },
+  { text: "Memorise the order of volatility, top to bottom" },
+  { text: "Re-triage the four-alert scenario a week later without reading the model answer", detail: "Prioritisation is a skill that fades. Repetition beats understanding here." },
+  { text: "Write an escalation ticket for the PowerShell alert in the scenario", detail: "300 words: what fired, what you checked, what you found, severity with justification, recommendation. Keep it — Phase 4 step 6 builds directly on these." },
+  { text: "Read one NCSC incident case study and identify which phase each action belonged to" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "NIST SP 800-61r2 — Computer Security Incident Handling Guide", by: "NIST", url: "https://csrc.nist.gov/pubs/sp/800/61/r2/final", type: "read", minutes: 90, note: "The source document. Read sections 3 and 4 properly — they're readable and you'll quote them for the rest of your career.", primary: true },
+  { title: "NCSC — Incident Management", by: "NCSC", url: "https://www.ncsc.gov.uk/collection/incident-management", type: "read", minutes: 40, note: "UK framing. Quoting NCSC rather than NIST in a UK interview lands noticeably better." },
+  { title: "SANS Incident Handler's Handbook", by: "SANS", url: "https://www.sans.org/white-papers/33901/", type: "read", minutes: 45, note: "The PICERL six-step model, practical and concise. Free with registration." },
+  { title: "Microsoft Incident Response playbooks", by: "Microsoft", url: "https://learn.microsoft.com/en-us/security/operations/incident-response-playbooks", type: "ref", note: "Real runbooks for phishing, password spray and app consent. Read them as examples of what good escalation documentation looks like." },
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Now read these differently: for each report, ask where detection *should* have happened and what containment would have cost at each stage." },
+  { title: "RFC 3227 — Guidelines for Evidence Collection", url: "https://www.rfc-editor.org/rfc/rfc3227", type: "ref", minutes: 15, note: "The original order-of-volatility reference. Short, and citing it by number is a nice touch in an interview." }
+]} />
+
+<Gate
+  step="track/02-defensive-core/01-ir-lifecycle"
+  conditions={[
+    "I can draw the NIST cycle and explain both feedback loops",
+    "I can define event, alert and incident precisely",
+    "I can explain the difference between severity and priority with an example",
+    "I know the order of volatility and why isolation beats shutdown",
+    "I can state clearly what Tier 1 does and does not have authority to do",
+    "I have written my own escalation criteria and one practice escalation ticket"
+  ]}
+  unlocks="Next: ATT&CK as a working tool rather than a poster — the shared language every escalation you write will use."
+/>

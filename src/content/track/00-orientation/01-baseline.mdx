@@ -1,0 +1,158 @@
+---
+title: "Baseline Assessment"
+phase: 0
+order: 1
+summary: "Find out exactly what CEH left you with and what it didn't, so you spend the next ten months on the gaps rather than the comfortable bits."
+weeks: "Week 1"
+minutes: 60
+kind: learn
+pillar: fundamentals
+cost: 0
+tags: ["orientation", "self-assessment"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why>
+Every failed career change into cyber has the same shape: months spent
+re-reading material that was already comfortable, while the actual gap sat
+untouched until an interviewer found it in ninety seconds. You hold CEH, so you
+have real knowledge — but CEH is an offensive, breadth-first, recall-heavy exam,
+and a Tier 1 SOC interview probes depth in four areas it barely touches. This
+step finds out which ones, before you spend a single hour studying.
+</Why>
+
+## What CEH actually gave you
+
+Be precise about this, because both over- and under-estimating it are expensive.
+
+**You have:** attacker vocabulary and the shape of an attack chain. Recon,
+enumeration, exploitation, privilege escalation, persistence, exfiltration.
+Tool names. Common vulnerability classes. The offensive mindset, which is
+genuinely valuable — most Tier 1 analysts have never thought like an attacker
+and are worse at triage for it.
+
+**You do not have:** the defender's half of every one of those pairs. You know
+what Kerberoasting *is*. Do you know what it looks like in event 4769, which
+encryption type flags it, and why service account naming conventions matter to
+the query you'd write? That gap — technique known, telemetry unknown — is the
+single most common failure mode for CEH holders in blue-team interviews.
+
+<Callout type="key">
+Your target isn't to learn attacks and defences as two subjects. It's to learn
+every technique **as a pair**: what the attacker does, and what it leaves behind.
+Every step in this track is built that way, and interviews reward it heavily.
+</Callout>
+
+## The four gaps this track exists to close
+
+1. **Fundamentals depth.** CEH assumes networking and Windows knowledge rather
+   than teaching it. With no commercial IT history, you have no job to have
+   absorbed it from by osmosis. This is gap number one and it is not optional.
+2. **Query fluency.** KQL or SPL. No certificate substitutes for it, and it is
+   the thing that decides whether you're useful in week one or week seven.
+3. **Triage judgement.** Deciding, under time pressure, with incomplete data,
+   whether a thing is real. Untestable by multiple choice, which is why this
+   track uses scenario cards instead.
+4. **Written output.** Ticket notes, escalations, shift handovers, incident
+   reports. Underrated by candidates, weighted heavily by hiring managers.
+
+## Run the diagnostic
+
+Answer honestly. Guessing right on a topic you don't know produces a study plan
+that skips it, and you'll find that out in an interview instead.
+
+<Quiz mid="track/00-orientation/01-baseline" title="Baseline Assessment" questions={[
+  {
+    q: "A Windows host logs event ID 4624 with logon type 3. What happened?",
+    opts: ["An interactive console logon", "A network logon — something authenticated to a share or service on this host", "A scheduled task started", "A service was installed"],
+    a: 1,
+    why: "Type 3 is a network logon: SMB share access, remote WMI, and most lateral movement land here. Type 2 is interactive at the console, type 10 is RemoteInteractive (RDP), type 5 is service. Knowing the type codes is the difference between 'a logon happened' and 'someone reached this box across the network', and it comes up in almost every Tier 1 interview."
+  },
+  {
+    q: "In a TCP three-way handshake, what does the server send in response to a SYN?",
+    opts: ["ACK", "SYN-ACK", "RST", "FIN"],
+    a: 1,
+    why: "SYN → SYN-ACK → ACK. Worth knowing cold because half-open scanning, SYN floods and the RST-instead-of-SYN-ACK signature of a closed port all hang off it. If this one felt uncertain, Phase 1 step 1 is mandatory rather than optional."
+  },
+  {
+    q: "Kerberoasting is best detected by watching for:",
+    opts: ["Failed logons from a single source", "TGS requests (4769) for service accounts using RC4 encryption", "New local administrator accounts", "Outbound DNS on a non-standard port"],
+    a: 1,
+    why: "Kerberoasting requests a service ticket and cracks it offline. The detection sits on 4769 with encryption type 0x17 (RC4) against accounts with SPNs — because modern clients should be negotiating AES, so RC4 is the anomaly. This is exactly the attack-known/telemetry-unknown gap: CEH teaches the attack, the SOC needs the event ID."
+  },
+  {
+    q: "You are given 300 alerts on a shift and 40 of them are the same benign scheduled task. The correct Tier 1 response is:",
+    opts: ["Close all 40 quickly and move on", "Close them and raise a tuning request with the evidence that they are benign", "Escalate all 40 to Tier 2", "Leave them open for the next shift"],
+    a: 1,
+    why: "Closing without feeding back means the next analyst does the same 40 tomorrow. Escalating benign noise burns Tier 2. The answer that gets you hired — and promoted — is closing them *and* documenting why, so the rule gets tuned. Interviewers ask this specifically to see whether you understand that alert fatigue is a system problem, not a personal endurance test."
+  },
+  {
+    q: "Which of these is a KQL operator?",
+    opts: ["SELECT", "summarize", "GROUP BY", "index="],
+    a: 1,
+    why: "KQL uses a pipe-forward syntax: where, project, extend, summarize, join. SELECT and GROUP BY are SQL; index= is Splunk SPL. If this was a guess, that is completely fine at week one — Phase 3 exists entirely to fix it, and it is the highest-value phase in the track."
+  },
+  {
+    q: "An analyst writes: 'Closed, false positive.' What is wrong with it?",
+    opts: ["Nothing, it is appropriately concise", "It records a conclusion but no evidence, so nobody can verify or reuse the decision", "It should have been escalated instead", "It should include the analyst's name"],
+    a: 1,
+    why: "The next person — or you, in three months, in a post-incident review — needs to know *why*. What did you check, what did it show, what would have changed your mind. Ticket writing is a graded part of BTL1 and a real part of the job, and 'closed, FP' is the single most common thing that gets junior analysts marked down."
+  },
+  {
+    q: "A user reports a suspicious email. Which artifact tells you the most about the true sending infrastructure?",
+    opts: ["The display name", "The full message headers, particularly Received chain and Authentication-Results", "The email body's tone and grammar", "The attachment's file name"],
+    a: 1,
+    why: "Display names are trivially forged. The Received chain shows the actual path, and Authentication-Results carries the SPF/DKIM/DMARC verdicts. Header analysis is a guaranteed interview topic for any SOC role that handles a phishing queue — which is all of them."
+  },
+  {
+    q: "In the Pyramid of Pain, which indicator is most costly for an attacker to change?",
+    opts: ["File hash", "IP address", "Domain name", "Tools, tactics and procedures"],
+    a: 3,
+    why: "Hashes change with one recompile; IPs and domains are cheap and disposable. Forcing an adversary to change how they operate is expensive and slow, which is why behavioural detections outlive indicator feeds. Expect to be asked to explain this and justify why you would still bother with IOC matching at all."
+  }
+]} />
+
+## Read your result
+
+<Callout type="key">
+**6–8 correct:** your fundamentals are better than you think. Move fast through
+Phase 1, treat it as verification rather than learning, and get to Phase 3 early.
+
+**3–5 correct:** the expected result for a CEH holder with no commercial
+experience. The plan works as written.
+
+**0–2 correct:** also completely fine, and better to know now. Add two weeks to
+Phase 1 and do the reading before the labs rather than alongside them.
+</Callout>
+
+<TaskList step="track/00-orientation/01-baseline" tasks={[
+  { text: "Record your score honestly — write it in the note field on this page", detail: "You will retake this at week 20 and again at week 34. The delta is genuinely motivating when a rejection email lands." },
+  { text: "Note which of the four gaps felt worst", detail: "Fundamentals, query fluency, triage judgement, written output." },
+  { text: "Block out study time in a calendar, not in your head", detail: "Shift work makes this harder and more important. Two hours on four days beats eight hours on Sunday for retention." },
+  { text: "Decide your Security+ position", detail: "Recommendation: skip it. You hold CEH, most UK specs say 'Security+, CEH or equivalent', and £370 buys most of SC-200 and BTL1 instead. Write down your decision so you stop revisiting it." }
+]} />
+
+<Resources items={[
+  { title: "UK Cyber Security Skills in the Labour Market", by: "DSIT", url: "https://www.gov.uk/government/collections/cyber-security-skills-in-the-uk-labour-market", type: "read", minutes: 25, note: "The government's annual survey. Read the entry-level and skills-gap sections — it tells you which gaps employers report, which is your leverage.", primary: true },
+  { title: "NCSC — Incident Management guidance", by: "NCSC", url: "https://www.ncsc.gov.uk/collection/incident-management", type: "read", minutes: 30, note: "UK-specific framing you can quote in an interview. Most candidates quote NIST; quoting NCSC in a UK SOC lands better." },
+  { title: "Cyber Security Body of Knowledge (CyBOK)", by: "CyBOK", url: "https://www.cybok.org/knowledgebase/", type: "ref", note: "Free, rigorous, UK-authored. Use as a reference to go deeper on any topic in this track — the SOC and Forensics knowledge areas especially." },
+  { title: "Simply Cyber Daily Threat Brief", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 15, note: "Daily news in fifteen minutes. Build the habit now — being current is free interview material." }
+]} />
+
+<Gate
+  step="track/00-orientation/01-baseline"
+  conditions={[
+    "I have taken the diagnostic without looking anything up",
+    "I have written down my score and which gaps felt worst",
+    "I have decided about Security+ and will not revisit it",
+    "I have actual study time in an actual calendar"
+  ]}
+  unlocks="Next: what the job you're aiming at really involves, hour by hour — including the parts nobody advertises."
+/>

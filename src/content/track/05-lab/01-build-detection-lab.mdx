@@ -1,0 +1,185 @@
+---
+title: "Build the Detection Lab"
+phase: 5
+order: 1
+summary: "Windows plus Sysmon shipping into Sentinel, on hardware you already own — the foundation every later phase writes evidence against."
+weeks: "Weeks 8–10"
+minutes: 480
+kind: lab
+pillar: evidence
+cost: 0
+prereq: ["01-foundations/03-event-ids"]
+academy: ["detection/01-detection-fundamentals"]
+attack: ["T1059.001"]
+tags: ["lab", "sentinel", "sysmon", "portfolio"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import BlogBrief from '../../../components/track/BlogBrief.astro';
+import Lab from '../../../components/Lab.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Tell me about something you've built.">
+Everything before this phase was input. This is the first step that produces
+output — an artifact you can point at, screenshot, write about and be questioned
+on. With no commercial experience, your lab *is* your experience, and the
+interview will go straight to it. A candidate who can say "I shipped Sysmon into
+Sentinel, wrote a detection, and cut its false positives from forty a day to two"
+is not competing with other career-changers any more.
+</Why>
+
+## Architecture
+
+You already own everything this needs. Nothing here costs money.
+
+```text
+  ┌──────────────────────┐
+  │  M5 MacBook Pro      │  control plane, browser, KQL
+  └──────────┬───────────┘
+             │
+  ┌──────────┴───────────┐        ┌─────────────────────┐
+  │  VMware Fusion       │        │  Microsoft Sentinel │
+  │  ┌────────────────┐  │        │  (Azure free tier)  │
+  │  │ Windows 11 VM  │──┼───────▶│  Log Analytics WS   │
+  │  │ + Sysmon       │  │  AMA   │                     │
+  │  └────────────────┘  │        └─────────────────────┘
+  │  ┌────────────────┐  │
+  │  │ Kali ARM64     │  │  attacker box
+  │  └────────────────┘  │
+  └──────────┬───────────┘
+             │
+  ┌──────────┴───────────┐
+  │  Raspberry Pi 4B     │  isolated lab network, OpenWrt
+  │  OpenWrt router      │  keeps lab traffic off the home LAN
+  └──────────────────────┘
+```
+
+<Callout type="warn">
+**Cost control matters more than anything else here.** Azure's free tier plus the
+Sentinel trial is generous, but an unattended data connector on a chatty VM can
+burn through it. Set a budget alert at £5 on day one, before you connect
+anything. Cap your daily ingestion in the workspace. Do this first — people who
+skip it get a bill and abandon the lab.
+</Callout>
+
+<Lab title="Stand up the pipeline" host="M5 + VMware Fusion" minutes={300}>
+
+**1 — Azure and workspace.** Create a free Azure account. Create a Log Analytics
+workspace in UK South. Set the daily cap to 500 MB and add a budget alert at £5.
+Enable Microsoft Sentinel on the workspace.
+
+**2 — Windows VM.** Windows 11 Evaluation in VMware Fusion, 4 GB RAM, on the
+Pi's isolated network. Join it to nothing; a standalone box is enough for now.
+
+**3 — Audit policy.** Before installing anything, turn on the logging that is off
+by default:
+- Audit Process Creation → Success
+- "Include command line in process creation events" → Enabled
+- Audit Logon / Logoff → Success and Failure
+- Audit Object Access for the shares you care about
+
+Confirm 4688 now carries a command line. If it doesn't, stop and fix it — every
+later detection depends on it.
+
+**4 — Sysmon.** Install with a tuned config:
+```powershell
+.\Sysmon64.exe -accepteula -i sysmonconfig-export.xml
+```
+Verify events land in `Applications and Services Logs → Microsoft → Windows → Sysmon`.
+
+**5 — Ship the logs.** Install the Azure Monitor Agent on the VM and create a
+Data Collection Rule that gathers Security events and the Sysmon channel. Be
+selective: collect the events from your Phase 1 list, not everything.
+
+**6 — Prove it end to end.** On the VM, run something distinctive:
+```powershell
+powershell.exe -enc VwByAGkAdABlAC0ASABvAHMAdAAgACIAdABlAHMAdAAiAA==
+```
+Then in Sentinel:
+```kql
+SecurityEvent
+| where TimeGenerated > ago(15m)
+| where EventID == 4688
+| where CommandLine has "-enc"
+| project TimeGenerated, Computer, Account, NewProcessName, CommandLine
+```
+When that returns your row, the pipeline works. **Screenshot it.**
+
+</Lab>
+
+## What "done" means
+
+Not "it's running." Done means you can answer these without checking:
+
+- Which events am I collecting, and what did I deliberately leave out?
+- What does my daily ingest look like, and what's my cap?
+- If a detection fired right now, could I get from alert to raw event in under a minute?
+- What is my blind spot? (There is one. Name it.)
+
+That last question is the interview question. Everyone builds a lab; almost
+nobody can articulate what their own telemetry cannot see.
+
+<BlogBrief
+  step="track/05-lab/01-build-detection-lab"
+  number={1}
+  title="Building a Free SOC Detection Lab: Sentinel, Sysmon and £0"
+  words="1,200–1,500"
+  publish="GitHub Pages as the canonical version, cross-posted as a LinkedIn article. Not Medium — UK recruiters are on LinkedIn."
+  hook="The cost-control section. Everyone writes the tutorial part; almost nobody writes about setting a daily cap and a budget alert *before* connecting a data source. Including it signals that you think about operating a thing rather than just standing it up — which is exactly the difference between a hobbyist and someone employable."
+  outline={[
+    "Open with the constraint, not the tech: no commercial experience, no budget, needed real telemetry to practise against. One paragraph, no throat-clearing.",
+    "The architecture diagram. Reuse the ASCII one above or redraw it — a diagram makes the post scannable and gets it shared.",
+    "Cost control first, deliberately out of order. Explain the daily cap, the budget alert, and being selective about which events you collect. State why you put this section first.",
+    "The build, in steps someone could actually follow. Audit policy → Sysmon → AMA → Data Collection Rule.",
+    "Why a tuned Sysmon config rather than the default — with a concrete note on the volume difference.",
+    "The proof: the encoded PowerShell test and the KQL that catches it. Include the screenshot.",
+    "**What this lab cannot see.** Name your blind spots honestly — no network telemetry, single host, no AD, no cloud identity. This section is what makes the post credible.",
+    "What's next, one short paragraph, linking forward to the detection engineering work."
+  ]}
+>
+
+**Before you publish:** read it aloud once. Anything you stumble over is a
+sentence a recruiter will skim past. Cut every instance of "in today's
+ever-evolving threat landscape."
+
+**Then log the URL in your evidence log.** This is artifact number one.
+
+</BlogBrief>
+
+<TaskList step="track/05-lab/01-build-detection-lab" title="Do this" tasks={[
+  { text: "Set the budget alert and daily cap **before** connecting any data source" },
+  { text: "Build the Windows VM on the Pi's isolated network, not the home LAN", detail: "You'll be running Atomic Red Team against this box in three weeks. Segmentation stops being theoretical then." },
+  { text: "Enable audit policy including command line, and verify 4688 carries it" },
+  { text: "Install Sysmon with a tuned config and verify the channel" },
+  { text: "Create a Data Collection Rule that is deliberately selective, and document what you excluded and why" },
+  { text: "Run the encoded PowerShell test and catch it with KQL end to end" },
+  { text: "Write down your three biggest telemetry blind spots" },
+  { text: "Write and publish blog post 1" },
+  { text: "Log the post URL and a lab screenshot in the evidence log", detail: "Track → Evidence & Applications. Write the note as a CV bullet, in past tense, with a number in it." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Microsoft Sentinel documentation", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/", type: "ref", note: "Start with 'Quickstart: onboard' and the Data Collection Rules section.", primary: true },
+  { title: "MyDFIR — SOC analyst home lab series", by: "MyDFIR", url: "https://www.youtube.com/@MyDFIR", type: "watch", note: "A free build-along series covering exactly this pipeline. Watch it once through before you start, then build without it." },
+  { title: "Olaf Hartong — sysmon-modular", by: "Olaf Hartong", url: "https://github.com/olafhartong/sysmon-modular", type: "do", note: "The step up from SwiftOnSecurity's config: modular, ATT&CK-tagged. Move to this once you understand what you're filtering." },
+  { title: "Manage costs for Microsoft Sentinel", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/billing", type: "read", minutes: 20, note: "Read this before you connect anything. Genuinely." },
+  { title: "Alternative: Wazuh", url: "https://documentation.wazuh.com/current/index.html", type: "ref", note: "Fully free, self-hosted, no cloud bill ever. Worth knowing as a fallback — but Sentinel is what UK employers run, so build there first if you can." },
+  { title: "DetectionLab (archived but instructive)", url: "https://github.com/clong/DetectionLab", type: "read", note: "No longer maintained, still the best-documented reference architecture for what a full detection lab contains. Read the design, not the code." }
+]} />
+
+<Gate
+  step="track/05-lab/01-build-detection-lab"
+  conditions={[
+    "Budget alert and daily cap are set and I have confirmed they work",
+    "Windows events and Sysmon events are both arriving in the workspace",
+    "4688 carries command lines and I have verified it",
+    "I caught my own encoded PowerShell with a KQL query I wrote",
+    "I can name three things my telemetry cannot see",
+    "Blog post 1 is published and the URL is in my evidence log"
+  ]}
+  unlocks="Next: attack your own lab with Atomic Red Team and see exactly what telemetry each technique produces."
+/>

@@ -1,0 +1,341 @@
+---
+title: "The Career-Change Narrative"
+phase: 7
+order: 4
+summary: "Why a manufacturing technician belongs in a SOC, told as an asset rather than an apology - plus the STAR bank behind it."
+weeks: "Week 31"
+minutes: 260
+kind: campaign
+pillar: interview
+cost: 0
+prereq: ["07-campaign/03-technical-drills"]
+tags: ["narrative", "star", "behavioural-interview", "career-change", "blog"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import BlogBrief from '../../../components/track/BlogBrief.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Why should we hire you over someone with a computer science degree and an internship?">
+Every interview you sit will contain a version of this question, and the answer
+you give determines whether your background is treated as a deficit to be excused
+or a difference to be valued. Candidates who apologise for their history invite
+the interviewer to agree. Candidates who explain what it gave them that a graduate
+does not have change the frame entirely - and the honest truth is that a
+manufacturing technician on a 24/7 rota has genuinely relevant experience a
+graduate has never had.
+</Why>
+
+## The frame
+
+Three things you have that a typical graduate applicant does not:
+
+**1. You have done the job's actual rhythm.** Tier 1 SOC work is monitoring a
+baseline, triaging alarms, distinguishing genuine faults from nuisance trips,
+diagnosing root cause under time pressure, escalating with documented steps, and
+handing over cleanly at end of shift. You have done exactly that shape of work, in
+a setting where mistakes stopped a production line. A graduate has done none of it.
+
+**2. You have proven you can sustain shift work.** MSSPs lose Tier 1 analysts to
+night rotas constantly. You have already demonstrated, over years, that you can
+work them without your life falling apart. This is a genuine hiring risk you
+remove, and almost nobody says it out loud.
+
+**3. You have documented to audit standard.** IATF 16949 and ISO 9001 records are
+scrutinised by external auditors. Ticket discipline is the thing junior analysts
+are most often criticised for, and you have been doing the equivalent under
+external scrutiny for years.
+
+<Callout type="key">
+The compressed answer: *"A graduate knows the theory better than I did two years
+ago. What I bring is that I have already done this shape of work - monitoring a
+baseline, triaging alarms, diagnosing root cause under time pressure, and
+documenting it to audit standard on a 24/7 rota. And I closed the technical gap
+deliberately: CEH, BTL1, SC-200, and a detection lab I built, attacked and wrote
+detections against. I'd rather show you the detections than argue about the
+degree."*
+</Callout>
+
+## What not to do
+
+**Do not apologise.** "I know I don't have the traditional background, but..." is
+a sentence that concedes the point before you make yours.
+
+**Do not oversell.** Claiming your factory work was secretly security work is
+untrue and collapses under one question. The transferable claim is about the
+*shape* of the work, and it is strong enough on its own.
+
+**Do not lead with passion.** "I've always been fascinated by hacking" is what
+every applicant says and none get remembered for. Lead with what you built.
+
+**Do not disparage your old job.** Speaking dismissively about manufacturing makes
+an interviewer wonder how you will speak about them. It was skilled work; you are
+changing direction, not escaping.
+
+## Building the STAR bank
+
+Structure every behavioural answer as **Situation, Task, Action, Result** - and
+keep Action longest, because it is the part being assessed.
+
+You need six to eight stories, drawn from both the lab and the shop floor. The
+prompts they must cover:
+
+| Prompt | Best source |
+|---|---|
+| A time you solved a difficult technical problem | Lab - the detection that missed two atomics |
+| A time you worked under pressure | Shop floor - a line-down fault |
+| A time you made a mistake | Either - the ingestion cap, or a production error |
+| A time you had to explain something technical to a non-technical person | Either |
+| A time you disagreed with someone | Shop floor - a process or safety call |
+| A time you learned something quickly | Lab - KQL, or the SC-200 sprint |
+| A time you improved a process | Either - tuning a rule, or a setup improvement |
+| A time you handled a repetitive task without losing attention | Shop floor - directly relevant to alert fatigue |
+
+<Callout type="warn">
+**Have a genuine mistake story and do not sanitise it.** "My biggest weakness is
+that I care too much" is transparent and irritating. A real error, what it cost,
+what you changed afterwards, and what has happened since is far stronger - and it
+is one of the few questions where honesty is measurably the winning strategy.
+</Callout>
+
+<Scenario
+  step="track/07-campaign/04-narrative"
+  id="star-mistake"
+  title="Build the mistake story"
+  minutes={8}
+>
+<div slot="brief">
+
+You will be asked "tell me about a time you made a mistake". You have two
+candidate stories:
+
+```text
+OPTION A - Shop floor
+  Ran a production batch without verifying the material dryer
+  had completed its cycle. Parts came out with splay defects.
+  Around 400 parts scrapped, roughly two hours of line time
+  lost. Nobody was hurt, no customer received bad parts.
+
+OPTION B - Lab
+  Set a Sentinel daily ingestion cap and then forgot about it.
+  Spent an afternoon convinced a detection was broken and
+  rewriting the query, when in fact ingestion had stopped
+  because the cap was hit. Lost about three hours.
+```
+
+Which do you use, and how do you structure it?
+
+</div>
+<div slot="model">
+
+**Use A, the shop floor story. It is the stronger answer for a reason worth
+understanding.**
+
+Option B is a good story and you should keep it - it demonstrates the pipeline
+diagnostic lesson well. But it cost three hours of your own time in a lab where
+nothing was at stake. **Option A had real consequences: scrap cost, lost line
+time, and a process you were responsible for.** Interviewers are assessing whether
+you can own a genuine failure, and a story with no real cost reads as a safe
+answer chosen to avoid the question.
+
+There is also a second-order benefit: telling a manufacturing story here quietly
+demonstrates that your previous career involved genuine responsibility, which
+reinforces the whole narrative frame without you having to argue for it.
+
+**The structure:**
+
+**Situation (brief).** *"On a night shift I was running a batch on a machine I'd
+set up dozens of times. Material has to be dried before moulding or it produces
+splay defects."*
+
+**Task.** *"I was responsible for verifying the setup was correct before starting
+the run."*
+
+**Action - the longest part, and where the assessment happens.** *"I skipped the
+dryer verification because the cycle usually finished well before I needed it, and
+I assumed it had. It hadn't. About four hundred parts came out defective before I
+caught it on a routine quality check. I stopped the line immediately, quarantined
+the batch, logged it, and told my supervisor rather than waiting for the morning
+handover - the quality system depends on that being reported at the time, not
+retrospectively."*
+
+**Result, and this is the part that matters.** *"Around four hundred parts scrapped
+and about two hours of line time. No bad parts reached the customer, because the
+quality process caught it. What I changed afterwards was the specific thing: I
+stopped relying on 'it usually has by now' as a verification and started
+physically confirming the dryer cycle state as an explicit step. I also raised it
+at the shift meeting, because I wasn't the only one making that assumption - and
+the setup sheet was updated to make it a checked item."*
+
+**Then close the loop to the role, in one sentence.** *"It's the same failure mode
+as assuming a data source is reporting because it usually is. In my lab I lost an
+afternoon to exactly that - a detection I thought was broken turned out to be an
+ingestion cap. Now I confirm telemetry is arriving before I conclude anything about
+what it shows."*
+
+**Why that closing line is worth the seconds:** it uses the lab story as
+supporting evidence rather than as the main answer, links a manufacturing lesson
+to a security habit, and shows the same lesson learned twice in two domains - which
+is considerably more convincing than either story alone.
+
+**What makes the whole answer work:**
+
+- A real cost, stated plainly, with no minimising
+- You caught it, stopped it, and reported it immediately rather than concealing it
+- The fix was specific and behavioural, not "I'll be more careful"
+- You extended the fix beyond yourself by raising it and getting the procedure changed
+- You connected it to the job you are applying for without straining
+
+**What to avoid:** blaming the dryer, the shift pattern, or the setup sheet. The
+answer is about ownership, and every deflection weakens it.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/07-campaign/04-narrative"
+  id="why-you"
+  question="Why should we hire you over someone with a computer science degree and an internship?"
+  seconds={90}
+  hits={[
+    "No apology and no disparagement of either background",
+    "The shape-of-work argument: baseline monitoring, alarm triage, root-cause diagnosis, documented escalation, clean handover",
+    "Proven capacity for sustained shift work, stated explicitly as a risk you remove",
+    "Audit-grade documentation experience, tied to ticket discipline",
+    "The technical gap closed deliberately - CEH, BTL1, SC-200, and the lab with numbers",
+    "Close by offering evidence rather than argument: 'I'd rather show you the detections'"
+  ]}
+  trap="Opening with 'I know I don't have the traditional background, but...' - it concedes the argument before you make it. Start from what you have, not what you lack."
+/>
+
+<Drill
+  step="track/07-campaign/04-narrative"
+  id="why-change"
+  question="Why are you leaving manufacturing?"
+  seconds={60}
+  hits={[
+    "A positive reason for security rather than a negative reason about manufacturing",
+    "Something specific that started it - a course, a problem, a book, the lab",
+    "Evidence that it is a considered move: the certifications, the sustained effort over months",
+    "Acknowledgement that manufacturing was skilled work you did well",
+    "Clarity that this is a direction change, not an escape"
+  ]}
+  trap="Criticising your current employer or describing the work as boring. It makes an interviewer wonder how you will describe them in two years, and it is the easiest thing in this answer to get wrong."
+/>
+
+<BlogBrief
+  step="track/07-campaign/04-narrative"
+  number={4}
+  title="From the Shop Floor to the SOC"
+  words="1,000-1,300"
+  publish="LinkedIn as a native article first - this one is written for that audience. Cross-post to your site afterwards."
+  hook="The specific mapping between injection moulding and SOC work - process parameters as baselines, alarm triage as alert triage, defect root-cause analysis as investigation, shift handovers as ticket discipline. Nobody has read that comparison before, and it makes an abstract career-change story concrete. The post works because it teaches the reader something rather than asking them for something."
+  outline={[
+    "Open with a concrete moment from the shop floor - a specific fault, a specific decision. Not 'I always wanted to work in tech'. Two hundred words maximum.",
+    "The pivot: what actually started the change. Be specific and honest about the trigger.",
+    "**The mapping section - the centre of the post.** Four or five direct comparisons between moulding work and SOC work, each explained properly. This is what people will quote.",
+    "What you actually did about it: the certifications, the lab, the detections, the write-ups. Numbers, briefly - the detail lives in the other posts, link to them.",
+    "**What was hard.** Studying around shift work, the things that did not come easily, what you got wrong. This is what makes it credible rather than a success story.",
+    "What you would tell someone else in the same position, in three or four concrete points.",
+    "Close with where you are now and what you are looking for - one short paragraph, no desperation, no hashtag wall."
+  ]}
+>
+
+**This post has a different job from the other three.** Those demonstrate
+technical capability to a hiring manager. This one is written to be *shared* - it
+is the post that reaches people who would never read a KQL tutorial, and career
+changers, recruiters and managers all engage with this genre.
+
+**Two warnings.** Do not make it a plea - a post that reads as "please hire me"
+gets sympathy, not interviews. And do not disparage manufacturing; the respectful
+version is stronger and more widely shared.
+
+**Expect this to be the post an interviewer has read** before you walk in. Write
+it so you are happy to be asked about any sentence in it.
+
+</BlogBrief>
+
+<Quiz mid="track/07-campaign/04-narrative" title="The Career-Change Narrative" questions={[
+  {
+    q: "Why is opening with \"I know I don't have the traditional background, but...\" a weak move?",
+    opts: ["It is too informal", "It concedes the argument before you make your case, inviting the interviewer to agree with the framing", "It wastes time", "It suggests you did not prepare"],
+    a: 1,
+    why: "Framing your background as a deficit that needs excusing legitimises treating it that way. Starting from what the experience gave you - the shape of the work, proven shift capacity, audit-grade documentation - reframes the difference as a difference rather than a shortfall."
+  },
+  {
+    q: "Which mistake story is stronger in a behavioural interview?",
+    opts: ["A lab error that cost you a few hours of your own time", "A real error with genuine consequences that you caught, reported immediately, and fixed procedurally", "A mistake made by a colleague that you corrected", "\"I care too much about getting things right\""],
+    a: 1,
+    why: "Interviewers assess whether you can own genuine failure. A story with no real cost reads as a safe answer selected to dodge the question, and the fake-weakness answer is transparent. Real cost, immediate reporting, a specific behavioural fix and a procedural change afterwards is the strongest structure."
+  },
+  {
+    q: "In a STAR answer, which section should be longest?",
+    opts: ["Situation", "Task", "Action", "Result"],
+    a: 2,
+    why: "Action is what is being assessed - the decisions you made and why. Situation and Task should be brief context, and Result should be concrete and short. Candidates commonly spend most of the answer on Situation, which is the least informative part."
+  },
+  {
+    q: "Why does proven shift-work capacity matter as an explicit selling point?",
+    opts: ["It shows physical stamina", "MSSPs lose Tier 1 analysts to night rotas constantly, so demonstrated capacity removes a genuine hiring risk", "It reduces the salary they need to offer", "It is required for SC clearance"],
+    a: 1,
+    why: "Attrition on 24/7 rotas is a real and expensive problem for MSSPs, and a candidate who has already sustained shift work for years is measurably lower risk than one who has never tried it. Almost no candidate says this out loud, which is exactly why it lands."
+  },
+  {
+    q: "Which is the correct way to present manufacturing experience as transferable?",
+    opts: ["Describe it as informal security monitoring", "Describe the shape of the work accurately - baseline monitoring, alarm triage, root-cause diagnosis, documented escalation - without claiming security duties", "Omit it and focus only on the lab", "Present it as unrelated but character-building"],
+    a: 1,
+    why: "The shape-of-work claim is both true and genuinely relevant, and it survives any follow-up question. Reframing it as security work is untrue and collapses immediately. Omitting it discards a real advantage and leaves an unexplained gap in your history."
+  },
+  {
+    q: "Why should you avoid criticising your current employer when asked why you are leaving?",
+    opts: ["They may be contacted for a reference", "It makes the interviewer wonder how you will describe them, and it shifts the answer from a positive reason to a negative one", "It is legally risky", "It suggests you cannot handle difficulty"],
+    a: 1,
+    why: "How a candidate talks about a previous employer is read as a preview of how they will talk about the next one. A positive reason for moving toward security is stronger than any negative reason for moving away from manufacturing, and it keeps the narrative about direction rather than escape."
+  },
+  {
+    q: "What is the main purpose of the career-change blog post, as distinct from the technical posts?",
+    opts: ["To demonstrate technical capability", "To be shared - it reaches recruiters, managers and other career changers who would never read a KQL tutorial", "To replace the CV", "To improve search ranking"],
+    a: 1,
+    why: "The technical posts prove capability to a hiring manager who clicks through. This one travels - the genre engages people well beyond your network, and it is frequently the piece an interviewer has already read before you arrive. That makes its tone and honesty matter more than its depth."
+  }
+]} />
+
+<TaskList step="track/07-campaign/04-narrative" tasks={[
+  { text: "Write your answer to 'why should we hire you' and rehearse it until it is fluent, not scripted" },
+  { text: "Write your answer to 'why are you leaving manufacturing' with a positive framing" },
+  { text: "Build six to eight STAR stories covering the prompt table", detail: "Drawn from both the lab and the shop floor. Keep Action longest." },
+  { text: "Write the mistake story properly, with real cost and a specific procedural fix", detail: "Do not sanitise it. This is one of the few questions where honesty measurably wins." },
+  { text: "Practise every STAR story aloud in under two minutes" },
+  { text: "Write and publish blog post 4 as a native LinkedIn article" },
+  { text: "Check every sentence of the post is something you are happy to be asked about", detail: "Assume an interviewer has read it before you walk in." },
+  { text: "Log the post in your evidence log" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "STAR method guidance", by: "National Careers Service", url: "https://nationalcareers.service.gov.uk/careers-advice/interview-advice", type: "read", minutes: 20, note: "UK-focused, practical, and settles the structure. Keep Action longest - that is the part being assessed.", primary: true },
+  { title: "Simply Cyber - career change content", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 30, note: "Interviews with people who changed careers into security, including what worked and what did not." },
+  { title: "r/cybersecurity career-change threads", url: "https://www.reddit.com/r/cybersecurity/", type: "read", minutes: 20, note: "Read accounts from people who made the same move. Useful for calibrating expectations and for spotting narratives that clearly worked." },
+  { title: "UK Cyber Security Council career pathways", url: "https://www.ukcybersecuritycouncil.org.uk/", type: "read", minutes: 20, note: "Formal role definitions and entry routes. Useful vocabulary for describing where you are heading." },
+  { title: "Immersive Labs Cyber Million", url: "https://www.immersivelabs.com/", type: "read", note: "An initiative specifically aimed at entry-level cyber roles without traditional backgrounds. Worth checking current status and whether it is running." },
+  { title: "Plain English Campaign free guides", url: "https://www.plainenglish.co.uk/free-guides.html", type: "read", minutes: 20, note: "For the blog post. The career-change genre fails when it becomes florid - plain writing is what makes it credible." }
+]} />
+
+<Gate
+  step="track/07-campaign/04-narrative"
+  conditions={[
+    "I can answer 'why should we hire you' without apologising or overclaiming",
+    "I have a positive framing for leaving manufacturing that does not criticise anyone",
+    "I have six to eight STAR stories, rehearsed aloud, each under two minutes",
+    "My mistake story involves real cost, immediate reporting and a specific procedural fix",
+    "I can state the shift-work and documentation advantages explicitly and unprompted",
+    "Blog post 4 is published and I am happy to be asked about every sentence"
+  ]}
+  unlocks="Final Phase 7 step: the campaign itself - targets, cadence, tracking, and handling the rejections that are coming."
+/>

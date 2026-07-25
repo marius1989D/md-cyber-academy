@@ -1,0 +1,166 @@
+---
+import { inline, LETTERS } from '../lib/inline';
+
+export interface Question {
+  /** Question text. Supports `code` and **bold**. */
+  q: string;
+  /** 2–6 options, same inline formatting. */
+  opts: string[];
+  /** Zero-based index of the correct option. */
+  a: number;
+  /** Why the answer is right — this is the part that teaches, so make it earn its place. */
+  why: string;
+  /** Optional rung override for a single question. */
+  rung?: 1 | 2 | 3 | 4;
+}
+
+interface Props {
+  /** Module id, used to namespace question keys. Pass the collection slug. */
+  mid: string;
+  /** Module title, cached with each card so the review deck can show its origin. */
+  title: string;
+  questions: Question[];
+}
+
+const { mid, title, questions } = Astro.props;
+---
+
+<section class="mt-14" data-quiz={mid}>
+  <header class="flex items-end justify-between gap-4 border-t-2 pb-4 pt-5" style="border-color: var(--rule-strong)">
+    <div>
+      <p class="eyebrow">// Check yourself</p>
+      <h2 class="mt-1 text-2xl">Module quiz</h2>
+    </div>
+    <p class="shrink-0 font-mono text-xs" style="color: var(--text-3)">
+      <span data-quiz-score>0</span> / {questions.length}
+    </p>
+  </header>
+
+  <ol class="mt-6 space-y-4">
+    {questions.map((question, qi) => {
+      const qid = `${mid}::q${qi + 1}`;
+      return (
+        <li class="panel overflow-hidden" data-q={qid} data-answer={question.a} data-card={JSON.stringify({ ...question, mid, title })}>
+          <div class="p-4 sm:p-5">
+            <p class="eyebrow">
+              Question {String(qi + 1).padStart(2, '0')} of {String(questions.length).padStart(2, '0')}
+            </p>
+            <p class="mt-2 text-[1.05rem] font-medium leading-snug" set:html={inline(question.q)} />
+
+            <div class="mt-4 space-y-2" role="group">
+              {question.opts.map((opt, oi) => (
+                <button
+                  type="button"
+                  class="opt flex w-full items-start gap-3 rounded-lg border p-3 text-left text-[0.95rem] transition"
+                  style="background: var(--surface); border-color: var(--rule); min-height: 44px"
+                  data-opt={oi}
+                >
+                  <span
+                    class="mt-px grid h-6 w-6 shrink-0 place-items-center rounded border font-mono text-[0.7rem] font-bold"
+                    style="border-color: var(--rule-strong); color: var(--text-3)"
+                    data-letter
+                  >
+                    {LETTERS[oi]}
+                  </span>
+                  <span set:html={inline(opt)} />
+                </button>
+              ))}
+            </div>
+
+            <div
+              class="expl mt-4 hidden rounded-lg border-l-[3px] p-3 text-[0.92rem] leading-relaxed"
+              data-expl
+              set:html={inline(question.why)}
+            />
+          </div>
+        </li>
+      );
+    })}
+  </ol>
+</section>
+
+<script>
+  import { recordAnswer, load } from '../lib/store';
+
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  function paint(li: HTMLElement, picked: number, correct: boolean, replay: boolean) {
+    const answer = Number(li.dataset.answer);
+    const opts = [...li.querySelectorAll<HTMLElement>('.opt')];
+
+    opts.forEach((opt, i) => {
+      opt.setAttribute('disabled', 'true');
+      opt.style.cursor = 'default';
+      const letter = opt.querySelector<HTMLElement>('[data-letter]')!;
+
+      if (i === answer) {
+        opt.style.background = 'var(--ok-soft)';
+        opt.style.borderColor = 'var(--ok)';
+        letter.style.background = 'var(--ok)';
+        letter.style.borderColor = 'var(--ok)';
+        letter.style.color = '#fff';
+        letter.textContent = '✓';
+      } else if (i === picked) {
+        opt.style.background = 'var(--bad-soft)';
+        opt.style.borderColor = 'var(--bad)';
+        letter.style.background = 'var(--bad)';
+        letter.style.borderColor = 'var(--bad)';
+        letter.style.color = '#fff';
+        letter.textContent = '✕';
+      } else {
+        opt.style.opacity = '0.5';
+      }
+    });
+
+    const expl = li.querySelector<HTMLElement>('[data-expl]')!;
+    expl.classList.remove('hidden');
+    expl.style.borderColor = correct ? 'var(--ok)' : 'var(--bad)';
+    expl.style.background = 'var(--surface-3)';
+    expl.style.color = 'var(--text-2)';
+
+    if (!replay && !correct) {
+      // Nudge, not a shake — a wrong answer is information, not a failure state.
+      li.animate(
+        [{ transform: 'translateX(0)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(0)' }],
+        { duration: 180, easing: 'ease-out' },
+      );
+    }
+  }
+
+  function tally(section: HTMLElement) {
+    const state = load();
+    const mid = section.dataset.quiz!;
+    const correct = Object.entries(state.answers).filter(
+      ([qid, a]) => qid.startsWith(mid + '::') && a.correct,
+    ).length;
+    section.querySelector('[data-quiz-score]')!.textContent = String(correct);
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-quiz]').forEach((section) => {
+    const state = load();
+
+    section.querySelectorAll<HTMLElement>('[data-q]').forEach((li) => {
+      const qid = li.dataset.q!;
+      const answer = Number(li.dataset.answer);
+      const saved = state.answers[qid];
+
+      if (saved) {
+        paint(li, LETTERS.indexOf(saved.picked), saved.correct, true);
+        return;
+      }
+
+      li.querySelectorAll<HTMLElement>('.opt').forEach((opt) => {
+        opt.addEventListener('click', () => {
+          if (opt.hasAttribute('disabled')) return;
+          const picked = Number(opt.dataset.opt);
+          const correct = picked === answer;
+          recordAnswer(qid, LETTERS[picked], correct, JSON.parse(li.dataset.card!));
+          paint(li, picked, correct, false);
+          tally(section);
+        });
+      });
+    });
+
+    tally(section);
+  });
+</script>

@@ -1,0 +1,140 @@
+---
+title: "What Tier 1 Actually Does"
+phase: 0
+order: 2
+summary: "The UK SOC market, the shift-work reality, and five real job specs pulled apart so you know exactly what you are aiming at."
+weeks: "Week 1"
+minutes: 75
+kind: learn
+pillar: interview
+cost: 0
+prereq: ["00-orientation/01-baseline"]
+tags: ["orientation", "uk-market", "mssp"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Why do you want to work in a SOC?">
+Half of career-changers can't describe the job they say they want, and it shows
+in about the third interview question. The people who get hired describe a
+Tuesday night shift accurately, including the boring parts, because that
+signals they've thought about the reality rather than the job title. This step
+is also where you decide, with real information, whether you actually want this.
+</Why>
+
+## A realistic shift
+
+A Tier 1 analyst in a UK MSSP works a rota — commonly four on, four off, days
+and nights. A night shift looks roughly like this:
+
+**Handover (20 min).** The outgoing analyst walks you through open incidents,
+anything escalated to Tier 2, and any customer with a change window running that
+will generate noise. You take notes. This is a genuine skill and you already
+have it from the shop floor.
+
+**The queue (most of the shift).** Alerts arrive from a SIEM. You triage each
+one: what fired, why, is it real, and if it's real how bad. Most are not real.
+A brute-force alert that's a service account with a stale password. An impossible-travel
+alert that's a VPN. A malware detection that's a security team running their own test.
+You close them with evidence, and you escalate the handful that survive scrutiny.
+
+**Escalation (a few times a shift).** Something is real, or you can't rule it
+out. You write it up — what fired, what you checked, what you found, what you
+recommend — and hand it to Tier 2. The quality of that write-up is most of what
+your reputation is built on.
+
+**Quiet hours.** At 4am on a Sunday the queue can go dead. Good analysts use it
+to hunt, learn, or write up documentation. This is where the people who progress
+separate from the people who stay Tier 1 for four years.
+
+<Callout type="warn">
+Be honest with yourself about nights. You said you'd do shifts for a while to get
+in, which is the right call — but a four-on-four-off rota with nights is genuinely
+hard on sleep, relationships and health. Plan an exit: most people move to Tier 2
+or a day-shift role in 18–24 months. Go in with that timeline explicit rather than
+discovering at month nine that you have no plan.
+</Callout>
+
+## The UK market shape
+
+**MSSPs** are your highest-probability entry: Bridewell, Quorum Cyber, e2e-assure,
+Adarma, Talion, Integrity360, SecurityHQ, Bulletproof, Phoenix, Socura. They run
+24/7 rotas, hire in volume, and are the most willing to take a certified
+career-changer with lab evidence. Expect roughly £28–35k regionally, £35–48k in
+London for Tier 1.
+
+**In-house SOCs** in finance, retail and healthcare pay similarly or better but
+hire fewer juniors and usually want a year of something first.
+
+**Defence and government** — Leidos, CGI, BAE, QinetiQ, plus GCHQ-adjacent work
+around Cheltenham — sponsor SC and DV clearance and are unusually open to
+non-IT backgrounds. Long stable employment in manufacturing is exactly the
+profile vetting likes. Slow process, worth starting early.
+
+<Callout type="key">
+Clearance is an asset you can start building before you're qualified. If you're
+willing to go through SC vetting, say so on every application — it removes cost
+and delay for the employer and genuinely differentiates you.
+</Callout>
+
+## Pull apart five real job specs
+
+This is the actual work of this step, and it's worth the hour.
+
+Go to a job board, find five UK Tier 1 SOC adverts, and for each one build a
+three-column table: **required**, **desirable**, **what they actually mean**.
+That third column is where the learning is. "Familiarity with SIEM platforms"
+means *can you write a query without hand-holding*. "Strong communication skills"
+means *your tickets have to be readable by someone who wasn't there*. "Analytical
+mindset" means *you don't close things you haven't checked*.
+
+Then count. How many mention Microsoft Sentinel or Defender? In the UK it will
+be most of them, and that is precisely why Phase 3 is weighted so heavily.
+
+<TaskList step="track/00-orientation/02-the-job" title="Do this" tasks={[
+  { text: "Pull five real UK Tier 1 SOC job specs and build the three-column table", detail: "CyberSecurityJobsite, Indeed, LinkedIn, and the MSSP careers pages directly — the direct pages often have roles the boards don't." },
+  { text: "Tally which SIEM each one names", detail: "This gives you a personal, evidence-based reason to prioritise Sentinel over Splunk, rather than taking my word for it." },
+  { text: "Write down your honest position on nights, including an exit timeline" },
+  { text: "Decide whether you will pursue SC clearance roles", detail: "If yes, note it — it changes which employers you target from week one." },
+  { text: "List ten target employers", detail: "Six MSSPs, two in-house, two defence. This becomes your application list in Phase 7." }
+]} />
+
+<Drill
+  step="track/00-orientation/02-the-job"
+  id="why-soc"
+  question="Why do you want to work in a SOC, and why should we take a chance on someone with no commercial security experience?"
+  seconds={90}
+  hits={[
+    "A concrete, unglamorous description of the work — triage, evidence, escalation, handover — that shows you know what you're signing up for",
+    "The transferable frame from your current work: monitoring a baseline, alarm triage, root cause, documented handovers under audit",
+    "Evidence, not enthusiasm: the lab you built, the detections you wrote, the write-ups you published",
+    "A specific reason for *this* employer — their sector, their stack, something you actually read"
+  ]}
+  trap="Leading with 'I'm passionate about cyber security' and a story about being interested in hacking since childhood. Every candidate says it, none of them get remembered for it. Lead with what you've built."
+/>
+
+<Resources items={[
+  { title: "Cyber Security Jobsite — UK SOC roles", url: "https://www.cybersecurityjobsite.com/jobs/united-kingdom/soc-analyst/", type: "do", minutes: 40, note: "Your source for the five-spec exercise. UK-only, so no US noise.", primary: true },
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Real intrusions, start to finish, with the telemetry. The closest thing to free SOC experience anywhere. Start with any recent ransomware case and just read — you won't understand all of it yet, and that's the point." },
+  { title: "SANS Internet Storm Center — Diaries", url: "https://isc.sans.edu/diary/", type: "read", minutes: 10, note: "Daily, short, practical. Perfect dead-time reading — one diary is about one tea break." },
+  { title: "Red Canary Threat Detection Report", by: "Red Canary", url: "https://redcanary.com/threat-detection-report/", type: "read", minutes: 60, note: "Free annual report ranking the techniques actually seen in the wild. Read the top ten techniques section; it tells you what to prioritise learning." },
+  { title: "Huntress blog", by: "Huntress", url: "https://www.huntress.com/blog", type: "read", minutes: 15, note: "Accessible write-ups of real incidents, pitched well for someone at your stage." }
+]} />
+
+<Gate
+  step="track/00-orientation/02-the-job"
+  conditions={[
+    "I can describe a Tier 1 night shift in specifics, including the boring parts",
+    "I have analysed five real UK job specs and know which SIEM dominates",
+    "I have ten named target employers written down",
+    "I have made a clear-eyed decision about shift work and an exit timeline",
+    "I have read at least one full DFIR Report write-up"
+  ]}
+  unlocks="Phase 1 begins. Six steps of fundamentals — the part CEH assumed you already had."
+/>

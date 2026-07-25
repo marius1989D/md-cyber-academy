@@ -1,0 +1,349 @@
+---
+title: "The CV"
+phase: 7
+order: 1
+summary: "Projects above work history, manufacturing experience translated honestly into SOC language, and a document that survives both an ATS and a nine-second skim."
+weeks: "Week 28"
+minutes: 240
+kind: campaign
+pillar: interview
+cost: 0
+prereq: ["06-btl1-portfolio/03-portfolio"]
+tags: ["cv", "resume", "job-search", "career-change"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Talk me through your CV.">
+Your CV has one job: get you into a conversation. It is read twice - once by an
+automated filter looking for keywords, and once by a human giving it under ten
+seconds before deciding. A conventional chronological CV fails you badly here,
+because the most recent thing on it is manufacturing and the most relevant thing
+is buried at the bottom. Restructuring is not spin; it is putting the relevant
+evidence where a reader will actually see it.
+</Why>
+
+## The structure for a career changer
+
+Standard order buries you. Use this instead:
+
+```text
+1. Name, location, contact, LinkedIn, GitHub/portfolio       2 lines
+2. Professional summary                                       3-4 lines
+3. Certifications                                             short list
+4. Technical projects            <- does the heavy lifting    ~40% of page 1
+5. Technical skills                                           grouped
+6. Professional experience       <- translated, not hidden
+7. Education
+```
+
+<Callout type="key">
+**Projects sit above work history deliberately.** A reader scanning for relevance
+finds it in the top third instead of the bottom of page two. This is a recognised
+format for career changers, not a trick - and if asked about it, "I led with the
+security work because that is what the role is about" is a perfectly good answer.
+</Callout>
+
+**Two pages. UK conventions:** no photograph, no date of birth, no marital status,
+no full address - town and county is enough. Do not include a "References
+available on request" line; it wastes space on something universally assumed.
+
+## The professional summary
+
+Three or four lines, factual and specific. Not a personality statement.
+
+**Weak:** *"Passionate and highly motivated cyber security enthusiast seeking to
+leverage my skills in a challenging SOC environment where I can grow."*
+
+Every applicant writes this. It says nothing checkable.
+
+**Strong:** *"CEH v13 and BTL1-certified security analyst with a purpose-built
+detection lab covering Microsoft Sentinel and Defender XDR. Wrote and validated 12
+detections across 8 ATT&CK techniques, tested against 31 Atomic Red Team
+implementations. Background in high-volume manufacturing process monitoring and
+fault diagnosis under 24/7 shift operations. SC clearance eligible."*
+
+Every clause is verifiable, and the last two lines pre-empt the two questions a
+recruiter has about you.
+
+## Translating manufacturing experience
+
+This is the part to get right, and the principle is: **describe the transferable
+mechanism accurately, do not claim security work you did not do.**
+
+| What you did | How to write it |
+|---|---|
+| Monitored process parameters against spec | Monitored continuous process telemetry against established baselines, identifying deviations before they caused defects |
+| Responded to machine alarms | Triaged automated alarms under time pressure, distinguishing genuine faults from nuisance trips to avoid unnecessary line stoppages |
+| Diagnosed defects (short shot, flash, sink) | Performed systematic root-cause analysis on production faults, isolating variables across a multi-factor process |
+| Escalated to process engineers | Escalated unresolved faults with documented diagnostic steps taken and findings, enabling rapid handover |
+| Followed setup sheets and SOPs | Executed documented procedures precisely in a regulated environment; contributed to procedure updates |
+| Shift handover logs | Maintained written handover records across a 24/7 rota, ensuring continuity between shifts |
+| ISO 9001 / IATF 16949 documentation | Maintained audit-grade documentation to automotive quality standards, subject to external audit |
+
+<Callout type="warn">
+**Do not write "monitored for security threats" or anything implying you did
+security work on a production line.** It is untrue, it will not survive a follow-up
+question, and it destroys your credibility on everything else in the document. The
+transferable claim is about *the shape of the work* - baseline monitoring, alarm
+triage, diagnosis, documented escalation - and that claim is both true and
+genuinely relevant.
+</Callout>
+
+## Writing project entries
+
+Each project gets a title, one line of context, and three or four bullets. Every
+bullet needs a verb, a specific technology, and where possible a number.
+
+**Weak:** *"Built a home lab with Sentinel and wrote detection rules."*
+
+**Strong:**
+
+> **MD AI Cyber Range** - self-built detection engineering lab
+> - Deployed Microsoft Sentinel with Azure Monitor Agent collecting Windows
+>   Security and Sysmon telemetry from segmented lab hosts, with ingestion
+>   capped and cost-alerted from day one
+> - Simulated 10 ATT&CK techniques using Atomic Red Team, documenting the
+>   telemetry each produced and identifying 3 collection blind spots
+> - Wrote 12 KQL detections validated against 31 atomic implementations;
+>   reduced false positives on the highest-volume rule from 42/day to 2/day
+>   through scoped parent-process conditions
+> - Published detections in Sigma format for cross-platform portability;
+>   submitted one rule upstream to SigmaHQ
+
+Four bullets, eleven numbers, no adjectives.
+
+## Surviving the ATS
+
+Applicant tracking systems match keywords from the job advert. This is mechanical,
+not clever:
+
+- **Mirror the advert's exact terminology.** If it says "SIEM" write SIEM, even if
+  you wrote "Sentinel" elsewhere. If it says "Microsoft Sentinel" use the full name
+  at least once.
+- **Spell out and abbreviate on first use** - "Endpoint Detection and Response
+  (EDR)".
+- **Avoid tables, columns, headers, footers and text boxes** for the machine-read
+  version - many parsers mangle them. Keep a clean single-column version for
+  applications and a designed version for direct human contact.
+- **Submit as PDF unless the advert says otherwise**, and name the file
+  `Marius-Dumitru-CV-SOC-Analyst.pdf` rather than `CV_final_v3.pdf`.
+
+<Scenario
+  step="track/07-campaign/01-cv"
+  id="diagnose-cv"
+  title="Diagnose a first-draft CV"
+  minutes={9}
+>
+<div slot="brief">
+
+A first attempt. Diagnose everything wrong with it and specify the fixes.
+
+```text
+MARIUS DUMITRU
+[full home address, postcode, DOB, photo]
+Milton Keynes | 07xxx xxxxxx | email
+
+PERSONAL STATEMENT
+Highly motivated and passionate individual looking to break into the
+exciting world of cyber security. I am a fast learner with excellent
+communication skills and a keen eye for detail. I am seeking a
+challenging role where I can utilise my skills and grow within a
+dynamic organisation.
+
+EMPLOYMENT HISTORY
+Injection Moulding Technician | [Company] | 2018 - present
+  - Operated injection moulding machines
+  - Responsible for quality checks
+  - Worked as part of a team
+  - Health and safety compliance
+
+Warehouse Operative | [Company] | 2016 - 2018
+  - Picking and packing
+  - Forklift operation
+
+SKILLS
+  Microsoft Office, Teamwork, Communication, Problem solving,
+  Time management, Windows, Networking, Hacking, Cyber security
+
+CERTIFICATIONS
+  CEH v13
+  Currently studying CompTIA SecAI+
+
+INTERESTS
+  I enjoy building computers, reading about technology, and
+  keeping up with the latest cyber security news.
+
+References available on request.
+```
+
+</div>
+<div slot="model">
+
+**The single biggest problem: thirty weeks of security work appears nowhere.**
+There is no projects section, no lab, no detections, no portfolio link, no BTL1.
+Everything that qualifies him is missing, and everything present is either
+irrelevant or actively working against him. Nothing else matters until that is
+fixed.
+
+**Working through it:**
+
+**Header.** Remove the photograph, date of birth and full address - UK convention,
+and they invite unconscious bias while wasting space. Town and county only. **Add
+LinkedIn and GitHub URLs**, which are currently absent and are two of the most
+valuable lines available.
+
+**Personal statement.** Every clause is unverifiable and every applicant writes
+it. "Passionate", "fast learner", "keen eye for detail", "dynamic organisation" -
+none can be checked and none differentiate. Replace with the factual summary
+format: certifications, what was built with numbers, the transferable background,
+clearance eligibility.
+
+**Missing: certifications should move up.** They currently sit below skills and
+above interests. CEH and BTL1 are among the strongest signals on the document and
+belong on the top third of page one.
+
+**Missing entirely: a technical projects section.** This is the fix that changes
+the CV's outcome. The lab, the detections, the Sigma contribution, the write-ups -
+all of it, with numbers, positioned above employment history.
+
+**Employment history.** The bullets describe duties rather than capabilities, and
+none is translated. "Operated injection moulding machines" tells a security
+recruiter nothing. "Responsible for quality checks" understates systematic fault
+diagnosis. Rewrite using the translation table - baseline monitoring, alarm
+triage, root-cause analysis, documented escalation, audit-grade records under a
+24/7 rota. **Keep the warehouse role but reduce it to a single line** - it is real
+work history and gaps invite questions, but it needs no detail.
+
+**Skills.** Several problems. "Microsoft Office" is assumed and wastes a line. The
+soft skills - teamwork, communication, time management - are unverifiable filler
+that every CV lists. **"Hacking" must go**; it is imprecise and reads as
+unprofessional to a hiring manager. "Cyber security" as a skill is meaningless on
+a cyber security CV. Replace the whole section with grouped, specific technologies:
+
+> **SIEM & Detection:** Microsoft Sentinel, KQL, Defender XDR, Sigma, Splunk (SPL)
+> **Endpoint & Forensics:** Sysmon, Autoruns, Volatility, KAPE, Eric Zimmerman tools
+> **Frameworks:** MITRE ATT&CK, NIST 800-61, Pyramid of Pain
+> **Platforms:** Windows, Linux, Entra ID, Azure, VMware, OpenWrt
+
+**Interests.** Delete. "Building computers and reading about technology" is
+weaker than the projects section that should replace it, and it reads as filler
+where evidence should be.
+
+**"References available on request."** Delete. Universally assumed, and it costs a
+line.
+
+**One thing done right:** the certifications are listed accurately, with SecAI+
+correctly marked as in progress rather than claimed. Keep that honesty - claiming
+an unheld certification is the fastest way to be removed from a process.
+
+**The redrafted structure:** contact with links, factual summary, certifications,
+technical projects with numbers, grouped technical skills, translated employment
+history, education. Two pages, single column, no tables.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/07-campaign/01-cv"
+  id="walk-cv"
+  question="Talk me through your CV."
+  seconds={120}
+  hits={[
+    "Start with where you are now and why - the certifications and the security work, briefly",
+    "Go straight to the projects section: what you built, what you found, with numbers",
+    "Explain the manufacturing background in transferable terms without overclaiming",
+    "Be explicit that you have no commercial security experience, and immediately follow with the evidence you do have",
+    "Mention shift-work experience as a positive for a 24/7 SOC rota, unprompted",
+    "Finish with what you are looking for and why this employer specifically"
+  ]}
+  trap="Walking through it chronologically from your first job. They can read dates. Lead with what makes you relevant now, and treat the employment history as supporting evidence rather than the main narrative."
+/>
+
+<Quiz mid="track/07-campaign/01-cv" title="The CV" questions={[
+  {
+    q: "Why should a career changer place technical projects above employment history?",
+    opts: ["Employment history is not relevant", "A reader gives the CV under ten seconds, so the most relevant evidence must appear in the top third rather than page two", "It hides the lack of experience", "ATS systems only read the first section"],
+    a: 1,
+    why: "It is about placement, not concealment - the employment history remains, translated and honest. A chronological CV puts manufacturing at the top and security at the bottom, which is exactly backwards for relevance. This is a recognised career-changer format and easily justified if asked."
+  },
+  {
+    q: "Which professional summary is stronger?",
+    opts: ["\"Passionate and highly motivated cyber security enthusiast seeking a challenging role\"", "\"CEH v13 and BTL1-certified, built a Sentinel detection lab, wrote 12 detections validated against 31 atomics, background in 24/7 process monitoring, SC clearance eligible\"", "\"Experienced professional with transferable skills\"", "\"Fast learner with excellent attention to detail\""],
+    a: 1,
+    why: "Every clause in the second is checkable and specific, and it pre-empts the two questions a recruiter has - what can you actually do, and can you handle shifts. The others are what every applicant writes, contain nothing verifiable, and therefore carry no information."
+  },
+  {
+    q: "How should shop-floor experience be translated on a security CV?",
+    opts: ["Omit it entirely to save space", "Describe the transferable mechanism accurately - baseline monitoring, alarm triage, root-cause analysis, documented escalation - without claiming security work", "Reframe it as security monitoring", "List it with job duties as originally written"],
+    a: 1,
+    why: "The transferable claim is about the shape of the work and it is genuinely true. Claiming you monitored for security threats on a production line is not, will collapse under one follow-up question, and destroys credibility on everything else. Omitting it entirely creates an unexplained gap and discards a real advantage."
+  },
+  {
+    q: "Which item should be removed from a UK security CV?",
+    opts: ["GitHub portfolio link", "Photograph, date of birth and \"References available on request\"", "Certifications in progress, marked as such", "Grouped technical skills"],
+    a: 1,
+    why: "UK convention omits photographs and dates of birth, and the references line states something universally assumed. Certifications in progress are fine provided they are clearly marked as such - claiming an unheld credential is disqualifying, but honestly signalling one you are working toward is not."
+  },
+  {
+    q: "Why avoid tables and multi-column layouts in the version submitted through an application portal?",
+    opts: ["They increase file size", "Many applicant tracking systems parse them incorrectly, scrambling or dropping content", "They are considered unprofessional", "They cannot be converted to PDF"],
+    a: 1,
+    why: "ATS parsers frequently mangle tables, columns, headers and text boxes, which can lose entire sections silently. Keep a clean single-column version for submissions and a designed version for direct human contact - the applicant never sees the parsing failure, which is what makes it dangerous."
+  },
+  {
+    q: "Listing \"Hacking\" under skills is a problem because:",
+    opts: ["It is illegal to advertise", "It is imprecise and reads as unprofessional to a hiring manager, where specific technologies would carry actual information", "It duplicates the CEH certification", "It triggers ATS rejection"],
+    a: 1,
+    why: "Vague and slightly juvenile terminology undermines an otherwise credible document. Named technologies and frameworks - Sentinel, KQL, Sysmon, MITRE ATT&CK, Sigma - tell a reader precisely what you can do and match the keywords an advert actually uses."
+  },
+  {
+    q: "What is the strongest single addition to a project bullet?",
+    opts: ["A stronger action verb", "A number - detections written, atomics validated against, false positive reduction achieved", "The date the project started", "A list of tools used"],
+    a: 1,
+    why: "Numbers are checkable, signal that the work was measured rather than merely attempted, and give an interviewer an obvious entry point. 'Reduced false positives from 42/day to 2/day' invites a question you can answer well, which is exactly what a good CV bullet is for."
+  }
+]} />
+
+<TaskList step="track/07-campaign/01-cv" tasks={[
+  { text: "Rebuild the CV using the career-changer structure", detail: "Contact with links, factual summary, certifications, projects, grouped skills, translated experience, education." },
+  { text: "Write the professional summary with no unverifiable adjectives", detail: "If a clause cannot be checked, cut it." },
+  { text: "Translate every manufacturing bullet using the table", detail: "Accurate mechanism, no claimed security work." },
+  { text: "Write four project bullets with a number in each" },
+  { text: "Produce two versions: clean single-column for portals, designed for direct contact" },
+  { text: "Run it past the ATS test", detail: "Paste the PDF text into a plain text editor. If sections are scrambled or missing, the parser will do the same." },
+  { text: "Tailor it against three real job adverts", detail: "Mirror their exact terminology. Keep each tailored version." },
+  { text: "Have someone outside security read it and say what you do", detail: "If they cannot tell, a recruiter will not either." },
+  { text: "Name the file properly and log it in your evidence log" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Cyber security CV guidance", by: "NCSC / UK Cyber Security Council", url: "https://www.ukcybersecuritycouncil.org.uk/", type: "read", minutes: 25, note: "UK-specific career guidance and role definitions. Useful for matching your CV language to how UK employers describe roles.", primary: true },
+  { title: "Simply Cyber - resume and career content", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 30, note: "Practical CV guidance aimed at people breaking in, including live CV reviews. Search his channel for resume content." },
+  { title: "How to write a CV", by: "National Careers Service", url: "https://nationalcareers.service.gov.uk/careers-advice/cv-sections", type: "read", minutes: 20, note: "UK conventions from the government careers service. Dull, accurate, and settles arguments about what to include." },
+  { title: "Cyber Security Jobsite - UK SOC roles", url: "https://www.cybersecurityjobsite.com/", type: "do", note: "Your source for tailoring. Pull the exact terminology from real adverts rather than guessing at keywords." },
+  { title: "Jobscan or similar ATS checkers", url: "https://www.jobscan.co/", type: "do", cost: "Free tier", note: "Paste your CV and a job advert to see keyword match. Use the free tier - the paid features add little for this purpose." },
+  { title: "r/cybersecurity mentorship threads", url: "https://www.reddit.com/r/cybersecurity/", type: "read", minutes: 20, note: "Monthly mentorship threads include CV reviews from working practitioners. Redact and post yours - the feedback is free and blunt." }
+]} />
+
+<Gate
+  step="track/07-campaign/01-cv"
+  conditions={[
+    "Projects sit above employment history and contain numbers",
+    "The summary contains no unverifiable adjectives",
+    "Manufacturing experience is translated accurately without claiming security work",
+    "The CV is two pages, UK conventions, with LinkedIn and portfolio links",
+    "A single-column version parses cleanly as plain text",
+    "I have tailored it against at least three real adverts",
+    "Someone outside security has read it and correctly described what I do"
+  ]}
+  unlocks="Next: LinkedIn - where UK cyber recruiters actually search, and how to be findable rather than merely present."
+/>

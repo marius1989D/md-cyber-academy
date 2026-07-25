@@ -1,0 +1,224 @@
+---
+import '../styles/global.css';
+import { getCollection } from 'astro:content';
+import { COURSES, type CourseId } from '../content.config';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+const { title, description = 'Advanced cyber security study platform.' } = Astro.props;
+
+const all = (await getCollection('modules', ({ data }) => data.published)).sort(
+  (a, b) => a.data.order - b.data.order,
+);
+
+const byCourse = (Object.keys(COURSES) as CourseId[])
+  .map((id) => ({ id, ...COURSES[id], modules: all.filter((m) => m.data.course === id) }))
+  .filter((c) => c.modules.length > 0);
+
+const path = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title} · MD Cyber Academy</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f5f0e8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14100d" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Applied before paint so night mode never flashes parchment. -->
+    <script is:inline>
+      (() => {
+        try {
+          const s = JSON.parse(localStorage.getItem('md-cyber-state-v2') || '{}');
+          const pref = s.theme || 'auto';
+          const dark =
+            pref === 'night' ||
+            (pref === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.dataset.theme = 'night';
+        } catch {}
+      })();
+    </script>
+  </head>
+
+  <body class="min-h-dvh">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded focus:px-3 focus:py-2"
+      style="background: var(--accent); color:#fff"
+    >
+      Skip to content
+    </a>
+
+    <div class="mx-auto flex max-w-[1400px]">
+      <!-- ── Desktop sidebar ─────────────────────────────────────── -->
+      <aside
+        class="sticky top-0 hidden h-dvh w-[288px] shrink-0 flex-col border-r lg:flex"
+        style="background: var(--surface-2)"
+      >
+        <div class="border-b px-5 py-5">
+          <a href="/" class="block">
+            <p class="font-display text-[1.05rem] font-extrabold leading-tight">MD Cyber Academy</p>
+            <p class="eyebrow mt-1">// v2.0</p>
+          </a>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto px-3 py-4" aria-label="Courses">
+          <a
+            href="/track/"
+            class="mb-3 block rounded-lg border-l-[3px] px-3 py-2.5 hover:bg-[var(--surface-3)]"
+            style={
+              path.startsWith('/track')
+                ? 'border-color: var(--accent); background: var(--surface-3)'
+                : 'border-color: var(--accent); background: var(--surface)'
+            }
+          >
+            <p class="eyebrow" style="color: var(--accent)">// Track 6 · campaign</p>
+            <p class="mt-0.5 text-[0.86rem] font-bold leading-tight">SOC Analyst: Zero to Hired</p>
+            <p class="mt-0.5 font-mono text-[0.62rem]" style="color: var(--text-3)">
+              9 phases · ~10 months
+            </p>
+          </a>
+
+          {byCourse.map((course) => (
+            <details open={course.modules.some((m) => path.includes(m.id))} class="mb-1.5">
+              <summary
+                class="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[0.86rem] font-semibold hover:bg-[var(--surface-3)]"
+              >
+                <span aria-hidden="true">{course.icon}</span>
+                <span class="flex-1 leading-tight">{course.name}</span>
+                <span class="font-mono text-[0.65rem]" style="color: var(--text-3)">
+                  {course.modules.length}
+                </span>
+              </summary>
+              <ul class="mt-1 space-y-px border-l pl-2" style="margin-left:0.85rem">
+                {course.modules.map((m) => {
+                  const href = `/module/${m.id}/`;
+                  const active = path === href;
+                  return (
+                    <li>
+                      <a
+                        href={href}
+                        aria-current={active ? 'page' : undefined}
+                        class="block rounded-md px-2.5 py-1.5 text-[0.8rem] leading-snug hover:bg-[var(--surface-3)]"
+                        style={
+                          active
+                            ? 'background: var(--surface-3); color: var(--accent); font-weight:600'
+                            : 'color: var(--text-2)'
+                        }
+                      >
+                        {m.data.title}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          ))}
+        </nav>
+
+        <div class="flex items-center gap-2 border-t px-3 py-3">
+          <a href="/search/" class="btn px-3" aria-label="Search">⌕</a>
+          <a href="/dashboard/" class="btn flex-1 text-[0.7rem]">Progress</a>
+          <button class="btn px-3" data-theme-toggle aria-label="Switch between day and night">
+            <span data-theme-icon>◐</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- ── Content ─────────────────────────────────────────────── -->
+      <div class="min-w-0 flex-1">
+        <!-- Mobile top bar -->
+        <header
+          class="sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-3 backdrop-blur lg:hidden"
+          style="background: color-mix(in srgb, var(--surface) 88%, transparent)"
+        >
+          <a href="/" class="font-display text-[0.95rem] font-extrabold">MD Cyber Academy</a>
+          <a href="/search/" class="btn ml-auto px-3 py-2" aria-label="Search">⌕</a>
+          <button class="btn px-3 py-2" data-theme-toggle aria-label="Switch between day and night">
+            <span data-theme-icon>◐</span>
+          </button>
+        </header>
+
+        <main id="main" class="px-4 pb-28 pt-6 sm:px-6 lg:px-10 lg:pb-16 lg:pt-10">
+          <slot />
+        </main>
+      </div>
+    </div>
+
+    <!-- Mobile bottom navigation — thumb-reachable, safe-area aware. -->
+    <nav
+      class="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t backdrop-blur lg:hidden"
+      style="background: color-mix(in srgb, var(--surface-2) 92%, transparent); padding-bottom: env(safe-area-inset-bottom)"
+      aria-label="Primary"
+    >
+      {[
+        { href: '/', icon: '◈', label: 'Home' },
+        { href: '/track/', icon: '➤', label: 'Track' },
+        { href: '/courses/', icon: '▤', label: 'Courses' },
+        { href: '/review/', icon: '↻', label: 'Review' },
+        { href: '/dashboard/', icon: '◔', label: 'Progress' },
+      ].map((item) => {
+        const active = path === item.href;
+        return (
+          <a
+            href={item.href}
+            class="flex flex-col items-center gap-0.5 py-2.5"
+            aria-current={active ? 'page' : undefined}
+            style={active ? 'color: var(--accent)' : 'color: var(--text-3)'}
+          >
+            <span class="text-[1.05rem] leading-none" aria-hidden="true">{item.icon}</span>
+            <span class="font-mono text-[0.6rem] uppercase tracking-wider">{item.label}</span>
+          </a>
+        );
+      })}
+    </nav>
+
+    <script>
+      // Theme toggle cycles day → night → auto, persisted through the store.
+      import { load, save } from '../lib/store';
+
+      const ICONS = { day: '☀', night: '☾', auto: '◐' } as const;
+
+      function apply(pref: 'day' | 'night' | 'auto') {
+        const dark =
+          pref === 'night' ||
+          (pref === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'night' : '';
+        document
+          .querySelectorAll('[data-theme-icon]')
+          .forEach((el) => (el.textContent = ICONS[pref]));
+      }
+
+      const state = load();
+      apply(state.theme);
+
+      document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const s = load();
+          const next = s.theme === 'auto' ? 'day' : s.theme === 'day' ? 'night' : 'auto';
+          s.theme = next;
+          save(s);
+          apply(next);
+        });
+      });
+
+      if ('serviceWorker' in navigator) {
+        addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+      }
+    </script>
+  </body>
+</html>

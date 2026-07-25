@@ -1,0 +1,72 @@
+---
+import Base from '../layouts/Base.astro';
+import RungGauge from '../components/RungGauge.astro';
+import { getCollection } from 'astro:content';
+import { COURSES, type CourseId } from '../content.config';
+
+const all = (await getCollection('modules', ({ data }) => data.published)).sort(
+  (a, b) => a.data.order - b.data.order,
+);
+const courses = (Object.keys(COURSES) as CourseId[])
+  .map((id) => ({ id, ...COURSES[id], modules: all.filter((m) => m.data.course === id) }))
+  .filter((c) => c.modules.length > 0);
+---
+<Base title="Courses">
+  <header class="border-b pb-5">
+    <p class="eyebrow">// Library</p>
+    <h1 class="mt-2 text-[clamp(1.9rem,1.4rem+2.2vw,2.8rem)]">Courses</h1>
+  </header>
+
+  {courses.map((course) => (
+    <section id={course.id} class="mt-12 scroll-mt-20">
+      <div class="flex items-start gap-3 border-b pb-3">
+        <span class="text-xl" aria-hidden="true">{course.icon}</span>
+        <div class="flex-1">
+          <h2 class="text-[1.3rem] leading-tight">{course.name}</h2>
+          <p class="mt-1 text-[0.9rem]" style="color: var(--text-3)">{course.blurb}</p>
+        </div>
+      </div>
+
+      <ol class="mt-4 space-y-2">
+        {course.modules.map((m) => (
+          <li>
+            <a
+              href={`/module/${m.id}/`}
+              class="panel flex items-center gap-4 p-3.5 transition hover:border-[var(--accent)]"
+              data-module-card={m.id}
+            >
+              <span
+                class="grid h-9 w-9 shrink-0 place-items-center rounded-lg font-mono text-[0.8rem] font-bold"
+                style="background: var(--surface-3); color: var(--text-3)"
+                data-ring
+              >
+                {String(m.data.order).padStart(2, '0')}
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block font-display text-[0.98rem] font-bold leading-tight">{m.data.title}</span>
+                <span class="mt-0.5 block truncate text-[0.83rem]" style="color: var(--text-3)">{m.data.summary}</span>
+              </span>
+              <span class="hidden shrink-0 sm:block"><RungGauge rung={m.data.rung} showLabel={false} size="sm" /></span>
+              <span class="shrink-0 font-mono text-[0.66rem]" style="color: var(--text-3)">{m.data.minutes}m</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+    </section>
+  ))}
+</Base>
+
+<script>
+  import { load, moduleScore } from '../lib/store';
+  const state = load();
+  document.querySelectorAll<HTMLElement>('[data-module-card]').forEach((card) => {
+    const mid = card.dataset.moduleCard!;
+    const { answered, correct } = moduleScore(mid, state);
+    if (answered === 0) return;
+    const ring = card.querySelector<HTMLElement>('[data-ring]')!;
+    const pct = Math.round((correct / answered) * 100);
+    ring.textContent = `${pct}%`;
+    ring.style.background = pct >= 80 ? 'var(--ok-soft)' : 'var(--surface-3)';
+    ring.style.color = pct >= 80 ? 'var(--ok)' : 'var(--text-3)';
+  });
+</script>

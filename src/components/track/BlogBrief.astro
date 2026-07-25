@@ -1,0 +1,67 @@
+---
+/**
+ * A commissioning brief, not a suggestion.
+ *
+ * "Write a blog post" is the advice everyone gives and nobody acts on, because
+ * it leaves four decisions unmade: topic, angle, length, venue. This states all
+ * four, plus the section people skip and hiring managers actually read.
+ */
+import { inline } from '../../lib/inline';
+
+interface Props {
+  step: string;
+  number: number;
+  title: string;
+  words: string;
+  /** Where it goes live. */
+  publish: string;
+  /** The one paragraph that makes the post worth reading. */
+  hook: string;
+  /** Section-by-section outline. */
+  outline: string[];
+}
+
+const { step, number, title, words, publish, hook, outline } = Astro.props;
+---
+<section class="my-8 overflow-hidden rounded-xl border-2" style="border-color: var(--accent)">
+  <header class="px-4 py-3" style="background: var(--accent); color:#fff">
+    <p class="font-mono text-[0.63rem] uppercase tracking-[0.2em] opacity-85">
+      ✎ Deliverable · Blog post {number}
+    </p>
+    <h3 class="mt-0.5 text-[1.08rem] font-bold leading-snug">“{title}”</h3>
+  </header>
+
+  <div class="p-4 sm:p-5" style="background: var(--surface-2)">
+    <dl class="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+      <div>
+        <dt class="eyebrow">Length</dt>
+        <dd class="text-[0.9rem]">{words}</dd>
+      </div>
+      <div>
+        <dt class="eyebrow">Publish to</dt>
+        <dd class="text-[0.9rem]">{publish}</dd>
+      </div>
+    </dl>
+
+    <div class="mt-4 rounded-lg border-l-[3px] p-3" style="border-color: var(--gold,#b8860b); background: var(--surface-3)">
+      <p class="eyebrow" style="color: var(--gold,#b8860b)">◆ The part that earns the read</p>
+      <p class="mt-1 text-[0.9rem] leading-relaxed" style="color: var(--text-2)" set:html={inline(hook)} />
+    </div>
+
+    <p class="eyebrow mt-5">Section outline</p>
+    <ol class="mt-2 space-y-1.5">
+      {outline.map((section, i) => (
+        <li class="flex gap-3 text-[0.9rem] leading-snug">
+          <span class="shrink-0 font-mono text-[0.72rem]" style="color: var(--text-3)">
+            {String(i + 1).padStart(2, '0')}
+          </span>
+          <span set:html={inline(section)} />
+        </li>
+      ))}
+    </ol>
+
+    <div class="mt-5 border-t pt-4">
+      <slot />
+    </div>
+  </div>
+</section>

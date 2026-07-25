@@ -1,0 +1,343 @@
+---
+title: "Log Analysis Under Pressure"
+phase: 4
+order: 5
+summary: "The five alerts you will see most, and the pivoting discipline that turns three log sources into one defensible timeline."
+weeks: "Weeks 22-23"
+minutes: 250
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["04-applied-triage/04-malware"]
+academy: ["detection/06-correlation"]
+attack: ["T1110.003", "T1078.004", "T1021.002", "T1041"]
+tags: ["log-analysis", "correlation", "timeline", "pivoting", "triage"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Here are logs from three different sources. Tell me what happened.">
+This is the capstone of Phase 4 and frequently the practical exercise in a final
+interview. Everything so far has been single-source: a header, a process tree, a
+capture, a binary. Real incidents span all of them, and the analyst's job is to
+build one timeline that a stranger could follow. The specific skill being tested
+is **pivoting** - taking a fact from one source and using it to query another -
+and it is the difference between reading logs and investigating.
+</Why>
+
+## The five alerts that fill a queue
+
+Learn the shape of each, and specifically what distinguishes the benign version
+from the real one.
+
+**1. Brute force.** Many attempts against few accounts.
+*Benign version:* a service account with a stale cached password, or a user after
+a password change. Look for a single account, one source, and failures that stop
+when someone logs in properly.
+*The question:* did anything succeed?
+
+**2. Password spray.** One password against many accounts.
+*Benign version:* a misconfigured script iterating an old account list.
+*Distinguishing signal:* attempts-per-account near 1, and status codes showing a
+mix of valid and invalid usernames.
+
+**3. Impossible travel.** Two sign-ins too far apart in too little time.
+*Benign version:* VPN, mobile roaming, a cloud service signing in on the user's
+behalf, or plain geo-IP inaccuracy. This is the highest false-positive alert in
+most SOCs.
+*Distinguishing signal:* device compliance, ASN type, and whether the audit log
+shows anything after the sign-in.
+
+**4. Lateral movement.** Authentication between hosts that do not normally talk.
+*Benign version:* IT administration, vulnerability scanners, backup agents,
+deployment tooling.
+*Distinguishing signal:* is the source host and the account combination
+established behaviour, and what happened on the destination afterwards.
+
+**5. Data exfiltration.** Large or unusual outbound transfer.
+*Benign version:* backups, cloud sync clients, legitimate large file sharing.
+*Distinguishing signal:* direction ratio, timing, destination, and whether the
+volume matches a known service's normal pattern for that host.
+
+<Callout type="key">
+Notice the pattern across all five: **the alert tells you a pattern occurred; your
+job is to determine whether it is this host's normal.** Baseline comparison is the
+single most reusable triage technique, and "is this new for this host or this
+account?" is the question to ask first, every time.
+</Callout>
+
+## Pivoting - the actual skill
+
+You start with one fact. Each source you touch should hand you a new fact to take
+somewhere else.
+
+```text
+  Alert: unusual sign-in
+     |
+     +-- pivot on USER -----> other sign-ins, audit log, mailbox rules
+     |
+     +-- pivot on IP -------> other accounts from this IP, firewall logs,
+     |                        threat intel, other tenants
+     |
+     +-- pivot on TIME -----> what else happened in this window, on any source
+     |
+     +-- pivot on HOST -----> process events, network connections, local logons
+     |
+     +-- pivot on ASSET ----> what does this host or user have access to
+```
+
+Work outward until new pivots stop producing new facts. That is the natural end of
+a Tier 1 investigation, and it is also the point at which you either close or
+escalate.
+
+## Timestamps will try to mislead you
+
+<Callout type="warn">
+**Normalise everything to UTC before you correlate.** Windows event logs, cloud
+sign-in logs, firewall syslog and application logs can each be in a different zone,
+and BST versus GMT will silently shift your timeline by an hour twice a year. An
+incorrect timeline is worse than no timeline - it produces confident wrong
+conclusions about causality. Always state the timezone explicitly in your write-up.
+</Callout>
+
+Also watch for clock drift on devices without reliable NTP, and for logs that
+record ingestion time rather than event time. If two sources disagree about
+ordering by seconds, prefer the one with the more trustworthy clock and say so.
+
+## Building the timeline
+
+Strip each source down to: **timestamp (UTC), source, actor, action, target,
+outcome.** One line per event. Sort. Read.
+
+Most incidents become obvious the moment they are laid out this way, which is why
+the discipline is worth more than any individual tool.
+
+<Scenario
+  step="track/04-applied-triage/05-log-analysis"
+  id="three-sources"
+  title="Three sources, one incident"
+  minutes={12}
+>
+<div slot="brief">
+
+Build the timeline and tell the story. All timestamps are as recorded - note the
+zones.
+
+```text
+SOURCE 1 - Entra ID sign-in logs  (UTC)
+  09:12:04  j.whitaker  FAIL 50126  IP 185.220.x.x  Tor exit
+  09:12:07  j.whitaker  FAIL 50126  IP 185.220.x.x
+  ... 34 failures across 34 accounts, one attempt each, same IP
+  09:14:41  p.osei      SUCCESS     IP 185.220.x.x  MFA: satisfied
+                                     device: unregistered
+  09:31:18  p.osei      SUCCESS     IP 92.40.x.x    MFA: satisfied
+                                     device: LAPTOP-P-OSEI (compliant)
+
+SOURCE 2 - Windows Security, FILE-SRV-02  (BST, UTC+1)
+  10:22:09  4624  p.osei    Logon type 3  from 10.20.9.14
+  10:22:11  4672  p.osei    Special privileges assigned
+  10:24:53  5145  p.osei    Share: \\FILE-SRV-02\HR-Confidential
+                            Accesses: ReadData  (relative: 847 files)
+  10:41:02  4624  svc_backup Logon type 3  from 10.20.9.14
+  10:41:30  7045  New service "WinTelemetrySvc"
+                  ImagePath: C:\Windows\Temp\wts.exe
+
+SOURCE 3 - Perimeter firewall  (UTC)
+  09:47:55  10.20.9.14 -> 185.220.x.x:443   ALLOW  1.2 KB
+  09:48:56  10.20.9.14 -> 185.220.x.x:443   ALLOW  1.1 KB
+  ... 62 similar, ~60s apart
+  10:52:14  10.20.9.14 -> 45.61.x.x:443     ALLOW  3.8 GB  (single flow)
+
+ASSET NOTES
+  - 10.20.9.14 = LAPTOP-P-OSEI
+  - p.osei is in HR. svc_backup is a service account, normally
+    only authenticates from BACKUP-01.
+```
+
+Produce the timeline, identify the techniques, and state your conclusion and
+actions.
+
+</div>
+<div slot="model">
+
+**First, normalise.** Source 2 is BST (UTC+1), so subtract an hour. Getting this
+wrong makes the file access appear to *precede* the sign-in, which would invert
+the causality entirely. This is the trap in the exercise.
+
+**The timeline, all UTC:**
+
+```text
+09:12:04  Password spray begins from Tor exit 185.220.x.x
+          34 accounts, one attempt each, all 50126     [T1110.003]
+09:14:41  p.osei signs in successfully from the SAME Tor IP,
+          MFA satisfied, UNREGISTERED device            [T1078.004]
+09:31:18  p.osei signs in from home IP, compliant device
+          (the real user, unaware)
+09:47:55  LAPTOP-P-OSEI begins beaconing to 185.220.x.x
+          62 connections, ~60s apart, ~1 KB each        [T1071.001]
+09:22:09  (was 10:22:09 BST) network logon to FILE-SRV-02 from
+          the laptop                                     [T1021.002]
+09:22:11  Special privileges assigned
+09:24:53  847 files read from \\FILE-SRV-02\HR-Confidential  [T1039]
+09:41:02  svc_backup authenticates from the laptop -
+          NOT its normal source                          [T1078]
+09:41:30  Service "WinTelemetrySvc" created,
+          ImagePath C:\Windows\Temp\wts.exe              [T1543.003]
+10:52:14  3.8 GB single outbound flow to 45.61.x.x       [T1041]
+```
+
+**Wait - re-check the ordering.** After conversion, the FILE-SRV-02 activity at
+09:22 UTC sits *before* the beaconing starts at 09:47. That is consistent: the
+attacker authenticated at 09:14, moved to the file server and collected data
+first, then established the C2 channel and persistence. The exfiltration at 10:52
+comes last. The sequence is coherent, and it is only coherent once the timezone is
+corrected.
+
+**The story:** a password spray from a Tor exit node succeeded against `p.osei` at
+09:14. The successful sign-in **satisfied MFA from an unregistered device**, which
+is the token-theft signature you know from Phase 1 - the attacker phished or
+replayed a token rather than defeating MFA directly. Seventeen minutes later the
+real user signed in from home, unaware. The attacker used the compromised session
+to reach FILE-SRV-02, obtained privileges, and read 847 files from an HR
+confidential share. They then pivoted to the `svc_backup` service account -
+authenticating from the wrong source host, which is the tell - established
+persistence via a service pointing at `C:\Windows\Temp`, ran C2 beaconing at
+60-second intervals, and exfiltrated 3.8 GB in a single flow.
+
+**Findings ranked:**
+
+1. **Confirmed data exfiltration of HR-confidential material.** 847 files read, 3.8
+   GB out. This is potentially a notifiable personal-data breach, and that carries
+   a statutory clock.
+2. **Two compromised identities** - `p.osei` and `svc_backup`. The second matters
+   more: a service account authenticating from a user laptop rather than
+   BACKUP-01 means credential theft, and service accounts are usually
+   over-privileged and rarely rotated.
+3. **Persistence established** - `WinTelemetrySvc` from a temp directory. Survives
+   reboot and password resets.
+4. **Live C2 channel** at the time of analysis.
+
+**Actions:**
+
+- **Escalate immediately as a major incident with confirmed exfiltration.** Flag
+  the personal-data dimension explicitly so the notification clock starts.
+- **Recommend containment:** isolate LAPTOP-P-OSEI preserving memory; revoke all
+  sessions and tokens for `p.osei` (a password reset alone leaves the token valid);
+  disable or rotate `svc_backup` and identify everywhere it is used before
+  disabling, because breaking backups during an incident is its own problem.
+- **Block** both external IPs; check the audit log for OAuth grants or inbox rules
+  as additional persistence.
+- **Scope:** which of the 34 sprayed accounts were valid? Did any other succeed?
+  Hunt the beacon interval and both IPs estate-wide, and check whether `svc_backup`
+  authenticated anywhere else.
+- **Determine what was in the 847 files** - that answer, not the technical
+  detail, is what the business and any regulator will need.
+
+**The transferable lesson:** the timezone conversion was the whole exercise. Every
+other finding follows from a correctly ordered timeline, and an analyst who
+correlates BST against UTC without noticing will confidently report a causally
+impossible sequence.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/04-applied-triage/05-log-analysis"
+  id="three-source-correlation"
+  question="Here are logs from three different sources. Tell me what happened."
+  seconds={120}
+  hits={[
+    "Normalise all timestamps to UTC first and say so explicitly",
+    "Reduce every event to timestamp, source, actor, action, target, outcome, then sort",
+    "Pivot systematically: user, IP, host, time window, asset access",
+    "Distinguish the compromised identity from the real user's activity",
+    "Identify the techniques by ATT&CK ID as you go",
+    "Rank findings by impact and time-criticality, not by discovery order",
+    "State what you would check next and what would change the conclusion"
+  ]}
+  trap="Correlating without normalising timezones. A BST-versus-UTC error shifts events by an hour and can invert cause and effect, producing a confident and completely wrong narrative. Always state the zone you have normalised to."
+/>
+
+<Quiz mid="track/04-applied-triage/05-log-analysis" title="Log Analysis Under Pressure" questions={[
+  {
+    q: "Why must timestamps be normalised to UTC before correlating sources?",
+    opts: ["UTC logs compress better", "Different sources record in different zones, and an offset error can invert the apparent order of events and therefore causality", "Only UTC is accepted by SIEM platforms", "It is required for legal admissibility"],
+    a: 1,
+    why: "A one-hour BST offset can make an effect appear to precede its cause, producing a confident narrative that is entirely wrong. Normalising first, and stating the zone explicitly in the write-up, is a discipline that costs seconds and prevents the single most damaging class of correlation error."
+  },
+  {
+    q: "A service account authenticates from a user's laptop rather than its usual server. This is significant because:",
+    opts: ["Service accounts cannot use network logons", "Service accounts have fixed expected sources, so authentication from elsewhere indicates credential theft", "It always indicates a scheduled task", "It only matters if the logon failed"],
+    a: 1,
+    why: "Service accounts are machine identities with predictable behaviour - a backup account should authenticate from the backup server and nowhere else. Deviation is one of the highest-fidelity signals available, and it matters disproportionately because service accounts are typically over-privileged with passwords that are rarely rotated."
+  },
+  {
+    q: "Impossible travel is the highest false-positive alert in most SOCs. Which detail most helps distinguish real compromise?",
+    opts: ["The distance between the two locations", "Device compliance and ASN type, plus whether the audit log shows post-sign-in activity", "The time of day", "The number of previous sign-ins"],
+    a: 1,
+    why: "VPNs, roaming and geo-IP inaccuracy generate most of these alerts. A sign-in from an unregistered device on a hosting or Tor ASN, followed by audit-log activity such as an OAuth consent or an inbox rule, separates a real takeover from a user on holiday - and checking the audit log rather than just sign-ins is the step juniors skip."
+  },
+  {
+    q: "What is the natural end point of a Tier 1 investigation?",
+    opts: ["After exactly thirty minutes", "When pivoting on available facts stops producing new facts", "When the alert is closed by the SIEM automatically", "When Tier 2 becomes available"],
+    a: 1,
+    why: "You pivot outward on user, IP, host, time and asset until new queries stop yielding new information. At that point you either have enough to close with documented reasoning or enough to escalate with a coherent picture. Working to a clock rather than to exhaustion of pivots is how things get missed."
+  },
+  {
+    q: "In a password spray, which detail best distinguishes it from a brute force?",
+    opts: ["The total number of failures", "Attempts per account near one, spread across many distinct accounts", "The source being external", "The time of day"],
+    a: 1,
+    why: "Brute force is depth - many passwords against one account. Spraying is breadth - one password across many accounts, deliberately staying under lockout thresholds. Total volume can look similar, so the per-account ratio is the discriminator, and status codes distinguishing valid from invalid usernames tell you whether the attacker had a good account list."
+  },
+  {
+    q: "A successful sign-in shows MFA satisfied from an unregistered device immediately after a spray. The most likely explanation is:",
+    opts: ["The user registered a new phone", "Token theft or replay, since MFA was satisfied without a fresh challenge on an unknown device", "An MFA service outage", "The spray was unrelated"],
+    a: 1,
+    why: "MFA is validated at token issuance, not on every use, so a replayed token presents an already-authenticated session. Combined with an unregistered device and the same source IP as the spray, this is the AiTM or token-replay pattern - and it is why remediation must revoke sessions rather than only reset the password."
+  },
+  {
+    q: "What is the most reusable question to ask when triaging any of the five common alert types?",
+    opts: ["How many events were generated?", "Is this behaviour new for this host or this account?", "Which vendor produced the alert?", "What severity did the rule assign?"],
+    a: 1,
+    why: "Every one of the five reduces to a baseline comparison. Brute force, spray, impossible travel, lateral movement and exfiltration all have common benign explanations, and what separates them is whether this pattern is established for this host or identity. First-seen reasoning is the most transferable technique in triage."
+  }
+]} />
+
+<TaskList step="track/04-applied-triage/05-log-analysis" tasks={[
+  { text: "Build the timeline in the scenario by hand before reading the model answer", detail: "Six columns, one line per event, normalised to UTC. Doing it manually is the exercise." },
+  { text: "Learn the five alert types and, for each, the most common benign explanation", detail: "The benign version matters as much as the malicious one - you will see it far more often." },
+  { text: "Draw the pivot map and use it on your next three investigations" },
+  { text: "Complete three multi-source CyberDefenders challenges", detail: "Ones that supply more than one log type. Correlation is only practisable with real multi-source data." },
+  { text: "Set every tool you use to display UTC", detail: "Wireshark, your SIEM, your VMs. Remove the conversion problem at source." },
+  { text: "Write up the scenario as a full incident timeline document", detail: "This becomes the raw material for the next step, and eventually for blog post 3." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "CyberDefenders - blue team challenges", url: "https://cyberdefenders.org/blueteam-ctf-challenges/", type: "do", cost: "Free tier", note: "Multi-source investigations with real artifacts and guided questions. The closest free equivalent to genuine casework.", primary: true },
+  { title: "LetsDefend - SOC alert simulation", url: "https://letsdefend.io/", type: "do", cost: "Free tier", note: "Alert queue with a ticketing workflow, so you practise the documentation alongside the analysis." },
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 60, note: "Read these now as timeline exercises: cover the conclusion, build the sequence yourself from the evidence, then compare." },
+  { title: "Splunk Boss of the SOC datasets", by: "Splunk", url: "https://github.com/splunk/botsv3", type: "do", note: "Free, downloadable, multi-source datasets from a real SOC competition. Substantial, realistic, and usable in any platform." },
+  { title: "Microsoft - Investigate incidents in Sentinel", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/investigate-cases", type: "read", minutes: 25, note: "The investigation graph and entity pivoting - the tooling version of the pivot map. SC-200 relevant." },
+  { title: "Aurora / Timeline Explorer approaches", by: "Eric Zimmerman", url: "https://ericzimmerman.github.io/", type: "ref", note: "Free forensic tooling, including Timeline Explorer for working with large timeline CSVs. Useful once your timelines outgrow a text file." }
+]} />
+
+<Gate
+  step="track/04-applied-triage/05-log-analysis"
+  conditions={[
+    "I normalise to UTC before correlating and state the zone in my write-up",
+    "I can name the five common alert types and the usual benign explanation for each",
+    "I pivot systematically on user, IP, host, time and asset",
+    "I can build a six-column timeline from mixed sources without prompting",
+    "I have completed at least three multi-source investigations",
+    "I ask 'is this new for this host or account?' as my first triage question"
+  ]}
+  unlocks="Final Phase 4 step: writing it up - the skill that decides whether your analysis is believed and acted on."
+/>

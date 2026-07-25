@@ -1,0 +1,307 @@
+---
+title: "BTL1 Exam"
+phase: 6
+order: 2
+summary: "The 24-hour practical: pacing strategy, evidence discipline, and the report that carries most of the marks."
+weeks: "Weeks 31-32"
+minutes: 1440
+kind: exam
+pillar: triage
+cost: 399
+prereq: ["06-btl1-portfolio/01-btl1-prep"]
+tags: ["btl1", "exam", "certification", "incident-response"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What's the hardest investigation you've done?">
+BTL1 is the most expensive item in this track and the one that changes how your CV
+is read, because it is a practical assessment rather than a knowledge test.
+Passing it means you have investigated a simulated breach under time pressure and
+produced a report someone graded. That is a materially different claim from
+holding a multiple-choice certificate, and it gives you a concrete answer to the
+question above - which almost no career-changer can otherwise answer.
+</Why>
+
+## Before you buy
+
+<Callout type="warn">
+**Confirm the current format, duration and price on Security Blue Team's site
+before booking.** Exam structure and pricing are revised periodically. Check what
+the current assessment actually involves rather than relying on this page.
+
+**Wait for a discount.** Security Blue Team run seasonal promotions, and the
+difference is meaningful on a £399 item. Buy the course when it is discounted, not
+when you happen to feel ready - the voucher typically has a long validity window,
+so purchasing early and sitting later costs you nothing.
+</Callout>
+
+## What the assessment is
+
+A hands-on incident investigation against a live environment, conducted over a
+24-hour window, culminating in a written report. You are not expected to work for
+24 continuous hours - the window is generous precisely so you can sleep, eat and
+think.
+
+**The report is the deliverable.** Finding things is necessary but not sufficient;
+the marks come from evidencing what you found, structuring it, and drawing
+defensible conclusions. Everything in Phase 4 step 6 applies directly, and this is
+where that step earns its place in the track.
+
+## Pacing strategy
+
+The single biggest failure mode is spending eighteen hours investigating and three
+hours writing. Plan the opposite shape.
+
+```text
+Hours 0-1     Read everything. Do not touch a tool yet.
+              Understand what is being asked, what artefacts
+              exist, and what the deliverable must contain.
+
+Hours 1-3     Broad sweep. Establish the scope: which hosts,
+              which accounts, roughly what window. Do not go
+              deep on the first interesting thing you find.
+
+Hours 3-8     Deep investigation. Follow the pivots. Capture
+              evidence as you go, not afterwards.
+
+Hours 8-10    BREAK. Sleep if it is overnight. Genuinely.
+
+Hours 10-16   Second pass. Fill gaps, corroborate findings
+              across independent artefacts, chase loose ends.
+
+Hours 16-21   WRITE. Start the report while you still have
+              time to go back and get anything missing.
+
+Hours 21-23   Review, verify every claim against evidence,
+              tidy formatting, check the timeline.
+
+Hour 23-24    Buffer. Submit early.
+```
+
+<Callout type="key">
+**Start writing at the two-thirds point, not the end.** Writing surfaces the gaps
+in your investigation - you discover you never confirmed a timestamp, or cannot
+evidence a claim you were about to make. Discovering that with five hours left is
+recoverable. Discovering it with forty minutes left is not.
+</Callout>
+
+## Evidence discipline
+
+Capture as you go. Reconstructing evidence at hour twenty is how people run out
+of time.
+
+- **Screenshot everything the moment you find it.** Include enough context in the
+  frame that the screenshot is self-explanatory later - the query, the hostname,
+  the timestamp.
+- **Keep a running timeline file from minute one.** Timestamp, source, actor,
+  action, target, outcome. The six-column format from Phase 4 step 5.
+- **Record the query or command that produced each finding.** A finding you cannot
+  reproduce is a finding you cannot defend.
+- **Note what you checked and found nothing**, as well as what you found. Negative
+  results belong in the report and demonstrate thoroughness.
+- **Normalise timestamps to UTC immediately** and state it. The Phase 4 lesson.
+
+## Writing the report
+
+Use your six-section template. Adapted for an assessment:
+
+1. **Executive summary** - what happened, impact, in plain language
+2. **Timeline** - UTC, chronological, one line per event
+3. **Detailed findings** - one section per finding, each with the evidence
+4. **Indicators of compromise** - hashes, IPs, domains, paths, account names
+5. **ATT&CK mapping** - technique IDs against your findings
+6. **Recommendations** - containment, eradication, and preventive measures
+
+**Two habits that reliably gain marks:** separate observation from inference
+throughout, and state your confidence with what would change it. A grader can tell
+immediately whether a candidate understands the difference between "the log shows
+X" and "therefore Y happened", and very few do it explicitly.
+
+<Scenario
+  step="track/06-btl1-portfolio/02-btl1-exam"
+  id="stuck-at-14"
+  title="Hour 14 and you are stuck"
+  minutes={7}
+>
+<div slot="brief">
+
+You are fourteen hours into the window. Position:
+
+```text
+FOUND SO FAR
+  - Initial access confirmed: phishing attachment, user opened it
+  - Execution confirmed: process tree captured, screenshots taken
+  - Persistence confirmed: registry Run key, evidenced
+  - One host identified as compromised
+
+STUCK ON
+  - Cannot establish how the attacker moved to the second host.
+    You know they did - there is a suspicious service on HOST-B -
+    but you cannot find the authentication or transfer that
+    got them there. Three hours spent on this.
+
+NOT YET DONE
+  - No exfiltration analysis
+  - No IOC list compiled
+  - No ATT&CK mapping
+  - Report not started
+  - Roughly ten hours remain
+```
+
+What do you do?
+
+</div>
+<div slot="model">
+
+**Stop working the lateral movement question. Start the report. Now.**
+
+This is a time-allocation decision, and the arithmetic is unambiguous: you have
+ten hours, four substantial deliverables outstanding, and three hours already sunk
+into one gap with nothing to show. Continuing is the sunk cost fallacy in exam
+form.
+
+**The order I would work:**
+
+**1. Write the report skeleton immediately (30 minutes).** All six sections
+headed, with the findings you already have slotted in as bullet points. This does
+two things: it makes the remaining work visible, and it guarantees that whatever
+happens you submit something structured rather than a pile of notes.
+
+**2. Compile the IOC list (30 minutes).** You already have the material - hashes,
+paths, registry keys, the sender address. It is fast, it is definitely marked, and
+it requires no new investigation. Take the certain marks first.
+
+**3. Do the ATT&CK mapping (30 minutes).** Same reasoning. You know the techniques
+for everything you have found. Fast, marked, no new investigation needed.
+
+**4. Spend two hours on exfiltration (hours 15-17).** This is a completely
+unexplored area, so the expected return per hour is far higher than the fourth
+hour on lateral movement. Look at SRUM, proxy logs, network telemetry, and any
+archive creation - the Phase 4 direction-ratio thinking. Even a partial finding
+here is worth more than solving the lateral movement puzzle.
+
+**5. Return to lateral movement for one hour maximum (hour 17-18), with a
+different approach.** Not more of the same searching. Ask what you have not
+looked at: Prefetch and Amcache on HOST-B to establish what ran and when; the
+service binary's creation time in the USN Journal; type-3 logons in whatever event
+data survives; SMB share access events; scheduled tasks. **The corroboration habit
+from the prep step is exactly what breaks this kind of deadlock** - if the
+authentication evidence is missing, find the artefact that records the same
+activity by a different mechanism.
+
+**6. Write properly from hour 18 to 22**, review to 23, submit with an hour spare.
+
+**And here is the part that actually gains marks: write up the gap honestly.**
+
+Do not omit lateral movement because you could not fully evidence it. Write:
+
+> *"HOST-B shows a service created at 22:15 with a binary path matching the
+> payload identified on HOST-A, indicating the attacker moved between them.
+> Investigation did not establish the specific authentication or transfer
+> mechanism. Checked: Security event log (cleared at 22:41), SMB share access
+> events (not present in the collection), scheduled task creation. Recommend
+> examining HOST-B memory and the $MFT for the binary's creation timestamp to
+> narrow the transfer window. Moderate confidence that transfer occurred between
+> 22:12 and 22:15 based on the payload's creation time on HOST-A."*
+
+That paragraph demonstrates you identified the movement, investigated it
+systematically, know what you checked, know what you did not have, and can propose
+the next step. **In a real SOC that is a perfectly good handover.** A grader
+assessing analytical capability values it far above silence, and it is worth more
+than a fourth hour of unproductive searching would have been.
+
+**The transferable lesson:** in any time-boxed investigation, take the certain
+marks first, allocate remaining time by expected return rather than by which
+puzzle is most annoying, and document gaps rather than hiding them. That is not
+exam technique - it is how you work a real incident with a deadline.
+
+</div>
+</Scenario>
+
+<Quiz mid="track/06-btl1-portfolio/02-btl1-exam" title="BTL1 Exam Strategy" questions={[
+  {
+    q: "Why should you begin writing the report at roughly the two-thirds point rather than at the end?",
+    opts: ["Reports take longer to write than expected", "Writing surfaces gaps in the investigation while there is still time to go back and fill them", "The grader sees the submission timestamp", "It reduces the risk of technical failure at submission"],
+    a: 1,
+    why: "The act of writing forces you to evidence each claim, which is when you discover you never captured a timestamp or cannot reproduce a finding. Discovering that with hours remaining is recoverable; discovering it with minutes remaining is not. Writing is also part of the investigation, not a separate task after it."
+  },
+  {
+    q: "You have spent three hours on one unresolved question with four deliverables outstanding and ten hours left. The best move is:",
+    opts: ["Continue - you are close to solving it", "Take the certain marks first, allocate remaining time by expected return, and document the gap honestly", "Omit the unresolved area entirely from the report", "Submit what you have immediately"],
+    a: 1,
+    why: "Continuing is the sunk cost fallacy. IOC lists and ATT&CK mapping are fast, definitely marked, and need no new investigation. Unexplored areas offer higher expected return per hour than a fourth hour on the same wall. Documenting the gap with what you checked demonstrates analytical rigour rather than concealing a weakness."
+  },
+  {
+    q: "What should you do about an area you investigated but could not fully evidence?",
+    opts: ["Omit it, since unproven claims lose marks", "Document what you found, what you checked, what you could not establish, and what you would do next", "State it as fact and move on", "Mention it only in the executive summary"],
+    a: 1,
+    why: "A documented gap with a stated method and next step is a legitimate professional output - it is exactly what a good handover to Tier 2 looks like. Omitting it hides work you actually did, and asserting it as fact without evidence undermines the credibility of everything else in the report."
+  },
+  {
+    q: "Why capture screenshots at the moment of discovery rather than during the write-up?",
+    opts: ["Screenshots expire after a few hours", "Reconstructing evidence late in the window consumes time you need for writing, and some environment state may no longer be reproducible", "Graders check file creation timestamps", "It is required by the exam rules"],
+    a: 1,
+    why: "Going back to re-find and re-capture twenty findings at hour twenty is how candidates run out of time. Some views may also be harder to reproduce later. Capturing with enough context in frame - query, hostname, timestamp - makes each screenshot self-explanatory when you assemble the report."
+  },
+  {
+    q: "Which practice most distinguishes a strong report from an adequate one?",
+    opts: ["Length and level of technical detail", "Separating observation from inference, and stating confidence with what would change it", "Including every screenshot captured", "Using the most advanced tooling available"],
+    a: 1,
+    why: "Graders assess analytical capability, not volume. Explicitly distinguishing what the evidence shows from what you conclude, and stating how confident you are and why, demonstrates disciplined reasoning. Very few candidates do it explicitly, which is precisely why it stands out."
+  },
+  {
+    q: "The 24-hour window is best understood as:",
+    opts: ["A requirement to work continuously for 24 hours", "A generous window intended to allow sleep, breaks and thinking time, with the report as the primary deliverable", "A limit that most candidates use fully", "Time that includes the preparation period"],
+    a: 1,
+    why: "Working continuously degrades analysis quality sharply, and the window is deliberately long enough to accommodate rest. Fatigue-driven errors in a timeline or a mis-stated conclusion cost more marks than the extra hours gain. Planning a genuine break is a strategy, not a concession."
+  },
+  {
+    q: "Why does the prep step's corroboration habit matter during the exam?",
+    opts: ["It speeds up screenshot capture", "When one evidence source is missing or cleared, another artefact usually records the same activity by a different mechanism", "It is required for the ATT&CK mapping section", "It reduces the number of tools needed"],
+    a: 1,
+    why: "Execution, file creation, persistence and network volume are each recorded in several independent places, and an attacker rarely cleans all of them. When a search stalls because the obvious log is gone, asking which other artefact captures the same activity is what breaks the deadlock - and it is the core forensic skill being assessed."
+  }
+]} />
+
+<TaskList step="track/06-btl1-portfolio/02-btl1-exam" title="Exam" tasks={[
+  { text: "Confirm the current format, duration and price on the official site" },
+  { text: "Buy during a seasonal discount, then sit when ready", detail: "The voucher validity window is typically long. Buying cheap and sitting later costs nothing." },
+  { text: "Work through the full course content, not just the gap areas", detail: "You are strong on most domains, but the course teaches the specific tooling and terminology the assessment uses." },
+  { text: "Complete a full dress rehearsal against a CyberDefenders challenge", detail: "Time-boxed, with a written report at the end. Practise the pacing, not just the analysis." },
+  { text: "Prepare your report template and timeline file before you start the exam", detail: "Six sections headed, six-column timeline ready. Do not build it under time pressure." },
+  { text: "Plan the 24 hours before you begin, including the break", detail: "Write the plan down. You will not make good allocation decisions at hour fourteen without one." },
+  { text: "Sit the exam" },
+  { text: "Log the result in your evidence log and add it to your CV and LinkedIn the same day" },
+  { text: "Keep a redacted version of your report as an interview sample", detail: "Check the exam terms on what may be shared. Even a heavily redacted structure demonstrates your written work." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Blue Team Level 1", by: "Security Blue Team", url: "https://securityblue.team/why-btl1/", type: "ref", note: "Current format, domains, duration and pricing. The authoritative source - check it before booking and watch for discounts.", primary: true },
+  { title: "CyberDefenders challenges", url: "https://cyberdefenders.org/blueteam-ctf-challenges/", type: "do", cost: "Free tier", note: "Your dress rehearsal. Pick one, time-box it, and write a full report at the end. Practising the pacing matters as much as the analysis." },
+  { title: "SANS incident report templates", by: "SANS", url: "https://www.sans.org/white-papers/", type: "read", minutes: 30, note: "Search for incident handling and reporting templates. Useful structural models to compare against your own six-section format." },
+  { title: "The DFIR Report", url: "https://thedfirreport.com/", type: "read", minutes: 45, note: "Read one immediately before the exam, specifically for structure - how they open, sequence findings, present timelines and list IOCs." },
+  { title: "SANS Windows forensic analysis poster", by: "SANS", url: "https://www.sans.org/posters/windows-forensic-analysis/", type: "ref", note: "Have it open during the exam. Knowing which artefact answers which question saves real time under pressure." },
+  { title: "MITRE ATT&CK Navigator", by: "MITRE", url: "https://mitre-attack.github.io/attack-navigator/", type: "do", note: "Useful for building the mapping section quickly and presenting it as a visual layer alongside the written list." }
+]} />
+
+<Gate
+  step="track/06-btl1-portfolio/02-btl1-exam"
+  conditions={[
+    "I confirmed the current exam format and bought at a discount",
+    "I completed the full course content, not only the gap areas",
+    "I ran a time-boxed dress rehearsal with a written report",
+    "I had my report template and timeline file prepared before starting",
+    "I planned the 24 hours in advance, including a genuine break",
+    "I sat the exam",
+    "The result is logged, on my CV and on LinkedIn"
+  ]}
+  unlocks="Final Phase 6 step: assembling everything into a portfolio a recruiter can understand in sixty seconds."
+/>

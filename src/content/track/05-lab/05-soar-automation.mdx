@@ -1,0 +1,363 @@
+---
+title: "SOAR & Automation"
+phase: 5
+order: 5
+summary: "Enrichment playbooks that save an analyst minutes per alert, response actions gated behind a human, and the judgement about which is which."
+weeks: "Weeks 28-30"
+minutes: 320
+kind: lab
+pillar: evidence
+cost: 0
+prereq: ["05-lab/04-sigma"]
+academy: ["detection/13-soar"]
+tags: ["soar", "automation", "logic-apps", "playbooks", "lab"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Lab from '../../../components/Lab.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What would you automate in a SOC, and what would you never automate?">
+The second half of that question is the one that matters. Anyone can list things a
+playbook could do; the candidate who can articulate why account disablement should
+sit behind an approval while threat-intel enrichment should not is demonstrating
+judgement about blast radius and authority - the same lane awareness from Phase 2,
+expressed in automation. This step also closes the loop on your lab: detections
+that fire, enriched automatically, ready for a human decision.
+</Why>
+
+## The two kinds of automation
+
+Keep these separate in your head and in your answers:
+
+**Enrichment** adds context to an alert. It changes nothing in the environment, is
+fully reversible because there is nothing to reverse, and its worst failure mode
+is an unhelpful comment on a ticket. **Automate freely.**
+
+**Response** changes something - disables an account, isolates a device, blocks an
+IP, deletes a message. It has business impact, may be difficult to reverse, and
+its worst failure mode is an outage you caused. **Gate behind a human, or scope
+extremely tightly.**
+
+<Callout type="key">
+The principle to state in an interview: *"Automate the gathering, gate the
+deciding."* An analyst opening an incident should find the threat intel lookups,
+asset criticality, user context and related alerts already attached. What they
+should not find is an account already disabled because a rule with a 40 percent
+false positive rate fired at 3am.
+</Callout>
+
+## Enrichment worth building
+
+Ordered by return on effort:
+
+1. **Threat intel lookup** - query reputation for any IP, domain or hash entity on
+   the incident and post the result as a comment.
+2. **Asset context** - is this host a domain controller or a print server? Pull
+   criticality from a watchlist or CMDB and adjust severity accordingly.
+3. **Identity context** - department, manager, privileged roles, recent password
+   change. Turns "an account" into "a privileged finance account".
+4. **Related alerts** - has this entity appeared in other incidents in the last 30
+   days? Recurrence changes the picture entirely.
+5. **Geolocation and ASN** - hosting provider, Tor exit, residential.
+6. **Historical baseline** - has this user signed in from this country before? The
+   first-seen question, answered before the analyst asks it.
+
+Each of these is a lookup an analyst would otherwise do by hand, several times a
+shift. Six of them is easily five minutes saved per alert, which across a queue is
+substantial.
+
+## Response actions and how to gate them
+
+| Action | Blast radius | Recommended gating |
+|---|---|---|
+| Add a ticket comment | None | Fully automatic |
+| Tag or reclassify an incident | None | Fully automatic |
+| Notify a Teams channel | None | Fully automatic |
+| Assign an owner | None | Fully automatic |
+| Block a hash across the estate | Low, reversible | Automatic with a confidence threshold |
+| Block an IP at the perimeter | Medium | Approval, or automatic only for high-confidence intel |
+| Force a password reset | Medium, user-visible | Approval |
+| Isolate a device | High | Approval - and selective isolation, not full |
+| Disable an account | High | Approval |
+| Delete mail from mailboxes | High, irreversible | Approval |
+
+<Callout type="warn">
+**Never automate an irreversible action on the output of a rule you have not
+measured.** You know from Phase 2 what an untuned rule's false positive rate looks
+like. Wiring that to account disablement means one noisy Tuesday locks out forty
+people, and the SOC's automation is switched off permanently by an angry service
+owner. Automation that gets disabled has negative value - it cost you effort and
+now nobody trusts it.
+</Callout>
+
+## Approval patterns
+
+Logic Apps supports an approval step - post to Teams or email with Approve and
+Reject buttons, wait for a response, then branch. This is the pattern that makes
+higher-impact automation safe:
+
+```text
+Incident created
+   │
+   ├─▶ Enrich (parallel, no gating)
+   │     threat intel · asset context · identity · related alerts
+   │
+   ├─▶ Post enriched summary to the SOC channel
+   │
+   └─▶ IF severity == High AND confidence == High
+         │
+         └─▶ Post approval request with the evidence
+               │
+               ├─ Approved ──▶ isolate device (selective)
+               │                 comment the action and approver
+               │
+               └─ Rejected ──▶ comment the rejection and reason
+                                 assign to analyst
+```
+
+Two details that matter: **the approval request must carry the evidence**, so the
+approver can decide without opening the console, and **both branches must comment
+the outcome and who decided**, so the audit trail survives.
+
+<Lab title="Build an enrichment playbook" host="Sentinel in your lab workspace" minutes={240}>
+
+1. **Create a playbook** (Logic App) triggered on Sentinel incident creation.
+2. **Extract entities** from the incident - use the entities dynamic content, and
+   filter for IP and Account types.
+3. **Add a threat intel lookup.** A free option that works without a paid
+   subscription is fine here - the point is the pattern, not the feed. Handle the
+   no-result case gracefully.
+4. **Add asset context** by looking up the host against a watchlist you created in
+   the Sentinel architecture step.
+5. **Compose a readable summary** and add it as an incident comment. Format it so
+   an analyst can read it at a glance - this is a real skill and badly formatted
+   automation output gets ignored.
+6. **Conditionally adjust severity** - if the asset is marked critical in the
+   watchlist, raise the incident severity and tag it.
+7. **Create an automation rule** that runs the playbook on incident creation for
+   your detection rules.
+8. **Test it** by firing an atomic that triggers one of your Phase 5 detections.
+   Watch the incident appear, then watch it enrich itself.
+9. **Measure it.** Time yourself triaging an enriched incident versus an
+   unenriched one. Record the difference - that number is your evidence.
+
+**Evidence to capture:** a screenshot of an enriched incident, the playbook
+designer view, and your before-and-after triage timing. Log it.
+
+</Lab>
+
+<Scenario
+  step="track/05-lab/05-soar-automation"
+  id="design-automation"
+  title="Design the automation for a phishing incident"
+  minutes={10}
+>
+<div slot="brief">
+
+An MSSP asks you to specify the automation for their phishing queue. Current
+state: 60 to 80 reported phishing emails per day, each taking an analyst 12 to 20
+minutes. Two Tier 1 analysts per shift.
+
+```text
+CURRENT MANUAL WORKFLOW
+ 1. Open the reported message, extract headers
+ 2. Check SPF/DKIM/DMARC results
+ 3. Look up sender domain reputation and registration age
+ 4. Extract URLs, check reputation, expand redirects
+ 5. Extract attachment hashes, check reputation
+ 6. Search the tenant for other recipients of the same message
+ 7. Check whether anyone clicked the link
+ 8. Decide: benign / spam / phishing / confirmed malicious
+ 9. If malicious: purge from mailboxes, block sender and URLs,
+    check for post-compromise activity on any clicker
+10. Reply to the reporting user
+11. Write the ticket
+
+AVAILABLE: Defender for Office 365, Sentinel, Logic Apps,
+           a commercial threat intel feed, Teams
+```
+
+Specify what you automate fully, what you gate, and what stays manual. Justify
+each boundary.
+
+</div>
+<div slot="model">
+
+**Automate fully - steps 1 through 7, all enrichment, none of it changes
+anything.**
+
+These are lookups. Every one is deterministic, reversible in the sense that
+nothing is altered, and each is a place a tired analyst makes copy-paste errors at
+4am.
+
+- **1-2 Header and authentication parsing.** Pure extraction. Post the From,
+  Return-Path, Reply-To and the full Authentication-Results as a formatted comment,
+  and **explicitly flag DMARC alignment failure** rather than just dumping the raw
+  string - the automation should surface the finding, not the data.
+- **3-5 Reputation lookups.** Sender domain age and reputation, URL reputation and
+  expanded redirect chain, attachment hash reputation. Handle "no result" as a
+  distinct outcome from "clean", because they are not the same and conflating them
+  is how automation misleads.
+- **6-7 Scoping.** Query `EmailEvents` for other recipients of the same
+  `NetworkMessageId` or campaign, and `UrlClickEvents` for who clicked and whether
+  they clicked through. **This is the highest-value automation in the whole
+  workflow** - it is the slowest manual step and it produces the four numbers an
+  incident manager asks for first.
+
+Post all of it as a single structured comment. An analyst should open the incident
+and have the entire picture already assembled.
+
+**Automate with a confidence gate - step 8, partially.**
+
+Auto-classify only at the extremes, and only where the evidence is unambiguous:
+
+- **Auto-close as benign** where DMARC passes aligned, the sender domain is
+  established and well-reputed, no URLs or attachments, and no clicks. This is a
+  meaningful share of the queue and it is safe because the failure mode is a missed
+  phish that a user already thought was suspicious - which is bad, so set the
+  threshold conservatively and sample-audit the auto-closures weekly.
+- **Auto-escalate to high severity** where multiple reputation sources flag the
+  payload and someone clicked through. Escalating is not destructive.
+- **Everything in between stays manual.** Which is most of it, and that is correct.
+
+**Gate behind approval - step 9, all of it.**
+
+- **Purge from mailboxes is irreversible.** A wrongly purged legitimate email -
+  an invoice, a contract, a job offer - is a real business impact and the user
+  cannot get it back. Approval, always, with the evidence in the request.
+- **Blocking sender domains and URLs** is medium impact and reversible, but a
+  wrongly blocked supplier domain stops legitimate business mail and the failure is
+  discovered slowly, by someone else, when a deal goes quiet. Approval, or
+  automatic only where the intel confidence is very high and the domain is
+  newly-registered.
+- **Post-compromise checks on anyone who clicked** should be automated as
+  *enrichment* - run the queries, attach the results - but any resulting containment
+  is a separate decision and follows the normal escalation path.
+
+**Stays manual - steps 10 and 11.**
+
+- **Replying to the reporting user.** A templated auto-reply acknowledging receipt
+  is fine and worth doing. But the substantive response should be human, because
+  reporting users are the detection layer you most want to keep engaged, and a
+  wrong or robotic answer trains them to stop reporting. That behavioural effect is
+  worth more than the minutes saved.
+- **The ticket.** The analyst's reasoning is the point of the ticket, and
+  automation cannot supply it. The enrichment comment gives them the facts; the
+  assessment must be theirs.
+
+**Expected result:** 12 to 20 minutes down to perhaps 4 to 6 for the cases that
+still need a human, with a share of the queue auto-closing safely. Two analysts
+can now handle the volume without pattern-closing, which was the actual risk.
+
+**How I would introduce it:** enrichment first, running for two weeks with nobody
+acting on it automatically, while measuring accuracy. Then auto-close at a
+deliberately conservative threshold, audited weekly. Approval-gated response last.
+**Deploying response automation before you have measured your enrichment's accuracy
+is how SOCs end up with automation that everyone has quietly disabled.**
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/05-lab/05-soar-automation"
+  id="what-to-automate"
+  question="What would you automate in a SOC, and what would you never automate?"
+  seconds={90}
+  hits={[
+    "Automate the gathering, gate the deciding - enrichment freely, response behind a human",
+    "Enrichment changes nothing: threat intel, asset context, identity context, related alerts, scoping queries",
+    "Response has blast radius: isolation, account disablement, mailbox purge, perimeter blocks",
+    "Never wire an irreversible action to a rule whose false positive rate I have not measured",
+    "Approval steps must carry the evidence, and both branches must record who decided",
+    "Introduce enrichment first and measure its accuracy before automating any response",
+    "Automation that gets disabled by an angry service owner has negative value"
+  ]}
+  trap="Listing only what you would automate. The judgement being tested is where you draw the line and why - blast radius, reversibility, and whose authority the action sits under."
+/>
+
+<Quiz mid="track/05-lab/05-soar-automation" title="SOAR & Automation" questions={[
+  {
+    q: "What is the core principle distinguishing what to automate from what to gate?",
+    opts: ["Automate anything that takes more than five minutes", "Automate information gathering, which changes nothing; gate actions that change the environment", "Automate everything that Logic Apps supports", "Gate anything involving a user account"],
+    a: 1,
+    why: "Enrichment has no blast radius - its worst failure is an unhelpful comment. Response actions have business impact and may be hard to reverse. Framing it as 'automate the gathering, gate the deciding' captures the distinction and demonstrates awareness of authority boundaries, which is the same lane discipline as Tier 1 escalation."
+  },
+  {
+    q: "Why is wiring account disablement to an untuned detection rule dangerous beyond the immediate outage?",
+    opts: ["It consumes Logic App runs", "A noisy rule locks out many users, and the resulting loss of trust usually means the automation is disabled permanently", "Account disablement cannot be reversed", "It breaks entity mapping"],
+    a: 1,
+    why: "The second-order effect is worse than the first. Automation that gets switched off by an angry service owner has negative value - you spent the effort and now nobody trusts any of it. Measuring a rule's false positive rate before attaching consequences to it is the precondition, not an optimisation."
+  },
+  {
+    q: "In a phishing workflow, which automation delivers the most analyst time saved?",
+    opts: ["Parsing email headers", "Scoping queries - who else received it, who clicked, who clicked through", "Replying to the reporting user", "Adding the incident to a dashboard"],
+    a: 1,
+    why: "Scoping is the slowest manual step and it produces the numbers an incident manager asks for first - delivered, clicked, clicked through, executed. Header parsing is quick either way; the scoping queries across EmailEvents and UrlClickEvents are where minutes disappear when done by hand."
+  },
+  {
+    q: "An enrichment lookup returns no result for a domain. How should the playbook represent this?",
+    opts: ["As clean, since nothing bad was found", "As a distinct 'no data' outcome, because absence of intel is not evidence of safety", "By retrying until a result is returned", "By escalating the incident automatically"],
+    a: 1,
+    why: "Conflating 'no result' with 'clean' is how automation actively misleads - a newly registered attacker domain will have no reputation data precisely because it is new. Surfacing the distinction preserves the analyst's ability to reason, which is the whole point of enrichment."
+  },
+  {
+    q: "What two things must an approval request in a response playbook always include?",
+    opts: ["A timeout and a retry count", "The evidence needed to decide, and a record of who decided which is written back to the incident", "The analyst's name and the rule ID", "A cost estimate and a rollback script"],
+    a: 1,
+    why: "An approver who has to open the console to understand the request will either delay or rubber-stamp it, so the evidence must travel with the request. Recording the decision and decider on both branches preserves the audit trail, which matters during post-incident review and in any dispute about who authorised an outage."
+  },
+  {
+    q: "Why should the substantive reply to a user who reported a phishing email stay manual?",
+    opts: ["Automated email is technically unreliable", "Reporting users are a detection layer worth keeping engaged, and robotic or wrong replies train them to stop reporting", "Compliance rules prohibit automated replies", "It is faster to write manually"],
+    a: 1,
+    why: "User reporting is one of the cheapest detection sources a SOC has, and it depends entirely on people believing the reports go somewhere. A templated acknowledgement is fine, but the substantive answer being human protects a behavioural asset worth far more than the minutes saved."
+  },
+  {
+    q: "What is the correct order for introducing automation into a SOC?",
+    opts: ["Response first, since it saves the most time", "Enrichment first with nothing acting on it, measure accuracy, then conservative auto-classification, then approval-gated response", "All at once, so analysts learn one new workflow", "Approval-gated response first, then enrichment"],
+    a: 1,
+    why: "Each stage's safety depends on the previous one being measured. Deploying response actions on the output of enrichment whose accuracy you have not established is how automation causes an outage and then gets disabled. Sequencing it this way also builds analyst trust incrementally, which determines whether it survives."
+  }
+]} />
+
+<TaskList step="track/05-lab/05-soar-automation" tasks={[
+  { text: "Build the enrichment playbook in your lab and trigger it from a real detection" },
+  { text: "Measure triage time with and without enrichment and record the difference", detail: "That number is the evidence. It is also a CV bullet." },
+  { text: "Build one approval-gated response playbook", detail: "Selective device isolation is a good choice. Include the evidence in the approval request and comment both branches." },
+  { text: "Write out your automate / gate / manual boundaries as a one-page policy", detail: "For each category, state the blast radius and the reasoning. This is a genuine portfolio artifact and an interview answer in written form." },
+  { text: "Deliberately have a lookup fail and confirm the playbook degrades gracefully", detail: "No result, timeout, API error. Automation that breaks silently is worse than none." },
+  { text: "Format the enrichment comment so it is readable at a glance", detail: "Badly formatted automation output gets ignored, which wastes the whole build." },
+  { text: "Log the playbook screenshots and timing measurement in your evidence log" },
+  { text: "Update your portfolio repo README with the full lab architecture", detail: "Detections, Sigma rules, playbooks. Phase 5 is now one coherent story." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Sentinel playbooks and automation", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/automate-responses-with-playbooks", type: "read", minutes: 35, note: "Triggers, entity handling and automation rules. Read the entity dynamic content section carefully - it is where most playbooks go wrong.", primary: true },
+  { title: "Sentinel playbook templates", by: "Microsoft", url: "https://github.com/Azure/Azure-Sentinel/tree/master/Playbooks", type: "do", note: "Dozens of ready-made playbooks to deploy and dissect. Deploy an enrichment one and read how it handles entities and failures." },
+  { title: "Logic Apps approval patterns", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/logic-apps/tutorial-process-mailing-list-subscriptions-workflow", type: "read", minutes: 25, note: "The wait-for-approval pattern in detail. This is the mechanism that makes higher-impact automation safe." },
+  { title: "Shuffle SOAR", url: "https://shuffler.io/", type: "do", cost: "Free / open source", note: "A free open-source SOAR platform. Worth knowing as a vendor-neutral alternative, and deployable in your lab at no cost." },
+  { title: "TheHive and Cortex", url: "https://strangebee.com/thehive/", type: "read", note: "Open-source incident response platform with an analyser framework. Useful for understanding enrichment architecture outside the Microsoft stack." },
+  { title: "SOAR use case guidance", by: "Gartner / vendor whitepapers", url: "https://www.paloaltonetworks.com/cyberpedia/what-is-soar", type: "read", minutes: 15, note: "Vendor-written but a reasonable overview of standard use cases and where SOAR programmes typically fail." }
+]} />
+
+<Gate
+  step="track/05-lab/05-soar-automation"
+  conditions={[
+    "I can state the automate-versus-gate principle and justify it by blast radius",
+    "I have built and triggered an enrichment playbook from a real detection",
+    "I have measured the triage time saved and recorded the number",
+    "I have built one approval-gated response playbook with evidence in the request",
+    "I can specify automation for a phishing workflow and defend every boundary",
+    "My playbooks degrade gracefully when a lookup fails",
+    "My portfolio repo tells one coherent story: lab, telemetry, detections, Sigma, automation"
+  ]}
+  unlocks="Phase 5 complete. You have built a lab, attacked it, detected the attacks, made the detections portable, and automated the response around them - with public evidence of all of it. Next: BTL1 and turning this into a portfolio a recruiter can skim."
+/>

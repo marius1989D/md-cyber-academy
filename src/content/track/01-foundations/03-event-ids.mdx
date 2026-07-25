@@ -1,0 +1,262 @@
+---
+title: "The Event IDs That Matter"
+phase: 1
+order: 3
+summary: "The two dozen Windows and Sysmon events that carry almost all SOC signal — what each one proves, and what it does not."
+weeks: "Week 4"
+minutes: 200
+kind: learn
+pillar: fundamentals
+cost: 0
+prereq: ["01-foundations/02-windows-internals"]
+attack: ["T1078", "T1110", "T1543.003", "T1059.001", "T1136.001"]
+tags: ["windows", "event-logs", "sysmon", "detection"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What's the difference between 4624 and 4625, and what do the logon types tell you?">
+Windows event IDs are the vocabulary of a Microsoft-stack SOC, which in the UK
+means almost every SOC. An interviewer uses them as a fast, unfakeable
+competence check: you either know that 4688 carries process creation and that
+command line auditing has to be switched on separately, or you don't. There is
+no way to reason your way there in the moment. This is pure, high-yield memory
+work, and two weeks of it changes how you interview.
+</Why>
+
+## The security log core
+
+| ID | Event | What it proves | What it does *not* prove |
+|---|---|---|---|
+| 4624 | Successful logon | Someone authenticated, with a logon type | That it was the legitimate user |
+| 4625 | Failed logon | An attempt failed, with a status code | That it was an attack |
+| 4634 / 4647 | Logoff / user-initiated logoff | Session ended | Much on its own — useful for session duration |
+| 4648 | Logon with explicit credentials | `runas`, or a process supplying creds | The creds were stolen |
+| 4672 | Special privileges assigned | The session holds admin-equivalent rights | Anything malicious by itself |
+| 4688 | Process creation | A process started, with parent | The command line, **unless** you enable it |
+| 4697 / 7045 | Service installed | A new service was registered | Whether it is legitimate |
+| 4720 | User account created | Account creation | Who authorised it |
+| 4728 / 4732 / 4756 | Member added to a security group | Group membership change | Intent |
+| 4768 / 4769 / 4771 | Kerberos TGT / TGS / pre-auth failed | Kerberos activity, with encryption type | — |
+| 5140 / 5145 | Network share accessed / checked | Share access, with the share name | What was taken |
+| 1102 | Audit log cleared | Someone cleared the security log | Always investigate. Always. |
+
+### Logon types — the part people fluff
+
+The type field on 4624 is where most of the meaning lives:
+
+- **2 — Interactive.** At the console, physically or via a KVM.
+- **3 — Network.** Something reached this host over the network: SMB share, remote
+  WMI, most lateral movement. The single most common type you'll triage.
+- **4 — Batch.** Scheduled task.
+- **5 — Service.** A service starting under an account.
+- **7 — Unlock.** Workstation unlocked.
+- **8 — NetworkCleartext.** Credentials sent in cleartext — usually IIS basic auth. Worth flagging.
+- **9 — NewCredentials.** `runas /netonly`. Frequently seen in pass-the-hash tooling.
+- **10 — RemoteInteractive.** RDP.
+- **11 — CachedInteractive.** Logged on with cached domain credentials, no DC reachable.
+
+<Callout type="key">
+Type 3 and type 10 are the two you'll live with. Type 3 is lateral movement's
+natural habitat; type 10 is RDP, and an RDP logon to a server from a workstation
+that has never done it before is one of the highest-value simple detections
+there is.
+</Callout>
+
+### Failure codes on 4625
+
+The status and sub-status fields tell you *why* it failed, and they distinguish
+a fat-fingered password from an attack:
+
+- `0xC000006A` — wrong password against a valid account. Volume here means brute force.
+- `0xC0000064` — user does not exist. Volume here means **user enumeration or password spray**.
+- `0xC0000234` — account locked out.
+- `0xC0000072` — account disabled.
+- `0xC000006F` / `0xC0000070` — outside permitted hours / from an unauthorised workstation.
+
+The distinction between `6A` and `64` is a favourite interview question, because
+it separates a candidate who has looked at real logs from one who has read a list.
+
+## Sysmon — the telemetry Windows should have had
+
+Sysmon is free, from Microsoft, and transforms endpoint visibility. The events
+that earn their storage:
+
+- **1 — Process creation.** Richer than 4688: hashes, parent, full command line, and the
+  process GUID that lets you build a real process tree.
+- **3 — Network connection.** Which process opened which connection. This is the
+  event that ties a network alert to a binary.
+- **7 — Image loaded.** DLL loads. Noisy, but it's how you catch DLL side-loading.
+- **8 — CreateRemoteThread.** Classic process injection.
+- **10 — ProcessAccess.** Something opened a handle to another process — the
+  detection surface for LSASS credential dumping.
+- **11 — File created.**
+- **12/13/14 — Registry.** Run keys, service creation, persistence.
+- **22 — DNS query.** Which process resolved which name. Extremely high value.
+
+<Callout type="warn">
+Do not deploy Sysmon with the default config — it will drown you. Use a curated
+configuration (SwiftOnSecurity's is the standard starting point, Olaf Hartong's
+modular one is the step up). Being able to say *"I deployed Sysmon with a tuned
+config because the default generates unusable volume"* is a small sentence that
+signals real experience.
+</Callout>
+
+## Triage it yourself
+
+<Scenario
+  step="track/01-foundations/03-event-ids"
+  id="spray-or-noise"
+  title="03:14 — a burst of failed logons"
+  minutes={8}
+>
+<div slot="brief">
+
+You pick up an alert titled *Multiple failed authentications — DC01*. The
+underlying events, summarised:
+
+```text
+Time window: 03:11:40 – 03:13:02 (82 seconds)
+Source host: 10.20.4.51 (WKSTN-0442)
+Event ID:    4625  ×  63
+Status:      0xC000006A  (58 events)
+             0xC0000064  (5 events)
+Accounts:    58 distinct accounts, 1 attempt each
+             5 accounts appearing once, no other activity
+Logon type:  3
+Also in window:
+  4624 × 1  — account svc_backup, logon type 3, from 10.20.4.51, 03:13:04
+  4672 × 1  — same session, special privileges assigned
+```
+
+Write your triage. What is this, what do you check next, in what order, and what
+is your escalation decision?
+
+</div>
+<div slot="model">
+
+**What this is:** a password spray that succeeded, followed immediately by a
+privileged logon. This is not a brute force — the give-away is *one attempt
+against each of 58 accounts* rather than many attempts against one. Spraying
+tries a single common password broadly to stay under lockout thresholds.
+
+**The status code split matters.** `0xC000006A` means the account exists and the
+password was wrong; `0xC0000064` means the account doesn't exist. Five
+non-existent accounts alongside 58 valid ones tells you the attacker is working
+from a list that is mostly, but not entirely, accurate — probably harvested
+rather than enumerated live.
+
+**The critical detail is the timeline.** The successful 4624 for `svc_backup`
+lands two seconds after the failures stop, from the same source, same logon
+type. That sequencing is the whole finding. Followed by 4672 — the account holds
+privileges.
+
+**What you check, in order:**
+
+1. Is `svc_backup` supposed to authenticate from a workstation at all? Service
+   accounts logging on from user endpoints is almost always wrong.
+2. What did that session do next? Pull 4688/Sysmon 1 on both hosts, 5140/5145 for
+   share access, and any 4648 or subsequent 4624s using those credentials.
+3. Is WKSTN-0442 compromised, or is it the attacker's foothold? Check what was
+   running on it before 03:11 — a spray originating from an internal workstation
+   means that workstation is very likely already owned.
+4. Scope: did the same source, or the same credential, touch anything else?
+
+**Escalation decision: escalate now, don't finish investigating first.** You have
+a successful privileged authentication immediately following a spray from an
+internal host at 3am. That is a live incident. Escalate with what you have,
+keep working while Tier 2 picks it up, and flag containment — isolating
+WKSTN-0442 and disabling `svc_backup` — as a recommendation rather than an
+action, because that call sits above Tier 1.
+
+**What would change the conclusion:** if `svc_backup` normally authenticates from
+that host at exactly 03:13 every night as part of a backup job, and the 58
+failures resolve to a misconfigured script iterating an old account list, this
+is a change-management problem rather than an intrusion. Check the pattern
+against the previous seven nights before you commit — but check it *after* you've
+escalated, not before.
+
+</div>
+</Scenario>
+
+<Quiz mid="track/01-foundations/03-event-ids" title="The Event IDs That Matter" questions={[
+  {
+    q: "Event 4688 is logged but the command line is missing. Why?",
+    opts: ["4688 never includes command lines", "Command line auditing is a separate policy setting that must be enabled", "The process exited too quickly", "Only Sysmon can capture command lines"],
+    a: 1,
+    why: "'Include command line in process creation events' is a distinct Group Policy setting, off by default. Without it, 4688 tells you a process started but not what it was told to do — which is most of the value. Knowing this specific gap is a strong signal you've configured logging rather than just read about it."
+  },
+  {
+    q: "Fifty distinct accounts each show a single 4625 with status 0xC000006A within 90 seconds. This is:",
+    opts: ["A brute force attack", "A password spray", "Normal morning logon volume", "An account lockout storm"],
+    a: 1,
+    why: "Brute force is many passwords against one account; spraying is one password against many accounts, specifically to stay under lockout thresholds. The one-attempt-per-account pattern across a short window is the signature. 0xC000006A also confirms those accounts exist, which distinguishes it from enumeration."
+  },
+  {
+    q: "Which Sysmon event would you use to detect a process opening a handle to LSASS?",
+    opts: ["Event 1", "Event 3", "Event 8", "Event 10"],
+    a: 3,
+    why: "Sysmon event 10 (ProcessAccess) records one process opening a handle to another, including the requested access mask. Credential dumping needs read access to LSASS memory, so 10 with a target of lsass.exe and an access mask including 0x1010 is the classic detection. Event 8 is CreateRemoteThread — injection, a different technique."
+  },
+  {
+    q: "A 4624 with logon type 10 appears on a file server, sourced from an accounts-payable workstation, at 02:00. Why is this interesting?",
+    opts: ["Type 10 is always malicious", "It is an RDP session to a server from a host and at a time with no business reason", "Type 10 indicates cleartext credentials", "File servers cannot log 4624"],
+    a: 1,
+    why: "Type 10 is RemoteInteractive — RDP. It isn't inherently bad; what makes it worth triaging is the combination of source, destination and time being outside any established baseline. 'First-time RDP between this pair of hosts' is one of the highest-value, lowest-effort detections you can build, and it catches a great deal of real lateral movement."
+  },
+  {
+    q: "Event 1102 is logged. What is your response?",
+    opts: ["Close it — administrators clear logs routinely", "Investigate immediately; log clearing is a defence evasion technique and destroys evidence", "Wait to see if it recurs", "Escalate only if other alerts fire"],
+    a: 1,
+    why: "1102 means the security log was cleared. Legitimate reasons exist but are rare and should be traceable to a change record. It maps to T1070.001 (Indicator Removal) and it is destroying the evidence you'd use to investigate everything else, so time matters. Treating 1102 as routine is a mistake interviewers specifically probe for."
+  },
+  {
+    q: "Which status code on 4625 most strongly suggests account enumeration?",
+    opts: ["0xC000006A", "0xC0000064", "0xC0000234", "0xC0000072"],
+    a: 1,
+    why: "0xC0000064 means the username does not exist. A volume of these indicates someone is testing whether accounts are valid — enumeration — rather than attacking known accounts. 0xC000006A (valid account, wrong password) is the brute-force/spray code, 0xC0000234 is locked out, 0xC0000072 is disabled."
+  },
+  {
+    q: "Why does Sysmon event 22 (DNS query) have unusually high detection value?",
+    opts: ["It is enabled by default in Windows", "It attributes a DNS resolution to the specific process that made it", "It blocks malicious domains", "It decrypts DNS over HTTPS"],
+    a: 1,
+    why: "Network-level DNS logs tell you a host resolved a domain. Sysmon 22 tells you *which process* did, which converts 'something on this machine contacted a suspicious domain' into 'this specific binary did'. That attribution collapses a lot of investigation time and is why event 22 is worth its volume."
+  }
+]} />
+
+<TaskList step="track/01-foundations/03-event-ids" tasks={[
+  { text: "Make flashcards for the core table and the logon types", detail: "Anki or paper. This is rote work and there is no clever way round it — twenty minutes a day for two weeks." },
+  { text: "Generate each event on your own machine and read the real thing", detail: "Fail a logon, run something as a different user, create a service, create an account. Reading your own logs beats reading a table." },
+  { text: "Enable command line auditing and confirm 4688 now carries it", detail: "gpedit → Computer Config → Administrative Templates → System → Audit Process Creation." },
+  { text: "Install Sysmon with SwiftOnSecurity's config, then look at events 1, 3 and 22", detail: "This also front-loads work you'll need in Phase 5." },
+  { text: "Write the spray scenario up as if it were a real escalation ticket", detail: "300 words: what fired, what you checked, what you found, what you recommend. Keep it — Phase 4 step 6 builds on it." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Windows Security Log Encyclopedia", by: "Ultimate Windows Security", url: "https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/", type: "ref", note: "Every event ID, every field, explained. The best free reference on the internet for this topic — bookmark it on your phone and dip in on breaks.", primary: true },
+  { title: "Sysmon documentation", by: "Microsoft", url: "https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon", type: "ref", note: "Official event reference. Read the schema for events 1, 3, 7, 8, 10, 11, 12–14 and 22." },
+  { title: "SwiftOnSecurity sysmon-config", url: "https://github.com/SwiftOnSecurity/sysmon-config", type: "do", note: "The standard tuned starting config. Read the comments — they're a course in what's worth logging and why." },
+  { title: "13Cubed — Windows event log videos", by: "Richard Davis", url: "https://www.youtube.com/@13Cubed", type: "watch", minutes: 20, note: "Exceptional, calm, precise Windows forensics. The 'Introduction to Windows Event Logs' and Sysmon videos are directly on point." },
+  { title: "Microsoft — Events to Monitor", by: "Microsoft", url: "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/appendix-l--events-to-monitor", type: "read", minutes: 30, note: "Microsoft's own prioritised list of events worth alerting on. Useful ammunition in an interview when asked what you'd monitor." },
+  { title: "MITRE ATT&CK — T1110 Brute Force", url: "https://attack.mitre.org/techniques/T1110/", type: "read", minutes: 15, note: "Read the sub-techniques, especially T1110.003 password spraying, and the detection section." }
+]} />
+
+<Gate
+  step="track/01-foundations/03-event-ids"
+  conditions={[
+    "I can recall the core event IDs and what each proves, from memory",
+    "I can list logon types 2, 3, 5, 9, 10 and 11 and say what each implies",
+    "I can distinguish 0xC000006A from 0xC0000064 and explain why it matters",
+    "I have Sysmon running with a tuned config on at least one host",
+    "I have written the spray scenario up as an escalation ticket",
+    "I can explain why event 1102 is never routine"
+  ]}
+  unlocks="Next: Active Directory and the authentication protocols these events are recording."
+/>

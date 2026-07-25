@@ -1,0 +1,80 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Search" description="Full-text search across every module.">
+  <header class="border-b pb-5">
+    <p class="eyebrow">// Find anything</p>
+    <h1 class="mt-2 text-[clamp(1.9rem,1.4rem+2.2vw,2.8rem)]">Search</h1>
+  </header>
+
+  <div class="mt-6">
+    <input
+      type="search"
+      placeholder="Kerberoasting, indirect injection, SUID, Sigma…"
+      autofocus
+      class="w-full rounded-xl border-2 px-4 py-3 text-[1.05rem]"
+      style="background: var(--surface-2); border-color: var(--rule-strong); color: var(--text)"
+      data-search
+    />
+    <p class="mt-2 font-mono text-[0.68rem]" style="color: var(--text-3)" data-search-status></p>
+  </div>
+
+  <div class="mt-6 space-y-2" data-results></div>
+</Base>
+
+<script>
+  // Pagefind's bundle only exists in the built site, so it is imported at
+  // runtime rather than resolved by Astro at build time.
+  const input = document.querySelector<HTMLInputElement>('[data-search]')!;
+  const results = document.querySelector<HTMLElement>('[data-results]')!;
+  const status = document.querySelector<HTMLElement>('[data-search-status]')!;
+
+  let pagefind: any;
+  async function ensure() {
+    if (pagefind) return pagefind;
+    try {
+      // @ts-ignore — generated at build time into /pagefind/
+      pagefind = await import(/* @vite-ignore */ '/pagefind/pagefind.js');
+      await pagefind.init();
+      return pagefind;
+    } catch {
+      status.textContent = 'Search index loads on the deployed site — run a full build first.';
+      return null;
+    }
+  }
+
+  let t: ReturnType<typeof setTimeout>;
+  input.addEventListener('input', () => {
+    clearTimeout(t);
+    const q = input.value.trim();
+    if (!q) { results.replaceChildren(); status.textContent = ''; return; }
+    t = setTimeout(() => run(q), 180);
+  });
+
+  async function run(query: string) {
+    const pf = await ensure();
+    if (!pf) return;
+    status.textContent = 'Searching…';
+    const search = await pf.search(query);
+    const data = await Promise.all(search.results.slice(0, 12).map((r: any) => r.data()));
+
+    status.textContent = data.length ? `${data.length} result${data.length === 1 ? '' : 's'}` : 'No matches — try a broader term.';
+    results.replaceChildren();
+
+    for (const item of data) {
+      const a = document.createElement('a');
+      a.href = item.url;
+      a.className = 'panel block p-4 transition hover:border-[var(--accent)]';
+      const title = document.createElement('p');
+      title.className = 'font-display font-bold';
+      title.textContent = item.meta?.title ?? item.url;
+      const excerpt = document.createElement('p');
+      excerpt.className = 'mt-1 text-[0.88rem]';
+      excerpt.style.color = 'var(--text-3)';
+      excerpt.innerHTML = item.excerpt;
+      a.append(title, excerpt);
+      results.append(a);
+    }
+  }
+</script>

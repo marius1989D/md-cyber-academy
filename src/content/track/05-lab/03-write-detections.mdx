@@ -1,0 +1,439 @@
+---
+title: "Write Detections"
+phase: 5
+order: 3
+summary: "Turn telemetry into working rules, prove they survive more than one implementation, and tune them properly - the part beginners skip and hiring managers notice."
+weeks: "Weeks 18-22"
+minutes: 480
+kind: lab
+pillar: evidence
+cost: 0
+prereq: ["05-lab/02-attack-simulation"]
+academy: ["detection/11-detection-engineering"]
+attack: ["T1059.001", "T1003.001", "T1218.011"]
+tags: ["detection-engineering", "kql", "tuning", "portfolio", "blog"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import QueryChallenge from '../../../components/track/QueryChallenge.astro';
+import BlogBrief from '../../../components/track/BlogBrief.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Tell me about a detection you've written.">
+This is the step where everything converges. Phase 2 gave you the strategy, Phase
+3 gave you the language, the last step gave you the telemetry - and this is where
+they become an artifact you can point at. It is also the single most quotable
+thing on your CV, because the sentence "I wrote a detection and cut its false
+positives from forty a day to two by excluding the deployment agent's parent
+chain" contains evidence of five separate skills and almost no career-changer can
+say it.
+</Why>
+
+## The detection lifecycle
+
+```text
+  Hypothesis  →  Write  →  Validate  →  Tune  →  Document  →  Review
+      ▲                        │                                 │
+      └────────────────────────┴─────────────────────────────────┘
+             new gap found, or the environment changed
+```
+
+**Validate** and **Tune** are the two stages beginners skip, and they are the two
+that separate a rule that exists from a rule that works.
+
+## Writing: aim as high up the pyramid as your telemetry allows
+
+You know the theory from Phase 2. Applied, the question is always: **what must the
+attacker do that they cannot avoid?**
+
+For each technique in your table, write down three candidate detections at
+different heights, then pick the highest one your telemetry actually supports. If
+you only collect process creation, a ProcessAccess-based rule is not available to
+you no matter how much better it would be - and noting that gap is itself worth
+recording.
+
+<Callout type="key">
+Write the rule against the **distinguishing field**, not the whole event. Your
+technique-to-telemetry table already has a "distinguishing value" column - that
+was the point of building it. `rundll32` with a `javascript:` command line is a
+detection. `rundll32 ran` is not.
+</Callout>
+
+## Validation: the multi-atomic test
+
+A rule that catches the atomic you wrote it against proves almost nothing. Most
+techniques have several atomics representing different implementations, and the
+real test is whether your rule catches more than one.
+
+```powershell
+# How many implementations exist for this technique?
+Invoke-AtomicTest T1218.011 -ShowDetailsBrief
+
+# Run each in turn, checking whether your rule fires
+Invoke-AtomicTest T1218.011 -TestNumbers 1
+Invoke-AtomicTest T1218.011 -TestNumbers 2
+Invoke-AtomicTest T1218.011 -TestNumbers 3
+```
+
+This is the practical, testable version of the Pyramid of Pain. A rule catching
+one of four atomics is sitting near the bottom; a rule catching all four is
+detecting the behaviour.
+
+## Tuning: measure, categorise, intervene narrowly
+
+The five-step methodology from Phase 2, now with your own data:
+
+1. **Measure.** Run the rule as a query over 7 to 14 days of lab data. How often
+   would it have fired? How many were your atomics and how many were ordinary
+   activity?
+2. **Categorise the noise.** Group the false positives and find the *shared*
+   property - the same parent, the same account, the same path.
+3. **Intervene narrowly.** Prefer adding a condition over adding an exclusion.
+   Never exclude by host or user alone.
+4. **Document** the change and the reasoning.
+5. **Re-measure**, and confirm your atomics still fire afterwards.
+
+<Callout type="warn">
+**Always re-run the atomic after tuning.** An exclusion written to remove noise can
+silently remove the detection too - and a rule that no longer catches the attack
+it was built for, while looking perfectly healthy, is worse than no rule at all
+because it creates false confidence. This is the most important sentence in the
+step.
+</Callout>
+
+## Documenting: the ADS template
+
+Palantir's Alerting and Detection Strategy framework is the industry-standard way
+to document a rule, and adopting it makes your portfolio look professional rather
+than hobbyist:
+
+```text
+GOAL              What adversary behaviour is this trying to catch?
+CATEGORISATION    ATT&CK technique ID and tactic
+STRATEGY ABSTRACT High-level description of how it works
+TECHNICAL CONTEXT The telemetry, fields and platform detail a reader needs
+BLIND SPOTS       How would an attacker evade this? Be honest.
+FALSE POSITIVES   Known benign triggers and how they are handled
+VALIDATION        How it was tested - which atomics, which fired
+PRIORITY          Severity and why
+RESPONSE          What an analyst should do when it fires
+```
+
+The **blind spots** section is the one that impresses. Stating how your own
+detection could be evaded demonstrates you understand its limits, which is the
+opposite of the overclaiming that makes junior work look junior.
+
+## Challenge - write a durable detection
+
+<QueryChallenge
+  step="track/05-lab/03-write-detections"
+  id="rundll32-durable"
+  title="Detect rundll32 proxy execution"
+  lang="kql"
+  tables={["DeviceProcessEvents", "FileName", "ProcessCommandLine", "InitiatingProcessFileName", "FolderPath", "DeviceName"]}
+>
+<div slot="brief">
+
+Write a detection for **T1218.011 rundll32 proxy execution** that is durable
+enough to catch multiple implementations, not just one atomic.
+
+Consider: script-protocol command lines, execution from unusual paths, missing or
+malformed DLL export arguments, and suspicious parent processes. Exclude the
+obvious legitimate cases.
+
+</div>
+<div slot="solution">
+
+```kql
+let known_good_parents = dynamic([
+    "ccmexec.exe","msiexec.exe","services.exe","svchost.exe","explorer.exe"
+]);
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where FileName =~ "rundll32.exe"
+| extend Cmd = tolower(ProcessCommandLine)
+| extend Signal = case(
+    Cmd has_any ("javascript:", "vbscript:", "mshtml", "runhtmlapplication"),
+        "script_protocol",
+    Cmd matches regex @"rundll32(\.exe)?[""']?\s*$",
+        "no_arguments",
+    Cmd has_any (@"\appdata\", @"\temp\", @"\programdata\",
+                 @"\users\public\", @"\downloads\"),
+        "suspicious_path",
+    Cmd has_any (".jpg", ".png", ".txt", ".log", ".dat")
+        and Cmd has ",",
+        "masquerading_extension",
+    InitiatingProcessFileName in~
+        ("winword.exe","excel.exe","powerpnt.exe","outlook.exe","mshta.exe"),
+        "office_parent",
+    ""
+)
+| where isnotempty(Signal)
+| where InitiatingProcessFileName !in~ (known_good_parents)
+     or Signal in ("script_protocol", "office_parent", "no_arguments")
+| project Timestamp, DeviceName, Signal, AccountName,
+          InitiatingProcessFileName, ProcessCommandLine, FolderPath
+| sort by Timestamp desc
+```
+
+**Why it is built this way:**
+
+- **Five independent signals, not one.** Each corresponds to a different
+  implementation, so the rule survives an attacker changing approach. A rule
+  matching only `javascript:` catches one atomic; this catches several.
+- **`no_arguments` is the strongest signal here.** `rundll32` exists to run a named
+  export from a named DLL. With no arguments it is not doing its job at all - it is
+  hosting injected code, which you met in the Phase 1 process-tree scenario.
+- **The `Signal` column is deliberate.** It tells the triaging analyst *why* the
+  rule fired, which turns a bare alert into a starting point. Detections that
+  explain themselves get triaged faster and closed more accurately.
+- **The exclusion is conditional, not blanket.** Known-good parents are excluded -
+  but **not** for the three strongest signals. SCCM legitimately invokes rundll32,
+  so excluding it reduces noise; but SCCM invoking rundll32 with a `javascript:`
+  command line means SCCM is compromised, and that must still fire. This is the
+  narrow-intervention principle from Phase 2 made concrete.
+
+**Common wrong shapes:** matching only on `javascript:`, which catches one atomic;
+excluding parents unconditionally, which hands an attacker a channel through the
+deployment agent; using `contains` rather than `has_any`, which is markedly slower;
+and forgetting `tolower()`, so a capitalised command line slips past.
+
+**Validate it** by running all available T1218.011 atomics and recording which
+signal each triggers. Any atomic that fires nothing is a gap in the rule, and
+that gap belongs in your ADS blind-spots section.
+
+</div>
+</QueryChallenge>
+
+<Scenario
+  step="track/05-lab/03-write-detections"
+  id="one-of-four"
+  title="Your rule catches one atomic out of four"
+  minutes={8}
+>
+<div slot="brief">
+
+You wrote a detection for T1059.001 (PowerShell) keyed on encoded commands. You
+validate it against the available atomics:
+
+```text
+T1059.001 validation run
+
+Test 1  Mimikatz via download cradle          FIRED
+        powershell -nop -exec bypass -c "IEX (New-Object
+        Net.WebClient).DownloadString('http://...')"
+
+Test 2  Base64-encoded command                FIRED
+        powershell -enc SQBFAFgAIAAoAE4AZQB3...
+
+Test 3  PowerShell via WMI                    DID NOT FIRE
+        wmic process call create "powershell -c Get-Process"
+
+Test 4  PowerShell downgrade attack           DID NOT FIRE
+        powershell -version 2 -c "IEX(...)"
+
+Rule logic:
+  DeviceProcessEvents
+  | where FileName =~ "powershell.exe"
+  | where ProcessCommandLine has_any ("-enc", "-e ", "IEX",
+                                      "DownloadString")
+```
+
+What does this tell you, and what do you do?
+
+</div>
+<div slot="model">
+
+**It tells you the rule is sitting lower on the pyramid than you thought, and it
+tells you precisely where.** Two of four is not a failure - it is a diagnostic, and
+this is exactly why the multi-atomic test exists.
+
+**Why tests 3 and 4 were missed, and they are missed for different reasons:**
+
+**Test 3 - WMI-spawned PowerShell.** The rule did fire on nothing because the
+command line is `powershell -c Get-Process` - no `-enc`, no `IEX`, no
+`DownloadString`. My string list assumed obfuscation. The interesting signal here
+is not the command line at all: it is the **parent process**. PowerShell spawned by
+`wmiprvse.exe` is unusual and worth detecting regardless of what it runs. My rule
+looked at the wrong field.
+
+**Test 4 - version downgrade.** `-version 2` forces PowerShell 2.0, which **bypasses
+script block logging and AMSI entirely**. The command line still contains `IEX`, so
+in principle it should have matched - if it did not, the likely cause is that the
+telemetry itself is thinner in v2, or the argument ordering broke my `has_any`
+match. Either way, `-version 2` is itself one of the highest-fidelity signals in
+Windows security, because there is essentially no legitimate reason to force it.
+Its absence from my rule is the real gap.
+
+**What I change:**
+
+1. **Add parent-process logic.** PowerShell parented to `wmiprvse.exe`,
+   `winword.exe`, `excel.exe`, `mshta.exe`, `services.exe` or a browser is
+   suspicious irrespective of arguments. This catches test 3 and generalises to
+   implementations I have not seen.
+2. **Add `-version 2` / `-v 2` as a standalone high-severity signal.** Deliberate
+   downgrade to evade logging is close to a confession.
+3. **Add script block logging (event 4104) as a second data source.** Command-line
+   detection is defeated by anything that obfuscates the invocation; script block
+   logging captures the deobfuscated content at execution. If it is not enabled,
+   that is a collection gap to close first - which is the Phase 2 lesson again.
+4. **Split the rule.** The obfuscation signals, the parent-process signals and the
+   downgrade signal have different fidelities and deserve different severities.
+   One rule bundling all three either over-alerts or under-alerts.
+
+**What I do not do:** widen the string list until every atomic matches. That
+produces a brittle rule with a longer list of strings - still bottom-of-pyramid,
+now noisier. The fix is to detect on different *properties*, not more *strings*.
+
+**And I record it honestly.** The ADS blind-spots section for this rule now says:
+"validated against four T1218 atomics; initially caught two. Missed WMI-spawned
+execution (no obfuscation in command line) and version downgrade. Addressed by
+adding parent-process and version-flag signals. Remaining blind spot: PowerShell
+invoked via .NET runspaces without spawning powershell.exe at all, which requires
+image-load telemetry not currently collected."
+
+**That paragraph is worth more in an interview than a rule that caught all four
+first time.** It shows testing, diagnosis, iteration, and honest documentation of
+what is still uncovered - which is what detection engineering actually is.
+
+</div>
+</Scenario>
+
+<BlogBrief
+  step="track/05-lab/03-write-detections"
+  number={2}
+  title="From Atomic to Alert: Detecting T1218.011 End to End"
+  words="1,500-1,800"
+  publish="GitHub Pages as canonical, cross-posted as a LinkedIn article. Link it from your CV."
+  hook="The tuning section. Everyone publishes the rule; almost nobody publishes the forty false positives a day it generated first, what they had in common, and the narrowly-scoped condition that removed them without creating a blind spot. Include the before and after numbers. That section is the reason a hiring manager stops scrolling, because it is evidence you have operated a detection rather than merely written one."
+  outline={[
+    "Open with the technique and why it matters - rundll32 is signed, trusted, and appears in a large share of real intrusions. Two sentences, no throat-clearing.",
+    "The lab in one paragraph and a link back to post 1. Do not re-explain the build.",
+    "**Run the atomics.** Show the actual commands, and show how many implementations exist for this technique. This establishes that you tested rather than assumed.",
+    "**The telemetry.** What each atomic produced - the events, and specifically the fields that distinguish it from normal rundll32 activity. Include a real screenshot of the query results.",
+    "**Version one of the rule**, and be honest that it caught only some of the atomics. Show which and which not.",
+    "**The diagnosis.** Why the misses were missed - wrong field, not insufficient strings. This is the intellectual centre of the post.",
+    "**Version two**, with multiple independent signals and the Signal column explaining why it fired.",
+    "**Tuning, with numbers.** Fire rate before, what the false positives had in common, the narrowly-scoped condition, fire rate after. State explicitly that you re-ran the atomics afterwards to confirm the rule still caught the attack.",
+    "**Blind spots.** How this detection could still be evaded, and what telemetry would be needed to close it. Do not skip this - it is what makes the whole post credible.",
+    "Close with the ADS documentation block for the rule, and a link to the repo."
+  ]}
+>
+
+**Before publishing:** read it aloud. Cut every sentence that does not contain a
+fact, a number or a decision. Delete any instance of "in today's threat
+landscape".
+
+**The repo matters as much as the post.** Put the rule, the ADS document and the
+technique-to-telemetry table in a public GitHub repository and link it. A
+recruiter who clicks through and finds structured, documented detection work will
+remember you.
+
+**Then log the URL in your evidence log**, with the note written as a CV bullet
+containing the before-and-after numbers.
+
+</BlogBrief>
+
+<Drill
+  step="track/05-lab/03-write-detections"
+  id="tell-me-detection"
+  question="Tell me about a detection you've written."
+  seconds={120}
+  hits={[
+    "Name the technique and why it was worth detecting - ideally by observed prevalence",
+    "The telemetry it keys on and the specific distinguishing field, not just the event",
+    "How you validated it: ran multiple atomics for that technique, and how many it caught",
+    "What it initially missed and why - the diagnosis, not just the fix",
+    "The tuning, with before and after numbers, and the scope of the exclusion",
+    "That you re-ran the atomics after tuning to confirm it still caught the attack",
+    "The remaining blind spot, stated honestly, and what telemetry would close it"
+  ]}
+  trap="Describing a rule you wrote but never tested or tuned. The follow-up question is always 'how do you know it works?' and 'what does it miss?' - and having numbers and a named blind spot is what turns a claim into evidence."
+/>
+
+<Quiz mid="track/05-lab/03-write-detections" title="Write Detections" questions={[
+  {
+    q: "Your rule catches one of four atomics for a technique. What does this most likely indicate?",
+    opts: ["The other atomics are broken", "The rule detects one specific implementation rather than the underlying behaviour, so it sits low on the Pyramid of Pain", "The technique is only partially detectable", "The telemetry is not being collected"],
+    a: 1,
+    why: "Multiple atomics represent different ways of performing the same technique. A rule matching only one is keyed to that implementation's specifics rather than to what the attacker must unavoidably do. The fix is detecting on different properties - parent process, argument structure - rather than adding more strings to match."
+  },
+  {
+    q: "Why must you re-run the atomic after applying a tuning exclusion?",
+    opts: ["To confirm the exclusion was saved correctly", "Because an exclusion can silently remove the detection as well as the noise, leaving a healthy-looking rule that no longer catches the attack", "To measure query performance", "Because atomics expire after 30 days"],
+    a: 1,
+    why: "A rule that stopped detecting is invisible - it simply never fires, which looks identical to an absence of attacks. This creates false confidence, which is worse than having no rule because nobody investigates a quiet detection. Re-validating after every tuning change is non-negotiable."
+  },
+  {
+    q: "In the ADS documentation framework, which section most distinguishes professional detection work?",
+    opts: ["Priority", "Blind spots - an honest account of how the detection could be evaded", "Categorisation", "Response"],
+    a: 1,
+    why: "Stating how your own rule could be bypassed demonstrates you understand its limits rather than overclaiming, and it tells the next engineer exactly where to invest. Overclaiming is what makes junior work read as junior; documented blind spots read as maturity and are a strong interview talking point."
+  },
+  {
+    q: "A detection excludes a deployment agent as a parent process to remove noise. What refinement keeps it safe?",
+    opts: ["Exclude the agent entirely for simplicity", "Keep the exclusion for low-fidelity signals but not for high-fidelity ones, so abuse of that agent still fires", "Exclude by host instead", "Lower the rule severity rather than excluding"],
+    a: 1,
+    why: "Deployment agents execute across the whole estate, which is exactly why an attacker who compromises one gains enormous reach. Excluding it unconditionally hands them a free channel. Conditionally excluding it for benign signals while keeping the strongest signals active preserves coverage where it matters most."
+  },
+  {
+    q: "Why include a 'Signal' column indicating which condition triggered the rule?",
+    opts: ["It improves query performance", "It tells the triaging analyst why the rule fired, turning a bare alert into a starting point for investigation", "It is required by Sentinel analytics rules", "It replaces the need for entity mapping"],
+    a: 1,
+    why: "A multi-condition rule that fires without saying which condition matched forces the analyst to re-derive it from the raw event. Surfacing the reason speeds triage and improves closure accuracy. Detections that explain themselves are a mark of someone who has been on the receiving end of ones that do not."
+  },
+  {
+    q: "PowerShell invoked with '-version 2' is a high-fidelity signal because:",
+    opts: ["Version 2 is faster and therefore used by malware", "It forces a runtime that bypasses script block logging and AMSI, and there is essentially no legitimate reason to do so", "Version 2 cannot be logged at all", "It indicates an unpatched system"],
+    a: 1,
+    why: "Downgrading to PowerShell 2.0 deliberately evades modern logging and antimalware scanning. Legitimate software has no reason to force it on a current system, so the false positive rate is very low while the intent it implies is unambiguous. It is close to a confession, and it belongs in any PowerShell detection."
+  },
+  {
+    q: "The correct response to a rule missing several atomics is to:",
+    opts: ["Add more strings to the match list until all atomics fire", "Detect on different properties - parent process, argument structure, execution context - rather than extending string matching", "Lower the rule's threshold", "Split it into one rule per atomic"],
+    a: 1,
+    why: "Lengthening a string list produces a brittle rule that is merely longer, still defeated by an implementation you have not seen. Moving to different properties raises the detection up the pyramid, because parent process and argument structure reflect what the technique must do rather than how one tool happens to spell it."
+  }
+]} />
+
+<TaskList step="track/05-lab/03-write-detections" tasks={[
+  { text: "Write detections for at least five techniques from your telemetry table", detail: "One per technique. Aim as high up the pyramid as your collected telemetry allows." },
+  { text: "Validate each against every available atomic for that technique", detail: "Record which fired and which did not. The misses are the valuable part." },
+  { text: "Diagnose at least one miss and fix it by changing the property, not the string list" },
+  { text: "Measure each rule over 7-14 days of lab data and record the fire rate" },
+  { text: "Tune the noisiest rule using the five-step methodology, then re-run the atomics", detail: "Record before and after numbers. This is the material for the blog post." },
+  { text: "Document every rule with the ADS template, including honest blind spots" },
+  { text: "Put the rules, ADS documents and telemetry table in a public GitHub repo", detail: "Structured folders, a README explaining the methodology. This is your portfolio." },
+  { text: "Write and publish blog post 2" },
+  { text: "Log the post URL and repo link in your evidence log with the numbers in the note" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Alerting and Detection Strategy framework", by: "Palantir", url: "https://github.com/palantir/alerting-detection-strategy-framework", type: "read", minutes: 30, note: "The documentation template that makes your portfolio look professional. Read the worked examples, then adopt it for every rule you write.", primary: true },
+  { title: "Azure Sentinel detections repository", by: "Microsoft", url: "https://github.com/Azure/Azure-Sentinel/tree/master/Detections", type: "read", note: "Production detection rules in YAML with KQL. Study how they structure conditions, entity mapping and the required fields." },
+  { title: "Detection Engineering Weekly", url: "https://www.detectionengineering.net/", type: "read", minutes: 15, note: "Free newsletter. Cite something recent from it in an interview - being current is cheap and few candidates bother." },
+  { title: "Capability Abstraction", by: "Jared Atkinson, SpecterOps", url: "https://posts.specterops.io/capability-abstraction-fbeaeeb26384", type: "read", minutes: 25, note: "Re-read it now that you are writing rules. It reads completely differently once you have a brittle detection of your own to fix." },
+  { title: "Detection as code", by: "Splunk / community", url: "https://github.com/splunk/security_content", type: "read", note: "A large open detection repository with tests and CI. Useful as a model for how to structure your own repo." },
+  { title: "Atomic Red Team atomics index", by: "Red Canary", url: "https://github.com/redcanaryco/atomic-red-team/tree/master/atomics", type: "do", note: "Your validation harness. Check how many atomics exist per technique before declaring a rule complete." }
+]} />
+
+<Gate
+  step="track/05-lab/03-write-detections"
+  conditions={[
+    "I have written and validated at least five detections against multiple atomics each",
+    "I have diagnosed a miss and fixed it by changing the detection property, not the string list",
+    "I have measured and tuned at least one rule with before and after numbers",
+    "I re-ran the atomics after tuning and confirmed the rule still fires",
+    "Every rule is documented with ADS, including honest blind spots",
+    "The rules and documentation are in a public GitHub repo",
+    "Blog post 2 is published and logged in my evidence log"
+  ]}
+  unlocks="Next: Sigma - making your detections portable, and contributing one upstream."
+/>

@@ -1,0 +1,337 @@
+---
+title: "Linux for Analysts"
+phase: 1
+order: 5
+summary: "auth logs, journald, the persistence surfaces attackers actually use, and the command-line triage one-liners you'll type on a live host."
+weeks: "Week 6"
+minutes: 210
+kind: learn
+pillar: fundamentals
+cost: 0
+prereq: ["01-foundations/04-active-directory"]
+attack: ["T1053.003", "T1543.002", "T1547.006", "T1070.002", "T1548.001"]
+tags: ["linux", "syslog", "journald", "persistence", "fundamentals"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Lab from '../../../components/Lab.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="A Linux web server is behaving oddly. Where do you look first?">
+Windows dominates enterprise endpoints, but the servers behind them — web, DNS,
+mail, containers, the whole cloud estate — are overwhelmingly Linux. A SOC that
+can only triage Windows is half-blind, and interviewers know it, so a Linux
+question is a common way to separate candidates who've only done the Microsoft
+learning path from those with real range. You don't need to be a sysadmin. You
+need to know where the evidence lives and how to pull it fast.
+</Why>
+
+## Where the logs are
+
+Two systems coexist, and you'll meet both:
+
+**Traditional syslog** — plain text under `/var/log`:
+
+| File | Holds |
+|---|---|
+| `/var/log/auth.log` (Debian) · `/var/log/secure` (RHEL) | Authentication: SSH, sudo, su, PAM |
+| `/var/log/syslog` · `/var/log/messages` | General system messages |
+| `/var/log/kern.log` | Kernel |
+| `/var/log/audit/audit.log` | auditd — the closest Linux gets to Sysmon |
+| `/var/log/apache2/` · `/var/log/nginx/` | Web server access and error logs |
+
+**journald** — the systemd binary journal, queried with `journalctl`:
+
+```bash
+journalctl -u ssh --since "1 hour ago"      # one service, recent
+journalctl _UID=1001 --since today          # everything by one user
+journalctl -p err -b                         # errors this boot
+journalctl -f                                # follow, like tail -f
+```
+
+<Callout type="key">
+Know that both exist and that journald is binary, not text — so `grep`
+on a file won't find journal-only entries; you need `journalctl`. Saying
+"I'd check auth.log, and journalctl if the box is systemd-based, because the
+journal is binary and won't show up in a grep of /var/log" is a small line that
+signals real hands-on time.
+</Callout>
+
+## Reading auth.log — the SSH story
+
+This is the Linux equivalent of Windows 4624/4625, and it tells the same story in
+prose:
+
+```text
+Failed password for invalid user admin from 203.0.113.7 port 51234 ssh2
+Failed password for root from 203.0.113.7 port 51240 ssh2
+...
+Accepted password for deploy from 203.0.113.7 port 51402 ssh2
+Accepted publickey for deploy from 10.0.0.5 port 44821 ssh2
+```
+
+- **"Failed password for invalid user"** — the account doesn't exist (enumeration,
+  the Linux `0xC0000064`).
+- **"Failed password for root"** — someone's trying root directly; on a hardened
+  box `PermitRootLogin` should make this always fail.
+- **"Accepted password"** after a wall of failures from the same IP — the
+  brute-force succeeded. This is the line you're hunting for.
+- **"Accepted publickey"** — key-based auth; note the source, because a key used
+  from a new IP is worth a question.
+
+Then `sudo` and privilege:
+
+```text
+sudo: deploy : TTY=pts/0 ; PWD=/home/deploy ; USER=root ; COMMAND=/bin/bash
+sudo: pam_unix(sudo:auth): authentication failure ; ... user=deploy
+```
+
+A successful `sudo ... COMMAND=/bin/bash` is a normal user obtaining a root
+shell. Whether that's fine depends entirely on whether `deploy` should be doing
+it, at that time, from that session.
+
+## Persistence surfaces attackers actually use
+
+The Linux equivalents of Run keys and services. Know where to look:
+
+- **cron** — `/etc/crontab`, `/etc/cron.d/`, `/etc/cron.{hourly,daily,...}/`, and
+  crucially per-user crontabs (`crontab -l -u <user>`). A cron job pulling and
+  running a script is the most common Linux persistence (T1053.003).
+- **systemd services and timers** — `/etc/systemd/system/`, `~/.config/systemd/user/`.
+  A rogue `.service` unit is the modern equivalent of a malicious Windows service
+  (T1543.002); a `.timer` is the scheduled-task equivalent.
+- **shell rc files** — `~/.bashrc`, `~/.bash_profile`, `/etc/profile.d/`. Code here
+  runs on every login (T1546.004).
+- **SSH `authorized_keys`** — an attacker's public key appended here is silent,
+  passwordless, persistent access. Always check it.
+- **SUID binaries** — files with the setuid bit run as their owner regardless of
+  who launches them. A SUID `bash` or an unusual SUID binary is a privilege
+  escalation path (T1548.001). Find them: `find / -perm -4000 -type f 2>/dev/null`.
+
+<Callout type="warn">
+`/etc/passwd` no longer holds passwords (they're in `/etc/shadow`), but a new
+UID-0 account added to `/etc/passwd` is a blunt, common backdoor. Two accounts
+with UID 0 means two roots — check with
+`awk -F: '$3==0 {print $1}' /etc/passwd`.
+</Callout>
+
+## The triage one-liners
+
+These are the commands you'll actually type on a suspect host. Learn them as
+reflexes:
+
+```bash
+# Who is logged in now, and recent login history
+w ; last -20 ; lastb -20            # lastb = failed logins
+
+# Listening services and the processes behind them
+ss -tulpn                           # replaces the old netstat -tulpn
+
+# Processes, sorted, with full command lines
+ps auxf                             # f gives the tree
+ps aux --sort=-%cpu | head
+
+# What a suspect PID is doing
+ls -l /proc/<pid>/exe               # the real binary path
+ls -l /proc/<pid>/cwd               # working directory
+cat /proc/<pid>/cmdline | tr '\0' ' '   # full command line
+
+# Recently modified files (staging, dropped payloads)
+find /tmp /dev/shm /var/tmp -type f -mmin -60 2>/dev/null
+
+# Established outbound connections
+ss -tupn state established
+
+# Cron and persistence sweep
+for u in $(cut -f1 -d: /etc/passwd); do crontab -l -u "$u" 2>/dev/null; done
+```
+
+<Callout type="detect">
+`/dev/shm` and `/tmp` are the two directories to check first on a compromised
+Linux host. They're world-writable, often mounted `noexec` (which attackers work
+around), and they're where payloads get staged. A recently-modified executable in
+`/dev/shm` is rarely innocent.
+</Callout>
+
+<Scenario
+  step="track/01-foundations/05-linux"
+  id="webserver"
+  title="A web server pegging CPU at 02:00"
+  minutes={8}
+>
+<div slot="brief">
+
+Monitoring flags sustained high CPU on a public-facing nginx box. You have SSH
+access. Selected output:
+
+```text
+$ last -5
+deploy   pts/0  203.0.113.7   Tue 02:01   still logged in
+deploy   pts/1  10.0.0.5      Mon 09:14 - 17:30
+
+$ grep "Accepted" /var/log/auth.log | tail -3
+Accepted password for deploy from 203.0.113.7 port 51402 ssh2
+
+$ grep -c "Failed password" /var/log/auth.log
+1847
+
+$ ps auxf   (excerpt)
+deploy   9931  98.7  ... /dev/shm/.x/kdevtmpfsi
+deploy   9930   0.1  ...  \_ /bin/bash /dev/shm/.x/run.sh
+
+$ ss -tupn state established   (excerpt)
+ESTAB ... 203.0.113.7:443    users:(("kdevtmpfsi",pid=9931))
+ESTAB ... 45.9.x.x:3333      users:(("kdevtmpfsi",pid=9931))
+
+$ ls -la /home/deploy/.ssh/authorized_keys
+-rw------- 1 deploy deploy 1203 Tue 02:03 authorized_keys   # 3 keys
+```
+
+Triage it. What happened, in what order, and what do you do?
+
+</div>
+<div slot="model">
+
+**This is a compromised host running a cryptominer, reached by SSH brute force.**
+The evidence assembles cleanly:
+
+1. **1,847 failed passwords** in auth.log is a brute-force campaign.
+2. **`Accepted password for deploy from 203.0.113.7`** — it succeeded. Same IP as
+   the still-logged-in `pts/0` session. `deploy` had a guessable password and
+   `PermitRootLogin`/password auth were enabled, which they shouldn't be on a
+   public box.
+3. **`/dev/shm/.x/kdevtmpfsi` at 98.7% CPU** is the payload. `kdevtmpfsi` is a
+   well-known miner name masquerading as a kernel thread; the `.x` hidden
+   directory in world-writable `/dev/shm` is textbook staging.
+4. **Two established connections** from that process: 443 (likely the download or
+   C2) and **:3333**, a common mining-pool port. That's the smoking gun for
+   cryptomining specifically.
+5. **`authorized_keys` modified at 02:03 with three keys** — the attacker added
+   their own key for persistent, passwordless re-entry. Even if you kill the
+   miner and change the password, they walk back in without this.
+
+**Order of events:** brute force → SSH success as `deploy` → dropped and ran
+`run.sh` from `/dev/shm` → miner connects to pool → attacker plants an SSH key for
+persistence.
+
+**What you do:**
+
+- **Escalate as a confirmed compromise**, and be clear it's an internet-facing
+  host, which raises urgency.
+- **Recommend containment**, and note the sequencing that matters: killing the
+  miner process alone is a beginner's mistake, because the added SSH key and any
+  cron/systemd persistence bring it straight back. Containment has to cover the
+  session, the key, and a persistence sweep.
+- **Preserve evidence first where you can** — capture the `/dev/shm/.x` contents,
+  the auth.log, and the process details before anything is destroyed, because
+  "we cleaned it up" with no artifacts makes the post-incident review impossible.
+- **Scope:** the source IP and the miner's pool IP become IOCs to hunt across the
+  estate; the `deploy` credential is burned and must be rotated everywhere it's
+  reused.
+
+**What would change it:** almost nothing. A miner with a planted SSH key after a
+brute force is not ambiguous. The only refinement is confirming whether the
+attacker did anything *beyond* mining — check for lateral movement from this box,
+data access, and additional accounts — because a foothold used for mining is
+often rented out or repurposed later.
+
+</div>
+</Scenario>
+
+<Lab title="Triage your own Kali box" host="Kali ARM64 in VMware Fusion" minutes={75}>
+
+You already have Kali running. Use it to make the one-liners muscle memory.
+
+1. Generate the evidence you'll learn to read: SSH into it wrongly a few times
+   from the Mac, then correctly. Read `auth.log` (or `journalctl -u ssh`) and find
+   both the failures and the success.
+2. `sudo` to root and watch the `auth.log` entry appear.
+3. Add a harmless cron job (`* * * * * /bin/true`) and locate it three different
+   ways: `crontab -l`, `/etc/cron.d/`, and by grepping. Understand why one command
+   doesn't find everything.
+4. Create a SUID copy of a binary in `/tmp` and find it with the `find -perm -4000`
+   sweep. Then delete it.
+5. Run each triage one-liner and read the output until none of them are mysterious.
+6. Drop a script in `/dev/shm`, run it, and find it via the process's
+   `/proc/<pid>/exe` and `cmdline`. This is exactly the move from the scenario.
+
+**Evidence to capture:** your annotated output of `ss -tupn` and the
+`/proc/<pid>` inspection. Log it.
+
+</Lab>
+
+<Quiz mid="track/01-foundations/05-linux" title="Linux for Analysts" questions={[
+  {
+    q: "On a systemd-based host, why might grepping /var/log miss authentication events?",
+    opts: ["auth.log is encrypted", "journald stores logs in a binary journal that grep cannot read; you need journalctl", "Linux does not log authentication", "The events are only in kernel memory"],
+    a: 1,
+    why: "systemd's journal is a binary format queried with journalctl, not a plain-text file. On many modern distributions some events exist only there, so a grep of /var/log/auth.log can come up empty even though the login happened. Knowing to reach for journalctl is a real hands-on tell."
+  },
+  {
+    q: "You find an executable modified two minutes ago in /dev/shm. Why is that location significant?",
+    opts: ["It is where system binaries live", "It is a world-writable, memory-backed directory commonly used to stage payloads", "It is the kernel module directory", "Files there cannot be executed"],
+    a: 1,
+    why: "/dev/shm is a tmpfs (RAM-backed), world-writable, and often overlooked, which makes it a favourite staging location for dropped payloads — it leaves little on disk and survives until reboot. A fresh executable there is one of the highest-priority findings in Linux triage."
+  },
+  {
+    q: "Which command reveals the real binary behind a suspicious process with PID 9931?",
+    opts: ["cat /etc/9931", "ls -l /proc/9931/exe", "ps -e 9931", "whereis 9931"],
+    a: 1,
+    why: "/proc/<pid>/exe is a symlink to the actual executable the process is running, which cuts through a deceptive process name in ps output. Paired with /proc/<pid>/cmdline and /proc/<pid>/cwd, it tells you what's really running and from where — essential when a process is masquerading as something benign."
+  },
+  {
+    q: "An attacker appends their public key to a user's ~/.ssh/authorized_keys. What does this achieve?",
+    opts: ["It steals the user's password", "Silent, passwordless, persistent SSH access that survives a password reset", "It disables SSH for everyone else", "It only works from the same IP"],
+    a: 1,
+    why: "authorized_keys grants key-based login with no password. An added attacker key means they can return at will, and resetting the account's password does nothing to stop it — which is why checking this file is a mandatory step after any Linux compromise, and why killing a malicious process without removing persistence just invites it back."
+  },
+  {
+    q: "How do you find a second account with root privileges hidden in /etc/passwd?",
+    opts: ["Look for the word 'root'", "Check for any account with UID 0 other than root", "Search for encrypted passwords", "Count the number of lines"],
+    a: 1,
+    why: "Root is defined by UID 0, not by the name 'root'. An attacker can add an innocuously-named account with UID 0 to gain root without touching the real root account. `awk -F: '$3==0' /etc/passwd` surfaces every UID-0 account; more than one is a backdoor."
+  },
+  {
+    q: "In auth.log, 'Failed password for invalid user oracle' differs from 'Failed password for root' because:",
+    opts: ["They are logged by different services", "'invalid user' means the account does not exist (enumeration), while root exists and is being targeted directly", "'invalid user' is always a false positive", "root failures are never logged"],
+    a: 1,
+    why: "'invalid user' tells you the username doesn't exist on the system — the attacker is guessing account names, i.e. enumeration, the Linux analogue of Windows status 0xC0000064. A failure for root (which exists) is a direct attack on a known high-value account. The distinction shapes how you read the campaign, just as the status codes do on Windows 4625."
+  }
+]} />
+
+<TaskList step="track/01-foundations/05-linux" tasks={[
+  { text: "Complete the Kali triage lab and log the /proc inspection output" },
+  { text: "Make the triage one-liners reflexive", detail: "w, last, lastb, ss -tulpn, ps auxf, the find sweep, the /proc trio. Drill them until you don't think." },
+  { text: "Read a real auth.log brute-force sequence and narrate it out loud" },
+  { text: "List the six Linux persistence surfaces from memory", detail: "cron, systemd units/timers, rc files, authorized_keys, SUID, UID-0 in passwd." },
+  { text: "Learn the RHEL/Debian path differences", detail: "secure vs auth.log, messages vs syslog. Interviewers occasionally check you're not memorising one distro." },
+  { text: "Practise reading ss output and mapping a connection to its process" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Linux Journey", url: "https://linuxjourney.com/", type: "read", note: "Free, well-paced fundamentals if any of the shell work felt shaky. Do the Command Line and Processes sections.", primary: true },
+  { title: "TCM Security — Linux 100 (free course)", by: "TCM Security", url: "https://academy.tcm-sec.com/p/linux-100-fundamentals", type: "watch", cost: "Free", note: "A genuinely free, practical Linux fundamentals course aimed at security people." },
+  { title: "GTFOBins", url: "https://gtfobins.github.io/", type: "ref", note: "The Linux equivalent of LOLBAS: legitimate binaries abused for privilege escalation and persistence. Know the common SUID escapes by name." },
+  { title: "journalctl cheat sheet", by: "Red Hat", url: "https://access.redhat.com/articles/4409951", type: "ref", note: "Every journalctl filter you'll want. Bookmark it — the syntax is unmemorable and you'll reach for it constantly." },
+  { title: "The DFIR Report — Linux intrusions", url: "https://thedfirreport.com/category/linux/", type: "read", minutes: 40, note: "Real Linux compromises with the forensic artifacts. Read one and match each finding to a log source you now know." },
+  { title: "MITRE ATT&CK — Persistence (Linux)", url: "https://attack.mitre.org/matrices/enterprise/linux/", type: "read", minutes: 20, note: "The Linux ATT&CK matrix. Focus on the Persistence and Privilege Escalation columns." }
+]} />
+
+<Gate
+  step="track/01-foundations/05-linux"
+  conditions={[
+    "I know where auth events live on both Debian and RHEL, and when to use journalctl",
+    "I can read an auth.log brute-force-to-success sequence and narrate it",
+    "The core triage one-liners are reflexive, not looked up",
+    "I can list the six Linux persistence surfaces and check each",
+    "I completed the Kali lab and inspected a process via /proc",
+    "I can explain why /dev/shm and /tmp are checked first"
+  ]}
+  unlocks="Final Phase 1 step: cloud and identity — Entra ID, sign-in logs and the modern attacks that never touch an endpoint."
+/>

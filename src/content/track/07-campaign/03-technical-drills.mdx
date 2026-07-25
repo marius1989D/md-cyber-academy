@@ -1,0 +1,361 @@
+---
+title: "Technical Interview Drills"
+phase: 7
+order: 3
+summary: "The questions you will actually be asked, spoken aloud against a clock, until fluency replaces recall."
+weeks: "Weeks 30-36"
+minutes: 600
+kind: campaign
+pillar: interview
+cost: 0
+prereq: ["07-campaign/02-linkedin"]
+tags: ["interview", "drills", "technical-questions", "preparation"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why>
+Knowing something and being able to explain it in ninety seconds to a stranger who
+is judging you are different skills, and only the second one gets you hired. You
+have the knowledge - thirty weeks of it. What you have not practised is retrieving
+it under mild social pressure, out loud, without notes. That gap is why prepared
+candidates freeze on questions they could have answered in writing, and it closes
+only through rehearsal.
+</Why>
+
+## How to use this step
+
+**Speak every answer aloud.** Reading the marking scheme silently and thinking
+"yes, I know that" is not practice - it is the illusion of preparation. The
+discomfort of talking to an empty room is the exercise.
+
+**Record yourself occasionally.** Listening back is unpleasant and the fastest way
+to find your verbal fillers, your habit of trailing off, and the point where you
+run out of depth.
+
+**Work in short sessions.** Six drills, three times a week, beats forty in one
+sitting. Spaced retrieval is what builds durable fluency.
+
+**Anything below "fluent" comes back.** The drill grading feeds your review queue.
+
+<Callout type="key">
+Aim for **structured but not scripted**. An answer that sounds memorised is worse
+than one that sounds like thinking - interviewers are testing whether you
+understand, not whether you rehearsed. Know your three or four key points and let
+the wording vary each time.
+</Callout>
+
+## The formats to expect
+
+**Recruiter screen (15-20 min, phone).** Not technical. Motivation, salary
+expectation, notice period, location, shift-work willingness, clearance
+eligibility. Have your numbers ready.
+
+**Technical screen (30-60 min).** Rapid-fire fundamentals plus one or two deeper
+dives. This is what the drills below prepare you for.
+
+**Practical or scenario (60-90 min).** An alert or a log set to triage, thinking
+out loud. Everything in Phase 4.
+
+**Panel or final (45-60 min).** Behavioural, cultural, career narrative, and your
+questions for them.
+
+## Foundations
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-tcp"
+  question="Explain the TCP three-way handshake, and tell me what a closed port does differently."
+  seconds={60}
+  hits={[
+    "SYN, SYN-ACK, ACK establishes state on both ends",
+    "A closed port replies with RST rather than SYN-ACK",
+    "That difference is the entire basis of port scanning",
+    "A SYN scan never sends the final ACK, so historically it was not logged by the application",
+    "A SYN flood sends SYN and never completes, exhausting the half-open connection table"
+  ]}
+  trap="Reciting the three packets and stopping. The security relevance - scanning, half-open scans, SYN floods - is what the question is actually for."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-eventids"
+  question="Which Windows event IDs would you want to monitor, and why?"
+  seconds={90}
+  hits={[
+    "4624 and 4625 for logon success and failure, with the logon type field carrying most of the meaning",
+    "4688 for process creation - and note command line auditing is a separate setting that must be enabled",
+    "4672 for special privileges assigned, 4720 for account creation, 4728/4732 for group membership changes",
+    "7045 or 4697 for service installation",
+    "4768/4769 for Kerberos, with encryption type mattering for Kerberoasting detection",
+    "1102 for log clearing - never routine",
+    "Sysmon 1, 3, 10 and 22 as the highest-value additions"
+  ]}
+  trap="Listing IDs without saying what each proves. The follow-up is always 'and what does that tell you?' - pair every ID with its meaning."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-logontype"
+  question="You see event 4624 with logon type 3. What happened, and when would you care?"
+  seconds={60}
+  hits={[
+    "Type 3 is a network logon - something authenticated to this host across the network, such as SMB share access or remote WMI",
+    "It is the most common type in triage and the natural habitat of lateral movement",
+    "Care when the source and destination pair has no history, or the account is a service account authenticating from the wrong host",
+    "Contrast with type 10, RemoteInteractive, which is RDP",
+    "First-time-seen between a host pair is one of the highest-value low-cost detections"
+  ]}
+  trap="Saying 'a network logon' and stopping. Give the contrast with type 10 and say what would make it interesting."
+/>
+
+## Active Directory and identity
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-kerberos"
+  question="Explain Kerberos authentication, then tell me what Kerberoasting is and how you would detect it."
+  seconds={120}
+  hits={[
+    "AS exchange: the client gets a TGT from the KDC, encrypted with the krbtgt key",
+    "TGS exchange: the client presents the TGT to obtain a service ticket, encrypted with the service account's key",
+    "The service validates the ticket itself using its own key - no callback to the DC",
+    "Kerberoasting requests service tickets for SPN accounts and cracks them offline",
+    "Detection: 4769 with RC4 (0x17) in an AES environment, one principal requesting many SPNs in a short window",
+    "Mitigation: strong service account passwords, gMSA, and treating RC4 as anomalous"
+  ]}
+  trap="Blurring the TGT and the service ticket, or saying the service checks with the DC. It does not - and that is precisely why the detection sits on ticket requests rather than on service access."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-tokentheft"
+  question="A user has MFA enabled. How could an attacker still access their account?"
+  seconds={90}
+  hits={[
+    "Token theft - MFA is validated when the token is issued, not on every use, so a replayed token presents an already-authenticated session",
+    "AiTM phishing proxies the real login and captures the post-MFA token",
+    "MFA fatigue - spamming push approvals until the user accepts",
+    "Illicit OAuth consent grants the attacker's app standing access independent of the password",
+    "Signals: unregistered device, unusual ASN, impossible travel, and audit log activity such as new inbox rules",
+    "Remediation must revoke sessions and remove OAuth grants - a password reset alone is insufficient"
+  ]}
+  trap="Stopping at 'they could phish the MFA code'. The token-theft explanation is what demonstrates current understanding, and the remediation point is what shows you have thought past detection."
+/>
+
+## Triage and detection
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-edralert"
+  question="You receive an EDR alert for suspicious PowerShell. Walk me through your triage."
+  seconds={120}
+  hits={[
+    "Read the detection logic first - what fired and how reliable is that rule",
+    "Walk the process tree upward; the parent chain usually determines the conclusion",
+    "Decode the full command line rather than describing it as encoded",
+    "Check the binary: path, signature, prevalence - remembering LOLBins are all signed",
+    "Look at what happened next: children, file writes, registry, network connections",
+    "Bring in context - user, role, time, change tickets - as evidence",
+    "Scope across the estate for the same pattern, and hunt persistence if execution is confirmed"
+  ]}
+  trap="Jumping straight to 'it's malicious, I'd isolate the host'. State your method, and be clear that containment is a recommendation unless a runbook delegates it to you."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-falsepositive"
+  question="A detection rule is generating 40 false positives a day. What do you do?"
+  seconds={90}
+  hits={[
+    "Measure first: fire rate, true positives over a meaningful period, and categorise the false positives",
+    "Find the shared property of the noise rather than treating instances individually",
+    "Choose the narrowest intervention - adding a condition usually beats adding an exclusion",
+    "Never exclude by host or user alone; scope to parent process plus command line plus context",
+    "Consider fixing the environment where the noise has a root cause",
+    "Document the change with reasoning and a review date, then re-measure",
+    "Never disable a rule that has produced true positives"
+  ]}
+  trap="Answering 'I'd add an exclusion' with no methodology. Everyone says that - measuring first and explaining why you would refuse to exclude by host is the differentiator."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-pyramid"
+  question="Explain the Pyramid of Pain. If hashes are so weak, why does anyone still run IOC matching?"
+  seconds={90}
+  hits={[
+    "Six levels ranked by adversary cost of change: hashes, IPs, domains, artifacts, tools, TTPs",
+    "Hashes change with a recompile; behaviours require changing tradecraft, which is slow and expensive",
+    "The nuance: IOCs are nearly free, instant and need no tuning",
+    "Retrospective hunting - new intel searched against 90 days of history finds what you missed",
+    "IOCs as enrichment during triage rather than as detection strategy",
+    "Detecting higher up costs more telemetry, more tuning and more maintenance"
+  ]}
+  trap="Dismissing indicators entirely. It sounds sophisticated and it is wrong - every real SOC runs IOC matching. 'Supplement, not strategy' is the answer."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-phishing"
+  question="A user reports a suspicious email. Walk me through your analysis."
+  seconds={120}
+  hits={[
+    "Preserve the original with full headers - a forwarded copy loses them",
+    "Read the Received chain bottom-up, trusting only headers above your own boundary",
+    "Check Authentication-Results as a whole, focusing on DMARC alignment rather than SPF alone",
+    "Compare From, Return-Path and Reply-To for mismatches",
+    "Analyse URLs without clicking - expand redirects, check the registrable domain and domain age",
+    "Detonate attachments only in a sandbox",
+    "Scope: who else received it, who clicked, who replied, who submitted credentials",
+    "Response: purge, block indicators, check for post-compromise activity"
+  ]}
+  trap="Treating 'SPF: pass' as evidence of legitimacy. SPF authenticates the Return-Path domain, which the attacker controls - interviewers plant this deliberately."
+/>
+
+## Practice and process
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-escalate"
+  question="When would you escalate to Tier 2, and what would you include?"
+  seconds={90}
+  hits={[
+    "Escalate on confirmed or strongly suspected compromise, anything I cannot rule out, and anything time-critical regardless of certainty",
+    "Do not finish investigating before escalating when something is live",
+    "Include: summary and the ask, severity with reasoning, UTC timeline, evidence checked, assessment with confidence, prioritised recommendations",
+    "State what I have not checked, so nobody assumes coverage that does not exist",
+    "Flag containment as a recommendation unless my runbook delegates the action",
+    "Recommend isolation rather than power-off to preserve volatile evidence"
+  ]}
+  trap="Claiming you would isolate hosts and reset credentials on your own authority. Unless delegated, that is above Tier 1 - and knowing your lane is the thing being tested."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-detection"
+  question="Tell me about a detection you have written."
+  seconds={120}
+  hits={[
+    "Name the technique and why it was worth detecting, ideally by observed prevalence",
+    "The telemetry it keys on and the specific distinguishing field",
+    "Validation: ran multiple atomics for that technique, and how many it caught",
+    "What it initially missed and the diagnosis, not just the fix",
+    "The tuning, with before and after numbers, and the scope of the exclusion",
+    "That you re-ran the atomics after tuning to confirm it still fires",
+    "The remaining blind spot and what telemetry would close it"
+  ]}
+  trap="Describing a rule you never tested or tuned. The follow-ups are always 'how do you know it works' and 'what does it miss' - have numbers and a named blind spot."
+/>
+
+<Drill
+  step="track/07-campaign/03-technical-drills"
+  id="d-questions"
+  question="Do you have any questions for us?"
+  seconds={90}
+  hits={[
+    "What does the shift rota actually look like, and how does handover work?",
+    "What SIEM and EDR do you run, and how much of the detection content is custom versus vendor-supplied?",
+    "How does Tier 1 feed tuning requests back, and who acts on them?",
+    "What does progression from Tier 1 look like here, and over what timeframe?",
+    "What would you want me to have achieved in the first three months?",
+    "One question specific to this employer, showing you researched them"
+  ]}
+  trap="Saying you have no questions, or asking only about salary and holiday. Having no questions reads as no interest - and asking about tuning feedback loops signals you understand how SOCs actually fail."
+/>
+
+## Building the rest of the bank
+
+The twelve above are the highest-frequency questions. Extend to roughly 120 by
+working back through the track:
+
+- Every `Why this matters` block in Phases 1-6 contains an `Asked as` question
+- Every scenario is a practical question in disguise
+- Every gate condition is something you should be able to explain aloud
+
+<Callout type="warn">
+**Practise saying "I don't know."** You will be asked something you cannot answer,
+and the recoverable version is: *"I haven't worked with that directly. My
+understanding is roughly X - is that the right shape?"* Bluffing is discovered
+immediately and is far worse than an honest gap plus a reasoned guess.
+</Callout>
+
+<Quiz mid="track/07-campaign/03-technical-drills" title="Interview Preparation" questions={[
+  {
+    q: "Why is speaking answers aloud materially different from reading the marking scheme?",
+    opts: ["It improves memorisation of exact wording", "Retrieving knowledge under mild pressure without notes is a separate skill from knowing it, and only rehearsal builds it", "Interviewers assess vocal tone", "It is faster than reading"],
+    a: 1,
+    why: "Recognising an answer as correct feels like competence but is not the same as generating it fluently while someone watches. That gap is why well-prepared candidates freeze on material they know well in writing, and it closes only through spoken rehearsal."
+  },
+  {
+    q: "An answer that sounds memorised is:",
+    opts: ["Ideal, since it demonstrates preparation", "Usually worse than one that sounds like thinking, because interviewers are assessing understanding rather than rehearsal", "Neutral - only content matters", "Preferred for technical questions"],
+    a: 1,
+    why: "A scripted delivery invites a probing follow-up specifically to test whether you understand or recite, and it makes any deviation from the script visible. Knowing three or four key points and varying the wording each time reads as genuine comprehension."
+  },
+  {
+    q: "You are asked something you genuinely do not know. The best response is:",
+    opts: ["Give the closest plausible answer confidently", "Say you have not worked with it directly, offer your rough understanding, and ask whether that is the right shape", "Say you would look it up and move on", "Redirect to a topic you know well"],
+    a: 1,
+    why: "Bluffing is detected almost immediately and casts doubt on your other answers. An honest gap paired with reasoned inference demonstrates intellectual honesty and thinking-out-loud ability, both of which matter more at Tier 1 than encyclopaedic coverage."
+  },
+  {
+    q: "In a triage question, why should you state that containment is a recommendation rather than your own action?",
+    opts: ["It avoids responsibility", "It demonstrates you understand where Tier 1 authority ends, which is specifically what the question tests", "Containment is never done by analysts", "It shortens the answer"],
+    a: 1,
+    why: "Claiming you would unilaterally isolate production hosts signals you do not understand decision rights, and it is a common way candidates lose credibility. The strong answer recommends containment and notes you would act within delegated runbook authority - which shows you know the answer is organisation-specific."
+  },
+  {
+    q: "\"Do you have any questions for us?\" is best answered with:",
+    opts: ["\"No, you've covered everything\"", "Questions about the rota, the stack, how tuning feedback is handled, and progression", "Questions about salary and holiday entitlement only", "A single generic question about company culture"],
+    a: 1,
+    why: "Having no questions reads as disinterest. Asking how Tier 1 tuning requests are actioned signals you understand a real failure mode of SOCs, and asking about progression shows you are thinking beyond the first year. Compensation is better handled with the recruiter."
+  },
+  {
+    q: "Which practice schedule builds durable interview fluency most effectively?",
+    opts: ["Forty drills in one long session before the interview", "Six drills three times a week over several weeks", "Reading all answers once the night before", "Writing answers out longhand"],
+    a: 1,
+    why: "Spaced retrieval produces durable recall; massed practice produces temporary familiarity that fades. Short frequent sessions also fit around shift work, which matters more than the theory when you are fitting this around a full-time job."
+  }
+]} />
+
+<TaskList step="track/07-campaign/03-technical-drills" tasks={[
+  { text: "Complete all twelve drills above, spoken aloud, until every one grades fluent" },
+  { text: "Extend the bank to 120 questions from the track's Asked-as prompts and gate conditions" },
+  { text: "Run six drills three times a week for the rest of the campaign" },
+  { text: "Record yourself on three drills and listen back", detail: "Uncomfortable, and the fastest way to find fillers and the point where you run out of depth." },
+  { text: "Practise saying 'I don't know' followed by a reasoned guess", detail: "Rehearse it until it feels natural, because you will need it." },
+  { text: "Do one mock interview with another person", detail: "A peer, a community member, or anyone willing. Social pressure is the variable you cannot simulate alone." },
+  { text: "Prepare six questions to ask, including one employer-specific per application" },
+  { text: "Rehearse a two-minute walkthrough of your strongest portfolio artifact", detail: "Including what is wrong with it. That is where the conversation will go." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Your own track content", url: "/track/", type: "ref", note: "Every 'Why this matters' block contains an interview question, every scenario is a practical question, every gate condition is something to explain aloud. This is your primary question bank.", primary: true },
+  { title: "Daily Blue Team interview questions", url: "https://github.com/Ignitetechnologies/SOC-Interview-Questions", type: "read", note: "Community-collected SOC interview question sets. Use them to find gaps in your bank rather than as a study list." },
+  { title: "TryHackMe SOC Level 1 path", url: "https://tryhackme.com/", type: "do", cost: "Around £10/mo", note: "The practical rooms double as scenario rehearsal. Talk through your reasoning aloud while you work them." },
+  { title: "Simply Cyber - interview content", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 30, note: "Mock interviews and hiring-manager perspectives on what entry-level candidates get wrong." },
+  { title: "LetsDefend", url: "https://letsdefend.io/", type: "do", cost: "Free tier", note: "Live alert triage. Narrate your triage sequence out loud as you work - it rehearses the exact format of a practical interview." },
+  { title: "Glassdoor interview reviews", url: "https://www.glassdoor.co.uk/", type: "read", minutes: 15, note: "Search each target employer before interviewing. Candidates frequently post the actual questions asked." }
+]} />
+
+<Gate
+  step="track/07-campaign/03-technical-drills"
+  conditions={[
+    "All twelve core drills grade fluent, spoken aloud",
+    "My question bank has been extended toward 120 questions",
+    "I have recorded and reviewed myself at least three times",
+    "I have completed at least one mock interview with another person",
+    "I can say 'I don't know' cleanly and follow it with a reasoned guess",
+    "I have six questions prepared to ask, plus one employer-specific per application",
+    "I can walk through my strongest artifact in two minutes, including its weaknesses"
+  ]}
+  unlocks="Next: the narrative - why a manufacturing technician belongs in a SOC, told so that it is an asset rather than an apology."
+/>

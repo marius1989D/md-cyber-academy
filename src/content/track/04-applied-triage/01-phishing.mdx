@@ -1,0 +1,349 @@
+---
+title: "Phishing Analysis"
+phase: 4
+order: 1
+summary: "Header dissection, SPF/DKIM/DMARC alignment, URL and attachment triage — the queue that fills most of a Tier 1 shift, done properly."
+weeks: "Weeks 16-17"
+minutes: 260
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["03-microsoft-kql/04-defender-xdr"]
+academy: ["ceh/09-social-engineering"]
+attack: ["T1566.001", "T1566.002", "T1534", "T1598"]
+tags: ["phishing", "email", "headers", "dmarc", "triage"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="A user reports a suspicious email. Walk me through your analysis.">
+Every SOC has a phishing queue and Tier 1 owns it. It is the highest-volume work
+you will do, the most likely subject of your first practical interview task, and
+the place where a specific, unfakeable skill shows immediately: reading headers.
+A candidate who says "I'd check if the sender looks legitimate" and a candidate
+who says "I'd read the Received chain bottom-up and check DMARC alignment between
+the header From and the SPF-authenticated domain" are not in the same competition.
+</Why>
+
+## The anatomy of an email
+
+Three sender fields exist and they are not the same. Attackers exploit exactly
+this confusion:
+
+| Field | Also called | Who sees it | Checked by |
+|---|---|---|---|
+| `From:` | header From, RFC5322.From | **The user** | DMARC alignment |
+| `Return-Path:` | envelope sender, RFC5321.MailFrom | Nobody, normally | SPF |
+| `Reply-To:` | — | Only when replying | Nothing |
+
+The display name (`"IT Helpdesk" <attacker@evil.com>`) is free text with no
+verification whatsoever. On a phone, many mail clients show *only* the display
+name — which is why display-name spoofing still works in 2026 despite being the
+oldest trick in the catalogue.
+
+<Callout type="key">
+`Reply-To:` pointing somewhere different from `From:` is one of the highest-value
+quick checks in the whole triage. It's the mechanism behind most business email
+compromise: the message appears to come from your finance director, and your
+reply quietly goes to the attacker.
+</Callout>
+
+## Reading the Received chain
+
+Received headers are prepended as the message travels, so **read them bottom-up**
+— the bottom is the origin, the top is your own gateway.
+
+```text
+Received: from mx.corp.com by inbox.corp.com          ← last hop (yours)
+Received: from relay.sendgrid.net by mx.corp.com      ← 
+Received: from unknown (203.0.113.44) by relay...     ← origin
+```
+
+What you're looking for:
+
+- **The originating IP and its reputation.** A hosting provider or residential ASN
+  where a corporate mail system should be is a strong signal.
+- **Geographic and timing inconsistencies.** A "UK bank" originating in a data
+  centre elsewhere entirely.
+- **Forged headers below the trust boundary.** Anything below your own
+  infrastructure can be fabricated by the sender. Only headers added by systems
+  you control are trustworthy, and this is a genuinely important point most
+  candidates miss.
+
+## SPF, DKIM, DMARC — and the alignment trap
+
+These three get conflated constantly. Keep them distinct:
+
+- **SPF** — does the sending IP appear in the DNS record of the **Return-Path**
+  domain? Authorises the *envelope* sender.
+- **DKIM** — is there a valid cryptographic signature over the message, verifiable
+  against a public key in the signing domain's DNS? Proves integrity and origin.
+- **DMARC** — requires SPF **or** DKIM to pass **and** to be *aligned* with the
+  **header From** domain, then applies a policy (none, quarantine, reject).
+
+<Callout type="warn">
+**"SPF: pass" does not mean the email is legitimate.** It means the sending server
+was authorised for whatever domain is in the Return-Path — and the attacker
+controls that. An attacker sending from `evil.com` with a valid SPF record for
+`evil.com` gets `spf=pass`, while the `From:` header displays your CEO. This is
+the single most common misreading in phishing triage, and interviewers use it as a
+deliberate trap. **DMARC alignment is the check that matters**, because alignment
+is what ties authentication back to the domain the user actually sees.
+</Callout>
+
+Read `Authentication-Results` as a whole, not one field:
+
+```text
+Authentication-Results: mx.corp.com;
+  spf=pass smtp.mailfrom=bounce.marketingtool.net;
+  dkim=fail header.d=corp.com;
+  dmarc=fail action=quarantine header.from=corp.com
+```
+
+SPF passed for an unrelated domain, DKIM failed for the claimed domain, DMARC
+therefore failed. That is a spoof of `corp.com`, regardless of the `spf=pass`.
+
+## URLs
+
+Never click. Analyse:
+
+- **Redirect chains** — the visible link is rarely the destination. Expand
+  shorteners and follow the chain in a sandbox or a URL-expansion service.
+- **Homoglyphs and punycode** — `xn--` prefixes decode to lookalike characters.
+  `аpple.com` with a Cyrillic а is a different domain entirely.
+- **Lookalikes** — `corp-secure.com`, `corp.secure-login.net`. Check the
+  registrable domain, not the subdomain; anything can be a subdomain.
+- **Open redirects** — a legitimate domain used as a launder:
+  `google.com/url?q=evil.com`. Passes reputation checks, lands somewhere else.
+- **Domain age** — a registration from three days ago is a strong signal on its
+  own.
+- **AiTM kits** — a credential page that proxies to the real Microsoft login,
+  capturing the post-MFA token. Visually perfect. This is what you learned in the
+  cloud identity step, arriving through the phishing queue.
+
+## Attachments
+
+Risk order, roughly: direct executables are usually blocked, so attackers use
+containers and scripts.
+
+- **Archives and disk images** — `.zip`, `.iso`, `.img`, `.vhd`. ISOs and VHDs
+  historically bypassed Mark-of-the-Web, which is why they surged.
+- **Shortcut files** — `.lnk` executing a bundled payload, often via `rundll32`.
+- **Office with macros** — `.docm`, `.xlsm`. Much reduced since macros became
+  blocked by default from the internet, but still present.
+- **OneNote, HTML smuggling, SVG** — the rotating cast of container formats.
+- **PDFs** — usually a delivery vehicle for a link rather than an exploit.
+
+Detonate in a sandbox. Never on your own machine, and never open it "just to see".
+
+<Scenario
+  step="track/04-applied-triage/01-phishing"
+  id="header-dissect"
+  title="A reported email, headers included"
+  minutes={10}
+>
+<div slot="brief">
+
+A user in accounts payable reports this. Triage it.
+
+```text
+From: "Meridian Logistics Finance" <finance@meridian-logistics.com>
+Reply-To: <m.finance@outlook-secure.net>
+Return-Path: <bounce@mail.trackflow-cdn.com>
+To: k.patel@corp.com
+Subject: RE: Outstanding invoice 44821 - updated bank details
+Date: Tue, 14 Jul 2026 09:41:02 +0000
+
+Authentication-Results: mx.corp.com;
+  spf=pass smtp.mailfrom=mail.trackflow-cdn.com;
+  dkim=pass header.d=mail.trackflow-cdn.com;
+  dmarc=fail action=none header.from=meridian-logistics.com
+
+Received: from mx.corp.com by inbox.corp.com; Tue, 14 Jul 2026 09:41:09
+Received: from mail.trackflow-cdn.com (198.51.100.77)
+          by mx.corp.com; Tue, 14 Jul 2026 09:41:07
+Received: from [10.0.14.2] by mail.trackflow-cdn.com; Tue, 14 Jul 2026 09:41:02
+
+X-Mailer: Microsoft Outlook 16.0
+
+BODY (abridged):
+  "Further to our call, please note our bank details have changed
+   with effect from this week. Updated remittance form attached.
+   Kindly confirm receipt so we can update your account."
+
+  Attachment: Remittance_Update_44821.pdf  (payload: link to
+              hxxps://meridian-logistics[.]docsign-review[.]com/verify)
+
+CONTEXT
+  - Meridian Logistics is a genuine supplier of ours.
+  - Subject line begins "RE:" but no prior thread exists in the mailbox.
+  - Domain docsign-review.com registered 6 days ago.
+  - Two other users in finance received near-identical messages.
+```
+
+What is this, what is the evidence, and what actions do you take and recommend?
+
+</div>
+<div slot="model">
+
+**This is business email compromise — specifically supplier invoice fraud — and
+the intent is to redirect payments to an attacker-controlled account.** It is not
+credential phishing, and the distinction changes your response.
+
+**The header evidence, in order of strength:**
+
+1. **`dmarc=fail` with `header.from=meridian-logistics.com`.** This is the finding.
+   The email claims to be from your supplier's domain and DMARC alignment failed,
+   meaning nothing authenticated for that domain. It is a spoof.
+2. **The `spf=pass` and `dkim=pass` are the trap and must not reassure you.** Both
+   passed for `mail.trackflow-cdn.com` — a domain the attacker controls or is
+   abusing. Authentication passing for the attacker's own infrastructure tells you
+   nothing about the claimed sender. This is exactly the alignment lesson.
+3. **`action=none`.** The supplier publishes a DMARC policy of `p=none`, so the
+   spoof was not quarantined despite failing. Worth noting as an observation about
+   the supplier's posture, not a fault of your own controls.
+4. **`Reply-To` points to `outlook-secure.net`**, unrelated to both the From domain
+   and the Return-Path. Replies go straight to the attacker. Classic BEC plumbing.
+5. **The "RE:" with no prior thread** is thread-hijack pretexting — manufacturing
+   familiarity to lower scrutiny. If the supplier has genuinely been compromised,
+   the attacker may have real thread context, which raises the stakes considerably.
+6. **A six-day-old lookalike domain** in the payload link, using the supplier's
+   name as a subdomain of an attacker-registered domain. `docsign-review.com` is
+   the registrable domain; `meridian-logistics` is just decoration.
+7. **Three recipients, all in finance.** Targeted, not spray. Someone knew who pays
+   the invoices.
+
+**Immediate actions (within typical Tier 1 authority):**
+
+- Search the tenant for every recipient of the same sender, subject, or payload
+  URL. Three reported does not mean three received.
+- Check whether anyone clicked the link or submitted credentials, and whether
+  anyone replied to the Reply-To address.
+- Confirm nothing was actioned — no payment run, no bank-detail change in the
+  finance system.
+
+**Recommendations to escalate:**
+
+- Purge the message from all mailboxes; block the payload domain, the Reply-To
+  domain and the sending infrastructure.
+- **Contact Meridian Logistics through a known-good phone number, not by replying.**
+  If their mailbox is compromised, replying to any address in this email reaches
+  the attacker.
+- Alert the finance team directly, and confirm the out-of-band verification
+  process for bank-detail changes is being followed. This is a process control, and
+  it is the one that actually prevents the loss.
+
+**Severity: high despite no malware.** The impact of BEC is measured in transferred
+funds, and invoice fraud losses regularly run to six figures. An analyst who
+downgrades this because "there's no payload" has misread what the attack is.
+
+**What would change the assessment:** if DMARC had *passed* aligned to
+`meridian-logistics.com`, this would suggest the supplier's own mail system is
+compromised rather than spoofed — a different and more serious situation
+requiring urgent contact with them. The alignment result is what separates those
+two conclusions, which is why it is the first thing to read.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/04-applied-triage/01-phishing"
+  id="phish-triage"
+  question="A user reports a suspicious email. Walk me through your analysis."
+  seconds={120}
+  hits={[
+    "Preserve the original with full headers — a forwarded copy loses them",
+    "Read the Received chain bottom-up for the true origin, noting only headers above your own boundary are trustworthy",
+    "Check Authentication-Results as a whole, focusing on DMARC alignment against the header From, not on SPF alone",
+    "Compare From, Return-Path and Reply-To for mismatches",
+    "Analyse URLs without clicking: expand redirects, check registrable domain, punycode, domain age",
+    "Detonate attachments in a sandbox only",
+    "Scope it: who else received it, who clicked, who replied, who submitted credentials",
+    "Response: purge, block indicators, and check for post-compromise activity if anyone interacted"
+  ]}
+  trap="Treating 'SPF: pass' as evidence of legitimacy. SPF authenticates the Return-Path domain, which the attacker owns. DMARC alignment against the header From is the check that matters, and interviewers plant this deliberately."
+/>
+
+<Quiz mid="track/04-applied-triage/01-phishing" title="Phishing Analysis" questions={[
+  {
+    q: "An email shows spf=pass and dkim=pass, but dmarc=fail. What does this most likely mean?",
+    opts: ["The email is legitimate but the DMARC record is misconfigured", "Authentication passed for the attacker's own domain, but is not aligned with the domain in the visible From header", "The message was modified in transit", "DKIM keys have expired"],
+    a: 1,
+    why: "SPF and DKIM can both pass for a domain the attacker controls. DMARC additionally requires alignment with the header From, which is what the user actually sees. A dmarc=fail alongside spf=pass and dkim=pass is the classic spoofing signature, and treating the passes as reassuring is the most common triage error there is."
+  },
+  {
+    q: "Why should Received headers be read from the bottom upward?",
+    opts: ["Mail clients display them in reverse", "Each hop prepends its header, so the bottom entry is the origin and the top is your own infrastructure", "The bottom header is cryptographically signed", "Only the bottom header is standardised"],
+    a: 1,
+    why: "Servers prepend as the message travels, so the chain reads newest-to-oldest top-down. The critical corollary is trust: only headers added by systems you control are reliable, because anything below your boundary could have been fabricated by the sender before it ever reached you."
+  },
+  {
+    q: "A Reply-To address that differs from the From address is most characteristic of:",
+    opts: ["A mailing list", "Business email compromise, where the reply is routed to the attacker", "A DKIM signing failure", "An out-of-office autoresponder"],
+    a: 1,
+    why: "Legitimate uses exist — mailing lists and ticketing systems do this — so it isn't proof on its own. But it's the standard BEC mechanism: the message appears to come from a trusted party while the conversation is quietly redirected. It's one of the fastest high-value checks in the whole triage."
+  },
+  {
+    q: "A URL reads https://microsoft.com.security-verify.net/login. The registrable domain is:",
+    opts: ["microsoft.com", "com.security-verify.net", "security-verify.net", "login"],
+    a: 2,
+    why: "Everything before the registrable domain is a subdomain the attacker controls freely, so 'microsoft.com' here is decoration. Reading domains right-to-left from the TLD is the habit to build, and it's what defeats the overwhelming majority of lookalike URLs at a glance."
+  },
+  {
+    q: "Why did attackers shift toward ISO and VHD attachments?",
+    opts: ["They compress better than ZIP", "They historically bypassed Mark-of-the-Web, so files extracted from them did not carry the internet-origin flag that triggers protections", "They cannot be scanned by antivirus", "Email gateways cannot process them"],
+    a: 1,
+    why: "Mark-of-the-Web tags files downloaded from the internet, driving Protected View and SmartScreen warnings. Disk-image containers historically did not propagate that flag to their contents, so the payload lost its provenance marker. The shift toward container formats is a direct response to macro blocking, and it keeps rotating as each format is hardened."
+  },
+  {
+    q: "An AiTM phishing kit is more dangerous than a static credential-harvesting page because:",
+    opts: ["It installs malware on the endpoint", "It proxies to the real login service and captures the post-MFA session token, so MFA does not stop it", "It cannot be blocked by URL filtering", "It works only against administrator accounts"],
+    a: 1,
+    why: "The victim genuinely authenticates against the real service, MFA included, while the attacker's proxy captures the resulting token. Replaying that token yields an authenticated session with no further MFA prompt. This is why AiTM detection depends on identity signals — unfamiliar device, unusual ASN, sign-in anomalies — rather than on the endpoint."
+  },
+  {
+    q: "A reported phishing email contained no malware and no credential page, only a request to change bank details. The appropriate severity is:",
+    opts: ["Low, since there is no technical payload", "Informational, and close it", "High, because business email compromise causes direct financial loss", "Depends entirely on whether DMARC passed"],
+    a: 2,
+    why: "BEC impact is measured in transferred funds and routinely reaches six figures, with no malware involved at any point. Downgrading it because there's nothing technical to analyse misreads the attack entirely, and the correct response is partly a process control — out-of-band verification of bank-detail changes — rather than a purely technical one."
+  }
+]} />
+
+<TaskList step="track/04-applied-triage/01-phishing" tasks={[
+  { text: "Analyse ten real phishing headers", detail: "Your own spam folder is a free supply. Build the habit of reading Authentication-Results and the Received chain before anything else." },
+  { text: "Write out the difference between From, Return-Path and Reply-To, and which check applies to each" },
+  { text: "Explain SPF vs DKIM vs DMARC alignment in your own words, in under a minute" },
+  { text: "Work through the phishing rooms on TryHackMe or a LetsDefend phishing case" },
+  { text: "Build a phishing triage checklist you could hand to a new starter", detail: "One page, ordered. This is a genuine portfolio artifact and a strong interview talking point." },
+  { text: "Practise expanding a redirect chain safely", detail: "Use a URL expander or sandbox. Never click through from your own browser." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "PhishTool Community Edition", url: "https://www.phishtool.com/", type: "do", cost: "Free tier", note: "Upload an .eml and it parses headers, authentication and URLs for you. Use it to check your manual analysis, not to replace it.", primary: true },
+  { title: "M3AAWG / DMARC.org overview", url: "https://dmarc.org/overview/", type: "read", minutes: 25, note: "The clearest explanation of alignment, which is the concept everyone gets wrong. Read it twice." },
+  { title: "MITRE ATT&CK - T1566 Phishing", url: "https://attack.mitre.org/techniques/T1566/", type: "read", minutes: 15, note: "The sub-techniques and their detection guidance. Attachment, link and service-based variants." },
+  { title: "URLScan.io", url: "https://urlscan.io/", type: "do", note: "Submit a URL and get a screenshot, redirect chain and resource list without visiting it. Check the visibility setting before submitting anything from a customer." },
+  { title: "Microsoft - Investigate malicious email", by: "Microsoft", url: "https://learn.microsoft.com/en-us/defender-office-365/investigate-malicious-email-that-was-delivered", type: "read", minutes: 30, note: "Threat Explorer, purge actions and the investigation workflow. Directly SC-200 relevant and directly job relevant." },
+  { title: "Cofense / Proofpoint threat blogs", url: "https://cofense.com/blog/", type: "read", minutes: 15, note: "Current phishing campaign write-ups. Good dead-time reading and cheap interview currency." }
+]} />
+
+<Gate
+  step="track/04-applied-triage/01-phishing"
+  conditions={[
+    "I can explain From vs Return-Path vs Reply-To and which authentication check applies to each",
+    "I can read a Received chain bottom-up and say which headers I trust",
+    "I can explain why spf=pass does not mean legitimate, and what DMARC alignment adds",
+    "I can identify the registrable domain in a lookalike URL instantly",
+    "I have analysed at least ten real phishing headers",
+    "I have written a one-page phishing triage checklist"
+  ]}
+  unlocks="Next: endpoint triage, where the same discipline is applied to process trees rather than headers."
+/>

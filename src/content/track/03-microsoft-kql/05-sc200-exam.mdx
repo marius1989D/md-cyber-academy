@@ -1,0 +1,211 @@
+---
+title: "SC-200 Exam Sprint"
+phase: 3
+order: 5
+summary: "Objective sweep, readiness check, voucher hunting and exam-day mechanics for the single highest-return credential in this track."
+weeks: "Week 18"
+minutes: 600
+kind: exam
+pillar: siem
+cost: 165
+prereq: ["03-microsoft-kql/04-defender-xdr"]
+objectives: ["SC-200"]
+tags: ["sc-200", "exam", "certification", "microsoft"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Why SC-200 rather than another certification?">
+This is the credential that changes your CV's reception the most for the money.
+UK SOC job specs overwhelmingly name Sentinel and Defender, and SC-200 is the
+vendor's own attestation that you can operate both. Combined with CEH, it reads
+as offensive knowledge plus defensive tooling - which is precisely the profile an
+MSSP hiring a career-changer wants to see. It is also the only paid item in this
+track besides BTL1, so it needs to earn its place, and it does.
+</Why>
+
+## Before you spend anything
+
+<Callout type="warn">
+**Check the official skills-measured document before you start revising.** Exam
+objectives are revised periodically and the weightings shift. Anything you read
+elsewhere - including this page - may describe an older version. Download the
+current PDF from the exam page, and note the "skills measured as of" date at the
+top. Studying last year's objectives is the most avoidable way to fail.
+</Callout>
+
+**Hunt for a voucher before booking at full price.** Historically the routes worth
+checking have included Microsoft Virtual Training Days (free sessions that have
+often come with a discounted or free exam voucher), Microsoft Learn Cloud Skills
+Challenges, and periodic Microsoft certification promotions. Availability changes
+constantly, so check current offers rather than assuming - but check, because the
+difference is most of the £165.
+
+**Book the exam before you feel ready.** Set the date roughly three weeks out. An
+open-ended plan to sit it "when I'm confident" reliably becomes never, and the
+booked date is what converts study into revision.
+
+## What the exam covers
+
+Broadly, three domains - confirm the current split and weightings against the
+official document:
+
+**Mitigate threats using Microsoft Defender XDR** - the four pillars, incident
+management, investigation and response actions, custom detections, and the unified
+portal. Everything in the previous step.
+
+**Mitigate threats using Microsoft Defender for Cloud** - the one area this track
+has not covered directly. Secure score, regulatory compliance, workload
+protections, and connecting cloud resources. **Budget extra time here** - it is
+the most common gap for people arriving from a pure SOC-analyst background.
+
+**Mitigate threats using Microsoft Sentinel** - workspace design, connectors and
+DCRs, analytics rules, entity mapping, KQL, hunting, workbooks, automation and
+incident management. Steps 1 to 3 of this phase.
+
+## Question formats to expect
+
+- **Multiple choice and multiple response** - the bulk of it.
+- **Case studies** - a scenario with several linked questions. Read the scenario
+  once fully before answering anything.
+- **Drag and drop / ordering** - sequence the correct configuration steps.
+- **Hot area** - select the correct option in a rendered interface.
+- **Yes/No series** - several statements against one scenario. These are graded
+  independently and **cannot be revisited once you move on**, so answer carefully
+  the first time.
+
+Passing is 700 out of 1000, which is a scaled score rather than 70 percent of
+questions.
+
+## A three-week revision plan
+
+**Week 1 - close the known gap.** Work the entire Defender for Cloud learning path
+on Microsoft Learn. This is the domain your practical work has not touched, so it
+is where cramming actually helps. Do the hands-on exercises rather than reading
+past them.
+
+**Week 2 - objective sweep.** Take the skills-measured list line by line. For each
+bullet, rate yourself confident / shaky / unknown. Study only the shaky and
+unknown. This is far more efficient than re-reading material you already own, and
+it is how you avoid spending week two revising KQL you can already write.
+
+**Week 3 - practice and mechanics.** Take the free official practice assessment
+repeatedly until you are comfortably over the threshold. Review every wrong answer
+until you understand *why* the right one is right, not just which it was. Then
+stop studying the day before and rest.
+
+<Callout type="key">
+**The practice assessment is free and official.** Microsoft publishes one on the
+exam page. Do not pay for third-party question dumps - they are frequently
+outdated, often against the certification agreement, and they teach you a specific
+question set rather than the material. Your labs, Microsoft Learn and the official
+practice assessment are sufficient.
+</Callout>
+
+## Exam-day mechanics
+
+- **Online or test centre.** Online proctored requires a clear desk, a clear room,
+  a room scan and no interruptions. If your home environment is not reliably quiet
+  and private, a test centre is worth the trip.
+- **Run the system check in advance** if you are sitting it online. Do this days
+  before, not on the morning.
+- **Flag and move on.** Do not lose eight minutes on one question. Flag it, keep
+  the pace, return at the end - except the Yes/No series, which you cannot revisit.
+- **Read the constraint in each question.** Many are decided by a phrase like
+  "minimises administrative effort" or "at the lowest cost" - two answers work,
+  only one satisfies the constraint. This is the single most common way people lose
+  marks on Microsoft exams.
+- **You get provisional results immediately.** The formal transcript follows.
+
+## If it does not go your way
+
+The retake policy allows a resit after a short waiting period, with a longer wait
+after subsequent attempts, and the resit is chargeable. You get a score report
+showing performance by domain - use it, because it tells you precisely where to
+work. A failed first attempt is a common and recoverable event, not a verdict on
+whether you belong in the field.
+
+<Quiz mid="track/03-microsoft-kql/05-sc200-exam" title="SC-200 Readiness Check" questions={[
+  {
+    q: "You need a Sentinel analytics rule that runs within roughly a minute of data arriving, for a high-severity scenario. Which rule type?",
+    opts: ["Scheduled with a 1-minute frequency", "Near-real-time (NRT)", "Fusion", "Microsoft Security"],
+    a: 1,
+    why: "NRT rules are designed for approximately one-minute latency and avoid the scheduling overhead of standard rules. They trade expressiveness - limited query complexity and no cross-table joins in some cases - for speed. Scheduled rules have a minimum frequency and additional latency, so they cannot match NRT for time-critical detections."
+  },
+  {
+    q: "A custom detection rule in Defender XDR fails validation. The query returns DeviceName, FileName and ProcessCommandLine. What is missing?",
+    opts: ["A severity column", "Timestamp and an entity identifier column such as DeviceId or AccountObjectId", "An AlertId column", "A ReportId column"],
+    a: 1,
+    why: "Custom detections need Timestamp for scheduling and windowing, plus a recognised entity identifier so the resulting alert can be attributed to a device or user. Without attribution the alert cannot be correlated or trigger entity-scoped response actions. DeviceName alone is not sufficient as an identifier."
+  },
+  {
+    q: "A customer must keep firewall logs for two years for compliance but only detects on the last 30 days. The most cost-effective approach is:",
+    opts: ["Analytics plan with 2-year retention", "Analytics for the interactive period, then archive for the remainder, with search jobs to retrieve when needed", "Basic plan for the whole two years", "Export everything to a storage account and delete from the workspace"],
+    a: 1,
+    why: "Analytics retention is the expensive tier and paying for it across two years is unnecessary when detection only needs 30 days. Archive holds the long tail cheaply and remains retrievable via search jobs or restore for retrospective investigation. Basic plans cannot back scheduled analytics rules, so they would remove detection capability for the first 30 days."
+  },
+  {
+    q: "Which action preserves your ability to run live response on a compromised device?",
+    opts: ["Full isolation", "Selective isolation", "Restrict app execution", "Collect investigation package"],
+    a: 1,
+    why: "Selective isolation blocks general network communication while keeping the Defender agent's connection to the service alive, so telemetry continues and live response remains available. Full isolation severs everything, blinding you on a host you are actively investigating - which is usually the wrong trade during an incident."
+  },
+  {
+    q: "An analytics rule creates one incident per alert despite alerts sharing the same account and IP. What should you check first?",
+    opts: ["The query lookback window", "Entity mapping configuration", "The workspace retention setting", "The rule's severity"],
+    a: 1,
+    why: "Incident grouping by matching entities requires entities to be mapped from query result columns. With no mapping, no two alerts can be judged related and grouping never occurs. This is the most common Sentinel misconfiguration and appears regularly in exam scenarios as well as in real environments."
+  },
+  {
+    q: "Which Sentinel feature would you use to maintain a list of approved administrative hosts for use in rule exclusions?",
+    opts: ["A workbook", "A watchlist", "An automation rule", "A threat intelligence indicator"],
+    a: 1,
+    why: "Watchlists provide maintainable reference data that queries can join against, which is the clean way to implement scoped exclusions and enrichment. Hard-coding host lists into rule logic makes them invisible to review and impossible to reuse - and unreviewed exclusions become permanent blind spots, as Phase 2 covered."
+  },
+  {
+    q: "In an exam question, two configurations would both achieve the stated outcome. How do you choose?",
+    opts: ["Pick the more technically sophisticated option", "Identify the constraint in the question - lowest cost, least administrative effort, minimum privilege - and choose the option that satisfies it", "Pick the Microsoft-native option every time", "Choose the option listed first"],
+    a: 1,
+    why: "Microsoft exams routinely present multiple working solutions differentiated only by a qualifying phrase. Missing that constraint is the single most common cause of lost marks. Read the final sentence of the question stem carefully before evaluating the options - it usually contains the deciding criterion."
+  }
+]} />
+
+<TaskList step="track/03-microsoft-kql/05-sc200-exam" title="Exam sprint" tasks={[
+  { text: "Download the current skills-measured document and note its effective date", detail: "Everything else follows from this. Do not revise against a version you found in a blog post." },
+  { text: "Check for a voucher before booking", detail: "Microsoft Virtual Training Days, Cloud Skills Challenges and periodic promotions have all offered discounted or free vouchers. Availability changes - check current offers." },
+  { text: "Book the exam for roughly three weeks out", detail: "Before you feel ready. The booked date is what turns study into revision." },
+  { text: "Complete the Defender for Cloud learning path in full", detail: "This is the domain the track does not cover practically, so it is where structured study earns the most." },
+  { text: "Do a line-by-line objective sweep and rate yourself on each bullet", detail: "Confident / shaky / unknown. Study only the second two categories." },
+  { text: "Take the free official practice assessment at least three times", detail: "Review every wrong answer until you can explain why the correct option is correct." },
+  { text: "Run the online proctoring system check days in advance", detail: "If sitting it at home. Doing this on the morning is how people lose their slot." },
+  { text: "Rest the day before", detail: "Cramming the night before a scaled-score exam measurably hurts more than it helps." },
+  { text: "Log the pass in your evidence log and add it to your CV and LinkedIn the same day" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "SC-200 exam page and skills measured", by: "Microsoft", url: "https://learn.microsoft.com/en-us/credentials/certifications/exams/sc-200/", type: "ref", note: "The authoritative source for objectives, format and booking. Download the skills-measured PDF and check its date - this is your revision syllabus.", primary: true },
+  { title: "SC-200 learning path", by: "Microsoft Learn", url: "https://learn.microsoft.com/en-us/training/courses/sc-200t00", type: "read", note: "The complete free course, objective-mapped, with hands-on exercises. This plus your labs is genuinely sufficient preparation." },
+  { title: "Official practice assessment", by: "Microsoft", url: "https://learn.microsoft.com/en-us/credentials/certifications/exams/sc-200/practice/assessment", type: "do", cost: "Free", note: "Free, official, and closely matched to the real question style. Use this rather than paying for third-party question sets." },
+  { title: "Defender for Cloud documentation", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/defender-for-cloud/", type: "read", minutes: 90, note: "The domain this track does not cover hands-on. Secure score, workload protections and multicloud connectors are the areas to prioritise." },
+  { title: "Microsoft Virtual Training Days", by: "Microsoft", url: "https://www.microsoft.com/en-gb/trainingdays", type: "do", cost: "Free", note: "Free instructor-led sessions that have historically included exam voucher offers. Check current sessions for security topics before you book." },
+  { title: "Microsoft Sentinel and Defender Ninja training", by: "Microsoft Tech Community", url: "https://techcommunity.microsoft.com/blog/microsoftsentinelblog/become-a-microsoft-sentinel-ninja-the-complete-level-400-training/1246310", type: "watch", cost: "Free", note: "Use the knowledge checks at the end of each level as additional practice questions." }
+]} />
+
+<Gate
+  step="track/03-microsoft-kql/05-sc200-exam"
+  conditions={[
+    "I revised against the current skills-measured document, not an older summary",
+    "I checked for a voucher before paying full price",
+    "I completed the Defender for Cloud learning path",
+    "I scored comfortably above the threshold on the official practice assessment more than once",
+    "I sat the exam",
+    "The result is logged in my evidence log and added to my CV and LinkedIn"
+  ]}
+  unlocks="Phase 3 complete. You now have the platform skills UK employers actually ask for, plus the credential that proves them. Phase 4 applies all of it to real triage."
+/>

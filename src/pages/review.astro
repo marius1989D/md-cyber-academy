@@ -1,0 +1,131 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Review" description="Spaced repetition over every question you have answered.">
+  <header class="border-b pb-5">
+    <p class="eyebrow">// Spaced repetition</p>
+    <h1 class="mt-2 text-[clamp(1.9rem,1.4rem+2.2vw,2.8rem)]">Review</h1>
+    <p class="mt-3 max-w-[54ch] text-[0.98rem]" style="color: var(--text-2)">
+      Questions come back on a widening schedule — a day, then three, then a week, three weeks,
+      two months. Get one wrong and it returns to the front of the queue tomorrow.
+    </p>
+  </header>
+
+  <!-- Empty state: an invitation to act, not an apology. -->
+  <div class="panel mt-8 p-8 text-center" data-empty hidden>
+    <p class="font-display text-[1.3rem] font-bold" data-empty-title></p>
+    <p class="mx-auto mt-2 max-w-[42ch] text-[0.93rem]" style="color: var(--text-3)" data-empty-body></p>
+    <a href="/courses/" class="btn btn-accent mt-5">Browse courses</a>
+  </div>
+
+  <div data-deck hidden>
+    <div class="mt-6 flex items-center gap-4">
+      <div class="h-1.5 flex-1 overflow-hidden rounded-full" style="background: var(--rule)">
+        <div class="h-full rounded-full transition-[width]" style="background: var(--accent); width:0%" data-deck-bar></div>
+      </div>
+      <p class="shrink-0 font-mono text-[0.7rem]" style="color: var(--text-3)" data-deck-count></p>
+    </div>
+
+    <article class="panel mt-5 p-5 sm:p-6">
+      <p class="eyebrow" data-card-origin></p>
+      <p class="mt-2.5 text-[1.1rem] font-medium leading-snug" data-card-q></p>
+      <div class="mt-5 space-y-2" data-card-opts></div>
+      <div class="mt-4 hidden rounded-lg border-l-[3px] p-3 text-[0.92rem] leading-relaxed" data-card-why></div>
+      <button class="btn btn-accent mt-5 w-full" data-card-next hidden>Next card</button>
+    </article>
+  </div>
+</Base>
+
+<script>
+  import { load, dueForReview, recordAnswer } from '../lib/store';
+
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const state = load();
+  const queue = dueForReview(state).filter((qid) => state.answers[qid]?.card);
+  const total = queue.length;
+
+  const deck = document.querySelector<HTMLElement>('[data-deck]')!;
+  const empty = document.querySelector<HTMLElement>('[data-empty]')!;
+
+  if (total === 0) {
+    const answered = Object.keys(state.answers).length;
+    empty.hidden = false;
+    empty.querySelector('[data-empty-title]')!.textContent = answered
+      ? 'Nothing due right now'
+      : 'Your deck is empty';
+    empty.querySelector('[data-empty-body]')!.textContent = answered
+      ? 'Everything you have answered is still resting. Work through a new module and it will join the rotation.'
+      : 'Answer a module quiz and those questions start coming back here on a spaced schedule.';
+  } else {
+    deck.hidden = false;
+    render(0);
+  }
+
+  function render(i: number) {
+    const qid = queue[i];
+    const card = state.answers[qid].card!;
+
+    document.querySelector('[data-deck-count]')!.textContent = `${i + 1} / ${total}`;
+    document.querySelector<HTMLElement>('[data-deck-bar]')!.style.width = `${(i / total) * 100}%`;
+    document.querySelector('[data-card-origin]')!.textContent = card.title;
+    document.querySelector('[data-card-q]')!.textContent = card.q;
+
+    const why = document.querySelector<HTMLElement>('[data-card-why]')!;
+    why.classList.add('hidden');
+
+    const next = document.querySelector<HTMLButtonElement>('[data-card-next]')!;
+    next.hidden = true;
+
+    const box = document.querySelector<HTMLElement>('[data-card-opts]')!;
+    box.replaceChildren();
+
+    card.opts.forEach((text, oi) => {
+      const btn = document.createElement('button');
+      btn.className =
+        'flex w-full items-start gap-3 rounded-lg border p-3 text-left text-[0.95rem] transition';
+      btn.style.cssText = 'background: var(--surface); border-color: var(--rule); min-height:44px';
+      btn.innerHTML = `<span class="mt-px grid h-6 w-6 shrink-0 place-items-center rounded border font-mono text-[0.7rem] font-bold" style="border-color: var(--rule-strong); color: var(--text-3)">${LETTERS[oi]}</span><span></span>`;
+      btn.lastElementChild!.textContent = text;
+
+      btn.addEventListener('click', () => {
+        const correct = oi === card.a;
+        recordAnswer(qid, LETTERS[oi], correct, card);
+
+        [...box.children].forEach((el, j) => {
+          const b = el as HTMLButtonElement;
+          b.disabled = true;
+          if (j === card.a) {
+            b.style.background = 'var(--ok-soft)';
+            b.style.borderColor = 'var(--ok)';
+          } else if (j === oi) {
+            b.style.background = 'var(--bad-soft)';
+            b.style.borderColor = 'var(--bad)';
+          } else {
+            b.style.opacity = '0.5';
+          }
+        });
+
+        why.textContent = card.why;
+        why.style.borderColor = correct ? 'var(--ok)' : 'var(--bad)';
+        why.style.background = 'var(--surface-3)';
+        why.style.color = 'var(--text-2)';
+        why.classList.remove('hidden');
+
+        next.hidden = false;
+        next.textContent = i + 1 < total ? 'Next card' : 'Finish';
+      });
+
+      box.append(btn);
+    });
+
+    next.onclick = () => {
+      if (i + 1 < total) return render(i + 1);
+      deck.hidden = true;
+      empty.hidden = false;
+      empty.querySelector('[data-empty-title]')!.textContent = 'Deck cleared';
+      empty.querySelector('[data-empty-body]')!.textContent =
+        `${total} card${total === 1 ? '' : 's'} reviewed. The ones you got right have moved further down the schedule.`;
+    };
+  }
+</script>

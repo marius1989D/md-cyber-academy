@@ -1,0 +1,145 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+import { COURSES, type CourseId } from '../content.config';
+
+const all = await getCollection('modules', ({ data }) => data.published);
+const index = (Object.keys(COURSES) as CourseId[])
+  .map((id) => ({
+    id,
+    name: COURSES[id].name,
+    modules: all.filter((m) => m.data.course === id).map((m) => m.id),
+  }))
+  .filter((c) => c.modules.length > 0);
+---
+<Base title="Progress">
+  <header class="border-b pb-5">
+    <p class="eyebrow">// Where you stand</p>
+    <h1 class="mt-2 text-[clamp(1.9rem,1.4rem+2.2vw,2.8rem)]">Progress</h1>
+  </header>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    {[
+      ['Questions answered', 'answered'],
+      ['Accuracy', 'accuracy'],
+      ['Due for review', 'due'],
+    ].map(([label, key]) => (
+      <div class="panel p-4">
+        <p class="eyebrow">{label}</p>
+        <p class="mt-1 font-display text-[2rem] font-extrabold leading-none" data-stat={key}>—</p>
+      </div>
+    ))}
+  </div>
+
+  <section class="mt-10">
+    <h2 class="eyebrow border-b pb-2">// By course</h2>
+    <div class="mt-4 space-y-4" data-course-index={JSON.stringify(index)}>
+      {index.map((c) => (
+        <div data-course-row={c.id}>
+          <div class="flex items-baseline justify-between gap-3">
+            <p class="text-[0.92rem] font-semibold">{c.name}</p>
+            <p class="shrink-0 font-mono text-[0.68rem]" style="color: var(--text-3)" data-course-stat>—</p>
+          </div>
+          <div class="mt-1.5 h-2 overflow-hidden rounded-full" style="background: var(--rule)">
+            <div class="h-full rounded-full transition-[width] duration-700" style="background: var(--accent); width:0%" data-course-bar></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="mt-12">
+    <h2 class="eyebrow border-b pb-2">// Sync &amp; backup</h2>
+    <p class="mt-3 max-w-[58ch] text-[0.92rem]" style="color: var(--text-2)">
+      Set the same sync key on every device to keep progress together. Choose something long and
+      private — it is the only thing standing between your progress and anyone who guesses it.
+    </p>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <input
+        type="password"
+        placeholder="Sync key"
+        autocomplete="off"
+        class="min-w-0 flex-1 rounded-lg border px-3 py-2 font-mono text-[0.85rem]"
+        style="background: var(--surface-2); border-color: var(--rule); color: var(--text)"
+        data-sync-input
+      />
+      <button class="btn btn-accent" data-sync-save>Save key</button>
+      <button class="btn" data-sync-now>Sync now</button>
+    </div>
+    <p class="mt-2 font-mono text-[0.68rem]" style="color: var(--text-3)" data-sync-status></p>
+
+    <div class="mt-5 flex flex-wrap gap-2">
+      <button class="btn" data-export>Export backup</button>
+      <label class="btn cursor-pointer">
+        Import backup
+        <input type="file" accept="application/json" class="hidden" data-import />
+      </label>
+    </div>
+  </section>
+</Base>
+
+<script>
+  import { load, dueForReview, getSyncKey, setSyncKey, syncNow, exportJSON, importJSON } from '../lib/store';
+
+  const state = load();
+  const answers = Object.values(state.answers);
+  const correct = answers.filter((a) => a.correct).length;
+
+  const set = (k: string, v: string) => {
+    const el = document.querySelector(`[data-stat="${k}"]`);
+    if (el) el.textContent = v;
+  };
+  set('answered', String(answers.length));
+  set('accuracy', answers.length ? `${Math.round((correct / answers.length) * 100)}%` : '—');
+  set('due', String(dueForReview(state).length));
+
+  const holder = document.querySelector<HTMLElement>('[data-course-index]');
+  if (holder) {
+    const index: { id: string; modules: string[] }[] = JSON.parse(holder.dataset.courseIndex!);
+    for (const course of index) {
+      const row = document.querySelector<HTMLElement>(`[data-course-row="${course.id}"]`);
+      if (!row) continue;
+      const done = course.modules.filter((m) => state.visited[m]).length;
+      const pct = Math.round((done / course.modules.length) * 100);
+      row.querySelector<HTMLElement>('[data-course-bar]')!.style.width = `${pct}%`;
+      row.querySelector<HTMLElement>('[data-course-stat]')!.textContent =
+        `${done}/${course.modules.length} opened`;
+    }
+  }
+
+  const status = document.querySelector<HTMLElement>('[data-sync-status]')!;
+  const input = document.querySelector<HTMLInputElement>('[data-sync-input]')!;
+  if (getSyncKey()) {
+    input.value = getSyncKey()!;
+    status.textContent = 'Key set on this device.';
+  }
+
+  document.querySelector('[data-sync-save]')!.addEventListener('click', () => {
+    if (!input.value.trim()) { status.textContent = 'Enter a key first.'; return; }
+    setSyncKey(input.value);
+    status.textContent = 'Key saved. Use the same one on your other devices.';
+  });
+
+  document.querySelector('[data-sync-now]')!.addEventListener('click', async () => {
+    status.textContent = 'Syncing…';
+    const ok = await syncNow();
+    status.textContent = ok ? 'Synced. Reload to see merged progress.' : 'Sync failed — check the key and your connection.';
+  });
+
+  document.querySelector('[data-export]')!.addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([exportJSON()], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `md-cyber-progress-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.querySelector<HTMLInputElement>('[data-import]')!.addEventListener('change', async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    status.textContent = importJSON(await file.text())
+      ? 'Backup merged. Reload to see it.'
+      : 'That file could not be read.';
+  });
+</script>

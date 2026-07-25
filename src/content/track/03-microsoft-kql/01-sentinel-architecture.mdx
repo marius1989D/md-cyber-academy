@@ -1,0 +1,363 @@
+---
+title: "Sentinel Architecture"
+phase: 3
+order: 1
+summary: "Workspaces, connectors, table plans, analytics rules and entity mapping - the mental model that has to come before the syntax."
+weeks: "Weeks 10-11"
+minutes: 240
+kind: learn
+pillar: siem
+cost: 0
+prereq: ["02-defensive-core/05-pyramid-of-pain"]
+academy: ["detection/07-sentinel"]
+objectives: ["SC-200 1.1", "SC-200 3.1"]
+tags: ["sentinel", "log-analytics", "architecture", "sc-200"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="How does Microsoft Sentinel relate to Log Analytics, and how does an alert become an incident?">
+You already know what a SIEM does in the abstract from Phase 2. This step makes it
+concrete in the platform that dominates UK job specs. Learning the architecture
+before the query syntax matters because almost every KQL problem a beginner hits
+is actually an architecture problem - querying a table that was never connected,
+searching a retention tier that no longer holds the data, or wondering why forty
+alerts did not group into one incident. Understanding the plumbing prevents you
+blaming the language.
+</Why>
+
+## Sentinel sits on Log Analytics
+
+This is the first thing to get straight, and it is a common interview opener.
+
+**Log Analytics** is the underlying data platform: a workspace that ingests,
+stores and queries log data with KQL. It is not security-specific - it serves
+Azure Monitor and application telemetry too.
+
+**Microsoft Sentinel** is the SIEM and SOAR layer enabled *on top of* a Log
+Analytics workspace. It adds data connectors, analytics rules, incidents, entity
+behaviour, threat intelligence, workbooks and automation.
+
+<Callout type="key">
+The one-line version: *"Log Analytics is the data platform and query engine.
+Sentinel is the security layer enabled on a workspace - it adds detection,
+incident management, threat intel and automation. The KQL is the same either way,
+which is why KQL skills transfer straight into Azure Monitor and Defender."*
+</Callout>
+
+## Workspace design
+
+One workspace or many is a real architectural decision:
+
+- **Single workspace** - simplest, cheapest, queries span everything with no
+  cross-workspace syntax. Default choice.
+- **Multiple workspaces** - needed for data residency (UK data must stay in UK
+  South), tenant separation in an MSSP, or hard RBAC boundaries between business
+  units.
+
+Cross-workspace queries are possible with `workspace("name").TableName`, but they
+add complexity and can add cost. For an MSSP, Sentinel supports **Azure Lighthouse**
+delegated access so analysts work across many customer tenants from one place -
+worth naming, because it is exactly how the MSSPs you are targeting operate.
+
+## Getting data in
+
+**Data connectors** are the packaged integrations - Entra ID, Defender XDR, Office
+365, AWS, firewalls, syslog. Many are one-click; others need an agent or a
+collector.
+
+**Data Collection Rules (DCRs)** define *what* the Azure Monitor Agent collects
+and where it goes. This is where selectivity happens, and it is the lever for
+both signal quality and cost. You built one in the Phase 5 lab step.
+
+**Table plans** are the cost control most people never learn, and they map neatly
+onto the retention tiering from Phase 2:
+
+| Plan | Query capability | Typical use |
+|---|---|---|
+| **Analytics** | Full KQL, powers analytics rules | Security-critical tables you detect on |
+| **Basic / Auxiliary** | Limited operators, cheaper ingest, no analytics rules | High-volume, low-detection-value logs kept for investigation |
+| **Archive** | Requires a search job or restore | Long-tail retention for compliance and retrospective hunting |
+
+<Callout type="warn">
+A table on a Basic or Auxiliary plan **cannot back a scheduled analytics rule**.
+Putting a noisy but occasionally-valuable firewall table on Basic to save money
+silently removes your ability to detect on it. That trade-off is a genuine
+architectural decision and a good thing to raise unprompted - it shows you think
+about cost and detection together rather than treating them as separate problems.
+</Callout>
+
+## Analytics rules
+
+Five types, and knowing which is which is exam and interview material:
+
+- **Scheduled** - your own KQL, running on a defined cadence over a lookback
+  window. The workhorse; this is what you will write.
+- **Near-real-time (NRT)** - runs approximately every minute against incoming data.
+  Limited in what it can express, but low latency for high-severity cases.
+- **Microsoft Security** - creates Sentinel incidents from alerts raised by
+  Microsoft products such as Defender. Pass-through rather than detection.
+- **Fusion** - Microsoft's multi-stage attack correlation, combining low-fidelity
+  signals across sources into a high-fidelity incident.
+- **Anomaly** - built-in behavioural models you enable and tune with thresholds.
+
+A scheduled rule carries: the query, the schedule and lookback, an alert
+threshold, **entity mapping**, **event grouping**, **incident grouping**, and
+optional automation.
+
+## Alerts, entities and incidents
+
+This is the part that generates the most confusion, so be precise:
+
+```text
+  Query matches  →  ALERT  →  grouped by rules  →  INCIDENT  →  investigation
+                      |                                |
+                 entity mapping                   automation rules
+                 (account, host, IP,               (assign, tag, run
+                  file, URL, mailbox)               playbook, close)
+```
+
+**Entity mapping** tells Sentinel which columns in your query results represent
+real-world objects - an account, a host, an IP, a file hash, a URL. Without it:
+
+- The investigation graph is empty, so you cannot pivot visually
+- UEBA cannot attribute behaviour to an identity
+- **Incident grouping by entity does not work**, so related alerts stay separate
+
+**Event grouping** controls whether one rule run produces a single alert for all
+matched rows, or one alert per row. **Incident grouping** controls whether alerts
+from the same rule combine into one incident, and over what time window.
+
+## Automation
+
+**Automation rules** are the lightweight layer: on incident creation, assign an
+owner, add a tag, change severity, or close automatically. Simple conditional
+logic, no code.
+
+**Playbooks** are Azure Logic Apps triggered by an incident or alert. They can
+enrich (look up threat intel, query an asset database), notify (Teams, email), or
+act (disable an account, isolate a device). Enrichment playbooks are the high-value
+starting point, and they connect directly to the SOAR module in your Detection
+Engineering course.
+
+## The rest, briefly
+
+- **Watchlists** - reference tables you join against: VIP users, approved admin
+  hosts, asset criticality. Excellent for enrichment and exclusions.
+- **Workbooks** - dashboards built on KQL.
+- **UEBA** - behavioural baselining per entity, surfaced as anomaly scores.
+- **Threat intelligence** - indicator feeds via TAXII or the upload API, matched
+  against your data.
+- **RBAC** - Sentinel Reader, Responder and Contributor roles, layered over Azure
+  resource permissions.
+
+<Scenario
+  step="track/03-microsoft-kql/01-sentinel-architecture"
+  id="incident-grouping"
+  title="Forty alerts that should have been one incident"
+  minutes={9}
+>
+<div slot="brief">
+
+A customer complains that a single attack generated 40 separate incidents,
+swamping their queue overnight. You are asked to work out why.
+
+```text
+RULE: "Suspicious sign-in from anonymising infrastructure"
+Type: Scheduled · runs every 5 min · lookback 5 min
+
+QUERY (abridged)
+  SigninLogs
+  | where TimeGenerated > ago(5m)
+  | where ResultType == 0
+  | where RiskLevelDuringSignIn == "high"
+  | project TimeGenerated, UserPrincipalName, IPAddress,
+            AppDisplayName, DeviceDetail
+
+CONFIGURATION
+  Entity mapping:      (none configured)
+  Event grouping:      "Trigger an alert for each event"
+  Incident grouping:   "Group alerts into a single incident if all
+                        entities match"  ·  window 5 hours
+  Alert threshold:     greater than 0
+
+WHAT HAPPENED
+  02:10 - 04:55  One attacker IP, one compromised account,
+                 40 successful high-risk sign-ins to various
+                 apps as they enumerated the tenant.
+  Result: 40 alerts -> 40 incidents.
+```
+
+Explain why, and specify exactly what you would change.
+
+</div>
+<div slot="model">
+
+**Root cause: incident grouping is set to group by matching entities, but no
+entity mapping is configured. With no entities to match on, no two alerts can
+ever be considered related, so every alert becomes its own incident.**
+
+This is the single most common Sentinel misconfiguration, and it is invisible
+until an incident actually occurs - the rule looks correct, fires correctly, and
+produces unusable output.
+
+**The two settings interacting:**
+
+1. **Event grouping is "trigger an alert for each event."** Forty matching rows
+   produced forty alerts. That is not wrong in itself - per-event alerts preserve
+   detail and are often what you want - but it means the grouping configuration is
+   now doing all the work.
+2. **Incident grouping is "if all entities match", and there are no entities.**
+   The grouping logic has nothing to compare, so the comparison never succeeds.
+   Forty alerts, forty incidents.
+
+**What I would change, in order:**
+
+**a. Configure entity mapping.** This is the actual fix and it is mandatory
+regardless of anything else:
+
+```text
+Account   →  UserPrincipalName
+IP        →  IPAddress
+```
+
+Grouping now has something to match on, so the forty alerts from one account and
+one IP collapse into one incident. This also restores the investigation graph and
+lets UEBA attribute the behaviour - both of which are currently broken and nobody
+had noticed.
+
+**b. Reconsider the grouping strategy.** "All entities match" is strict: if the
+attacker rotated IPs mid-session, the account would match but the IP would not,
+and you would split into multiple incidents again. I would set grouping to match
+on **the Account entity only**, with the IP retained as a mapped entity for
+investigation. An incident is best organised around *who was affected*, and one
+compromised identity should be one incident even if the attacker moved between
+addresses.
+
+**c. Keep the 5-hour grouping window**, or extend it. Five hours comfortably
+covered this 02:10-04:55 activity. If anything I would raise it toward the length
+of a shift so that continuing activity attaches to the open incident rather than
+opening a fresh one after the window lapses.
+
+**d. Consider whether per-event alerting is right here.** Grouped alerting - one
+alert summarising all matched events per run - would reduce the volume further.
+The trade-off is that grouped alerts carry less per-event detail in the alert
+itself, though the underlying events remain queryable. For a high-severity
+identity rule I would keep per-event and rely on correct grouping, because the
+detail matters during investigation.
+
+**What I would not do:** raise the alert threshold or lengthen the schedule to
+suppress volume. The rule detected a genuine attack correctly and promptly - the
+detection is working. The failure is entirely in how its output was assembled, and
+tuning the detection to fix a presentation problem would reduce real coverage.
+
+**The general lesson:** entity mapping is not an optional nicety. It underpins
+incident grouping, the investigation graph, UEBA attribution and most automation
+conditions. A rule without entity mapping is a rule whose output cannot be
+correlated with anything, and reviewing existing rules for missing entity mapping
+is a genuinely valuable thing to volunteer doing in a new job.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/03-microsoft-kql/01-sentinel-architecture"
+  id="sentinel-vs-la"
+  question="How does Microsoft Sentinel relate to Log Analytics, and how does an alert become an incident?"
+  seconds={90}
+  hits={[
+    "Log Analytics is the underlying data platform and KQL query engine, not security-specific",
+    "Sentinel is the SIEM/SOAR layer enabled on a workspace, adding connectors, analytics rules, incidents, TI and automation",
+    "An analytics rule query matches, producing one or more alerts depending on event grouping",
+    "Entity mapping identifies accounts, hosts, IPs and files in the results",
+    "Incident grouping combines related alerts into an incident, using entities and a time window",
+    "Automation rules and playbooks then act on the incident",
+    "Without entity mapping, grouping, the investigation graph and UEBA attribution all break"
+  ]}
+  trap="Describing Sentinel and Log Analytics as two separate products. Sentinel runs on a Log Analytics workspace - saying so demonstrates you understand the platform rather than just the portal blade."
+/>
+
+<Quiz mid="track/03-microsoft-kql/01-sentinel-architecture" title="Sentinel Architecture" questions={[
+  {
+    q: "What is the relationship between Microsoft Sentinel and Log Analytics?",
+    opts: ["They are competing products", "Sentinel is a security layer enabled on top of a Log Analytics workspace, which provides the data platform and query engine", "Log Analytics is a feature of Sentinel", "They share only the KQL language"],
+    a: 1,
+    why: "Log Analytics ingests, stores and queries data for many purposes including application monitoring. Sentinel adds the SIEM and SOAR capability on a workspace. Understanding this explains why KQL skills transfer directly to Azure Monitor and Defender, and why workspace design decisions constrain what Sentinel can do."
+  },
+  {
+    q: "An analytics rule fires correctly but every alert becomes its own incident. The most likely cause is:",
+    opts: ["The schedule is too frequent", "Entity mapping is not configured, so incident grouping has nothing to match alerts on", "The query returns too many columns", "The workspace is in the wrong region"],
+    a: 1,
+    why: "Incident grouping by entity requires entities to exist. With no mapping configured, no two alerts can ever be judged related, so grouping silently never occurs. This is the most common Sentinel misconfiguration and it is invisible until a real incident produces a flood of separate cases."
+  },
+  {
+    q: "A high-volume firewall table is moved to a Basic table plan to reduce cost. The security consequence is:",
+    opts: ["Queries become slower but nothing else changes", "Scheduled analytics rules can no longer be built on that table, removing detection capability", "The data is deleted after seven days", "Entity mapping stops working across all rules"],
+    a: 1,
+    why: "Basic and Auxiliary plans reduce ingest cost but restrict query capability and cannot back scheduled analytics rules. The data remains available for investigation, but you lose the ability to detect on it proactively. Recognising that cost decisions are detection decisions is exactly the kind of point that marks out a candidate."
+  },
+  {
+    q: "Which analytics rule type correlates low-fidelity signals across multiple sources into a single high-fidelity incident?",
+    opts: ["Scheduled", "Near-real-time", "Fusion", "Microsoft Security"],
+    a: 2,
+    why: "Fusion is Microsoft's multi-stage attack detection, combining signals that individually would not justify an alert. Microsoft Security rules simply create Sentinel incidents from alerts already raised by Microsoft products; scheduled rules run your own KQL; NRT trades expressiveness for low latency."
+  },
+  {
+    q: "What is the primary purpose of a watchlist?",
+    opts: ["To store archived logs cheaply", "To provide a reference table for joins - VIP users, approved admin hosts, asset criticality - used for enrichment and exclusions", "To list blocked IP addresses at the firewall", "To schedule analytics rules"],
+    a: 1,
+    why: "Watchlists give you a maintainable reference dataset to join against inside queries. They are the clean way to implement asset criticality, VIP monitoring, or scoped exclusions - much better than hard-coding lists into rule logic, where they become invisible and never get reviewed."
+  },
+  {
+    q: "In an MSSP monitoring many customer tenants, which capability allows analysts to work across those tenants from one place?",
+    opts: ["Cross-workspace queries only", "Azure Lighthouse delegated resource management", "A shared single workspace for all customers", "Exporting all data to a central storage account"],
+    a: 1,
+    why: "Lighthouse provides delegated access to customer subscriptions without moving their data or merging tenants, preserving isolation and data residency. This is how the MSSPs you are targeting actually operate, so naming it demonstrates you understand the delivery model and not just the product."
+  },
+  {
+    q: "What is the difference between an automation rule and a playbook?",
+    opts: ["They are the same thing with different names", "Automation rules apply lightweight conditional logic such as assigning or closing; playbooks are Logic Apps that can enrich, notify and take action", "Automation rules require code, playbooks do not", "Playbooks only run on a schedule"],
+    a: 1,
+    why: "Automation rules handle simple incident-lifecycle logic natively - assign an owner, tag, change severity, auto-close. Playbooks are Logic Apps with connectors to other systems, capable of threat-intel lookups, notifications and response actions such as disabling an account. Automation rules can also trigger playbooks, so they are complementary rather than alternatives."
+  }
+]} />
+
+<TaskList step="track/03-microsoft-kql/01-sentinel-architecture" tasks={[
+  { text: "Draw the alert-to-incident pipeline from memory, including entity mapping and both grouping settings" },
+  { text: "Create a scheduled analytics rule in your lab with full entity mapping", detail: "Use one of your Phase 1 detections. Configure Account, Host and IP entities properly." },
+  { text: "Deliberately misconfigure grouping and observe the result", detail: "Remove entity mapping, trigger the rule several times, watch the incidents multiply. One demonstration is worth a chapter." },
+  { text: "Inspect your workspace's table plans and ingestion by table", detail: "`Usage | summarize sum(Quantity) by DataType | sort by sum_Quantity desc`. Decide which tables would justify Basic if this were a real budget." },
+  { text: "Create a watchlist and join against it in a query", detail: "A list of your lab's admin hosts is enough. It makes the enrichment pattern concrete." },
+  { text: "Build one automation rule and one simple enrichment playbook" },
+  { text: "Learn the five analytics rule types and when each applies" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Microsoft Sentinel documentation", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/", type: "ref", note: "Start with the architecture and workspace design sections, then analytics rules. Free and mobile-friendly - this is prime dead-time reading.", primary: true },
+  { title: "SC-200 learning path", by: "Microsoft Learn", url: "https://learn.microsoft.com/en-us/training/courses/sc-200t00", type: "read", note: "The Sentinel modules cover exactly this material and map to exam objectives. Work through them alongside this step." },
+  { title: "Sentinel best practices - workspace architecture", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/best-practices-workspace-architecture", type: "read", minutes: 30, note: "Single versus multiple workspaces, residency, and MSSP patterns. Directly relevant to the employers you are targeting." },
+  { title: "Surface entities in Sentinel alerts", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/sentinel/map-data-fields-to-entities", type: "read", minutes: 20, note: "Entity mapping in detail. Read it properly - it is the setting behind the scenario in this step." },
+  { title: "Azure Sentinel GitHub repository", by: "Microsoft", url: "https://github.com/Azure/Azure-Sentinel", type: "read", note: "Detections, hunting queries, workbooks and playbooks, all production-grade. Read rule YAML to see how entity mapping is expressed in practice." },
+  { title: "Microsoft Sentinel Ninja training", by: "Microsoft Tech Community", url: "https://techcommunity.microsoft.com/blog/microsoftsentinelblog/become-a-microsoft-sentinel-ninja-the-complete-level-400-training/1246310", type: "watch", cost: "Free", note: "A structured free curriculum from beginner to advanced. Substantial and genuinely good." }
+]} />
+
+<Gate
+  step="track/03-microsoft-kql/01-sentinel-architecture"
+  conditions={[
+    "I can explain the relationship between Sentinel and Log Analytics in one sentence",
+    "I can draw the alert-to-incident pipeline including entity mapping and grouping",
+    "I know the five analytics rule types and when each is appropriate",
+    "I understand table plans and can explain the detection cost of choosing Basic",
+    "I have built a rule with correct entity mapping and seen grouping work",
+    "I can explain what breaks when entity mapping is missing"
+  ]}
+  unlocks="Next: KQL fundamentals - the syntax, built as challenges rather than reading."
+/>

@@ -1,0 +1,20 @@
+name = "md-cyber-academy"
+main = "src/worker.ts"
+compatibility_date = "2026-07-01"
+
+# Static assets produced by `npm run build`. The Worker in `main` runs only for
+# paths that do not match a built file, which is why /api/progress reaches it
+# while /track/... is served directly from the asset store.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+# Astro emits a real HTML file per route, so this is a multi-page static site,
+# not an SPA. "single-page-application" would rewrite every unmatched path to
+# index.html and mask genuine 404s.
+not_found_handling = "404-page"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "md-cyber-academy"
+# Replace with the id printed by: npx wrangler d1 create md-cyber-academy
+database_id = "REPLACE_WITH_YOUR_D1_ID"

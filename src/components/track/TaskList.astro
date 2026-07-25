@@ -1,0 +1,105 @@
+---
+/**
+ * Tickable work. State persists through the shared store, so a task ticked on
+ * the phone at work is ticked on the Mac that evening.
+ *
+ * `group` namespaces the ids within a step, so a step can carry several lists
+ * (do / read / gate) without collisions.
+ */
+export interface Task {
+  /** Supports `code` and **bold**. */
+  text: string;
+  /** Optional detail line under the task. */
+  detail?: string;
+}
+
+interface Props {
+  step: string;
+  group?: string;
+  title?: string;
+  tasks: Task[];
+}
+
+import { inline } from '../../lib/inline';
+const { step, group = 'do', title = 'Do this', tasks } = Astro.props;
+---
+<section class="my-7" data-tasklist={`${step}::${group}`}>
+  <header class="flex items-center justify-between gap-4 border-b pb-2">
+    <p class="eyebrow" style="color: var(--accent)">⚙ {title}</p>
+    <p class="shrink-0 font-mono text-[0.7rem]" style="color: var(--text-3)">
+      <span data-task-count>0</span> / {tasks.length}
+    </p>
+  </header>
+
+  <ul class="mt-3 space-y-1.5">
+    {tasks.map((task, i) => {
+      const id = `${step}::${group}::${i}`;
+      return (
+        <li>
+          <label
+            class="flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--surface-2)]"
+            data-task-row
+          >
+            <input
+              type="checkbox"
+              class="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+              data-task={id}
+            />
+            <span class="min-w-0 flex-1">
+              <span
+                class="block text-[0.94rem] leading-snug"
+                data-task-text
+                set:html={inline(task.text)}
+              />
+              {task.detail && (
+                <span
+                  class="mt-1 block text-[0.82rem] leading-relaxed"
+                  style="color: var(--text-3)"
+                  set:html={inline(task.detail)}
+                />
+              )}
+            </span>
+          </label>
+        </li>
+      );
+    })}
+  </ul>
+</section>
+
+<script>
+  import { toggleTask, isDone } from '../../lib/track-store';
+
+  for (const list of document.querySelectorAll<HTMLElement>('[data-tasklist]')) {
+    const boxes = list.querySelectorAll<HTMLInputElement>('[data-task]');
+    const count = list.querySelector<HTMLElement>('[data-task-count]');
+
+    const paint = () => {
+      let done = 0;
+      for (const box of boxes) {
+        const row = box.closest('[data-task-row]') as HTMLElement | null;
+        const text = row?.querySelector<HTMLElement>('[data-task-text]');
+        if (box.checked) {
+          done += 1;
+          if (text) {
+            text.style.textDecoration = 'line-through';
+            text.style.opacity = '0.55';
+          }
+        } else if (text) {
+          text.style.textDecoration = '';
+          text.style.opacity = '';
+        }
+      }
+      if (count) count.textContent = String(done);
+      list.dispatchEvent(new CustomEvent('tasks:changed', { bubbles: true }));
+    };
+
+    for (const box of boxes) {
+      box.checked = isDone(box.dataset.task!);
+      box.addEventListener('change', () => {
+        toggleTask(box.dataset.task!, box.checked);
+        paint();
+      });
+    }
+    paint();
+  }
+</script>

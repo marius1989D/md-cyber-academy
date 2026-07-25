@@ -1,0 +1,40 @@
+---
+/**
+ * The depth-ladder gauge — the platform's signature mark.
+ *
+ * Four segments, filled to the rung this module reaches. It appears on every
+ * card, every module header and the dashboard, so at a glance you can see
+ * whether a topic is still just definitions or has been taken through to lab
+ * work. That is the single most useful thing to know about this library.
+ */
+const RUNGS = ['Concept', 'Applied', 'Analysis', 'Lab'] as const;
+
+interface Props {
+  rung: 1 | 2 | 3 | 4;
+  showLabel?: boolean;
+  size?: 'sm' | 'md';
+}
+const { rung, showLabel = true, size = 'md' } = Astro.props;
+const h = size === 'sm' ? 'h-1' : 'h-1.5';
+const w = size === 'sm' ? 'w-3.5' : 'w-5';
+---
+<div class="flex items-center gap-2" title={`Rung ${rung} of 4 — ${RUNGS[rung - 1]}`}>
+  <div class="flex gap-[3px]" aria-hidden="true">
+    {[1, 2, 3, 4].map((step) => (
+      <span
+        class={`${h} ${w} rounded-full transition-colors`}
+        style={
+          step <= rung
+            ? 'background: var(--accent)'
+            : 'background: var(--rule)'
+        }
+      />
+    ))}
+  </div>
+  {showLabel && (
+    <span class="font-mono text-[0.65rem] uppercase tracking-widest" style="color: var(--text-3)">
+      {RUNGS[rung - 1]}
+    </span>
+  )}
+  <span class="sr-only">Depth rung {rung} of 4: {RUNGS[rung - 1]}</span>
+</div>

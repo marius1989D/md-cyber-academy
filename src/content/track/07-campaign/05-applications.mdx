@@ -1,0 +1,338 @@
+---
+title: "The Application Campaign"
+phase: 7
+order: 5
+summary: "Target list, cadence, tailoring, recruiter relationships, and a rejection process that keeps you going long enough to land."
+weeks: "Weeks 32-42"
+minutes: 400
+kind: campaign
+pillar: interview
+cost: 0
+prereq: ["07-campaign/04-narrative"]
+tags: ["job-search", "applications", "recruiters", "negotiation"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why>
+This is the phase where most career changes fail, and almost never because the
+candidate was not good enough. They fail because the campaign was unstructured,
+the volume was too low, the rejections landed harder than expected, and the effort
+tapered off around week six. Treating this as a process with a tracked pipeline
+rather than a series of hopeful individual attempts is what gets you through the
+part that is genuinely demoralising.
+</Why>
+
+## Expectations, stated plainly
+
+Entry-level cyber security in the UK is competitive, and the numbers are worth
+knowing before they happen to you rather than after:
+
+- Most applications receive no response at all. This is normal and is not about you.
+- A response rate in the region of one in ten to one in twenty is a reasonable
+  working assumption for cold portal applications.
+- Referrals and recruiter-led routes convert far better than portal applications.
+- The whole process commonly takes three to six months of sustained effort.
+
+<Callout type="warn">
+**Do not read rejection as a verdict on your capability.** At entry level you are
+frequently competing against people with commercial experience applying down, and
+the decision is often made on a keyword filter before any human saw your work. The
+only rejection that carries real information is one that comes with specific
+feedback after an interview - and that one is genuinely valuable.
+</Callout>
+
+## The target list
+
+Build sixty to eighty named organisations, tiered:
+
+**Tier 1 - MSSPs (aim for 40).** Bridewell, Quorum Cyber, e2e-assure, Adarma,
+Talion, Integrity360, SecurityHQ, Bulletproof, Socura, Phoenix, NCC Group, and the
+rest. These hire Tier 1 in volume and are most open to career changers. Check
+their careers pages directly, not just the boards - direct pages frequently carry
+roles the aggregators do not.
+
+**Tier 2 - Defence and cleared work (aim for 15).** Leidos, CGI, BAE Systems,
+QinetiQ, Babcock, Serco, and the Cheltenham cluster. Slower processes, sponsor SC
+clearance, unusually open to non-IT backgrounds. Start these early because the
+timeline is long.
+
+**Tier 3 - In-house SOCs (aim for 15).** Financial services, retail, healthcare,
+utilities, universities. Fewer junior roles, often better conditions. Milton
+Keynes puts London, Northampton, Oxford, Cambridge and Birmingham within reach.
+
+**Tier 4 - Side doors (aim for 10).** MSP service desk roles at companies that
+also run a SOC, IT support with a security remit, junior vulnerability management,
+SOC apprenticeships. These are your Plan B route from Phase 0, and applying to a
+few in parallel costs nothing.
+
+## Cadence
+
+**Quality-tailored beats high-volume-generic**, but volume still matters. A
+sustainable rhythm around shift work:
+
+- **15-25 applications per week**, each with a tailored CV
+- **2-3 hours weekly on relationship building** - comments, connections, follow-ups
+- **1 hour weekly reviewing the tracker** - what is stalling, what needs chasing
+- **Continue the Phase 8 technical rhythm throughout.** Skills decay, and an
+  interview in month four will test them.
+
+**Tailoring, realistically:** you do not need a bespoke CV per application. Build
+three or four variants - MSSP Tier 1, in-house, cleared/defence, side-door - and
+adjust the summary and keyword emphasis per advert. Twenty minutes each, not two
+hours.
+
+## Cover letters
+
+Many applications do not require one. Where they do, keep it to four short
+paragraphs:
+
+1. **The role and one specific reason for this employer.** Something you actually
+   researched - their sector focus, a blog post, a stack detail.
+2. **What you bring, with evidence.** Certifications and the lab, with numbers.
+3. **The career change, briefly and positively.** Two sentences, the shape-of-work
+   argument compressed.
+4. **Availability and practicalities.** Shift-work willingness, notice period,
+   clearance eligibility, location.
+
+No more than 300 words. The CV does the work; the letter routes it.
+
+## Recruiters
+
+Agency recruiters cover a meaningful share of UK entry-level SOC roles, and a
+handful of specialist cyber agencies are worth building relationships with.
+
+**How to work with them well:**
+
+- **Be specific about what you want and what you will accept.** Vague candidates
+  are hard to place and get deprioritised.
+- **Be honest about your experience level.** They will find out, and a recruiter
+  who feels misled stops sending your CV anywhere.
+- **Give them your numbers up front** - salary range, notice, location radius,
+  shift willingness, clearance status. It makes their job easy.
+- **Respond quickly.** Speed is a real advantage in agency-led processes.
+- **Ask them what is missing.** A recruiter who has seen your CV against fifty
+  roles has genuinely useful information, and most will share it if asked directly.
+
+<Callout type="key">
+**Never let two agencies submit you to the same employer.** It creates a fee
+dispute, and the usual resolution is that the employer drops the candidate
+entirely to avoid it. Track which agency has your CV with whom - your application
+tracker is the record that prevents this.
+</Callout>
+
+## Handling the volume of nothing
+
+The hardest part is the silence. Some structure that helps:
+
+- **Track everything**, so progress is visible even when outcomes are not. Twenty
+  applications sent is a completed week's work regardless of responses.
+- **Separate effort metrics from outcome metrics.** You control applications sent,
+  connections made, drills completed. You do not control responses.
+- **Keep building.** A week where you wrote a detection and published a write-up
+  is a week you improved, whatever the inbox says.
+- **Review monthly, not daily.** If after four to six weeks of real volume you have
+  had no responses at all, something is wrong with the CV or the targeting - that
+  is a signal to diagnose, and it is different from ordinary silence.
+- **Talk to someone.** A months-long job search while working shifts is genuinely
+  wearing, and doing it entirely alone makes it worse.
+
+<Scenario
+  step="track/07-campaign/05-applications"
+  id="triage-adverts"
+  title="Five adverts, one evening"
+  minutes={9}
+>
+<div slot="brief">
+
+You have one evening. Five roles are open. Decide where the time goes.
+
+```text
+A  SOC Analyst L1 · MSSP · Reading · 4-on-4-off incl. nights
+   £32-36k · "Sentinel and Defender essential. Security+, CEH or
+   equivalent. Will consider strong candidates without commercial
+   SOC experience." Posted 2 days ago. Direct careers page.
+
+B  Cyber Security Analyst · In-house retail · London · Mon-Fri
+   £45-52k · "3+ years SOC experience required. CISSP or CISM
+   desirable." Posted 3 weeks ago. Via aggregator.
+
+C  Junior Penetration Tester · Consultancy · Remote
+   £30-38k · "CREST CPSA or OSCP required. Will consider CEH with
+   demonstrable practical experience." Posted 5 days ago.
+
+D  SOC Analyst · Defence contractor · Bristol · shift work
+   £34-40k · "SC clearance required or eligibility to obtain.
+   Full training provided. Non-traditional backgrounds welcomed."
+   Posted 1 day ago. Direct careers page.
+
+E  IT Service Desk Analyst · MSP that also runs a SOC · Milton Keynes
+   £26-29k · "Progression into the security team available for the
+   right candidate." Posted 1 week ago.
+```
+
+Rank them, allocate your evening, and justify it.
+
+</div>
+<div slot="model">
+
+**Allocation: D first (60 min), A second (45 min), E third (25 min), C a quick
+speculative (15 min), B not at all.**
+
+**D - apply first, and properly.** It is the strongest match on the page. "SC
+clearance eligibility" and "non-traditional backgrounds welcomed" together
+describe you almost exactly, and defence contractors are unusually open to
+career changers because they train and vet rather than expecting arrival-ready
+skills. Long stable employment in manufacturing is precisely the profile vetting
+likes. Posted one day ago via a direct careers page, so you are early and not
+competing through an aggregator. **The catch is Bristol**, which is not commutable
+from Milton Keynes - so this application needs an explicit line about relocation
+willingness or you will be filtered on location. Decide that before applying, not
+after they call.
+
+**A - apply second, tailored carefully.** Also a strong match: Sentinel and
+Defender are exactly your stack, "CEH or equivalent" clears the certification bar,
+and the advert explicitly opens the door to candidates without commercial SOC
+experience. Reading is commutable. The shift pattern is the one you have already
+said you would accept. Spend the time mirroring their terminology precisely and
+leading the summary with Sentinel and KQL.
+
+**E - apply third, and do not skip it.** This is your Phase 0 Plan B, live. £26-29k
+is likely a pay cut and the work is not security, but it is local, it is an MSP
+that runs a SOC, and internal progression from service desk into the security team
+is a genuine and well-trodden route. **Applying costs you twenty-five minutes and
+preserves an option**, and having an offer in hand changes your negotiating
+position on everything else. Apply without prejudice - you can decline later.
+
+**C - fifteen minutes, speculative only.** The advert says CREST CPSA or OSCP
+required, with CEH considered given demonstrable practical experience. Your lab is
+defensive, not offensive, so the "demonstrable practical experience" is not really
+what they mean. The realistic probability is low. **But it costs fifteen minutes
+with an existing CV variant, the door is explicitly ajar, and a rejection here
+costs nothing.** Send it and move on - do not spend an hour rewriting your CV
+toward pentest.
+
+**B - do not apply.** Three or more years of SOC experience is a hard requirement,
+not a preference, and CISSP requires five years of experience you do not have. It
+has been open three weeks via an aggregator, so it has accumulated a large
+applicant pool. There is no version of your CV that makes this work, and the
+evening is better spent on the four above.
+
+**The general rule:** apply where you meet the stated bar or where the advert
+explicitly opens a door for candidates like you. Applying to roles requiring years
+of experience you do not have is not ambition, it is spending your limited evenings
+on a filter you cannot pass - and the same time invested in a role you might
+actually get is worth far more.
+
+**One thing to do before finishing:** note in your tracker that D requires a
+relocation decision, and set yourself a deadline to make it. Unresolved questions
+like that stall applications quietly.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/07-campaign/05-applications"
+  id="salary"
+  question="What are your salary expectations?"
+  seconds={60}
+  hits={[
+    "Give a researched range rather than a single number or a deflection",
+    "Anchor to the market for the role and region, not to your current pay",
+    "State the range, then note that the right role and progression matter alongside the number",
+    "Ask what range they have budgeted, if it has not been stated",
+    "Do not disclose your current salary - it is not relevant and anchors you low",
+    "Be prepared to accept a step down for the first role, and say so without undervaluing yourself"
+  ]}
+  trap="Naming your current manufacturing salary, or saying 'I'm flexible'. The first anchors the conversation to an unrelated number, the second reads as having no idea what the role is worth."
+/>
+
+<Quiz mid="track/07-campaign/05-applications" title="The Application Campaign" questions={[
+  {
+    q: "An advert states \"3+ years SOC experience required\". You have none. The best use of your time is:",
+    opts: ["Apply anyway - you might get lucky", "Skip it and spend the time on roles where you meet the bar or the advert explicitly opens a door", "Apply with a longer cover letter explaining your situation", "Apply and follow up by phone"],
+    a: 1,
+    why: "A hard experience requirement is a filter you cannot pass, and evenings are finite. This is different from an advert saying 'will consider candidates without commercial experience', which is an explicit invitation. Spending the same time on a role you might actually get has a far better expected return."
+  },
+  {
+    q: "Why should you never let two agencies submit you to the same employer?",
+    opts: ["It doubles your chances confusingly", "It creates a fee dispute, and employers commonly resolve it by dropping the candidate entirely", "Agencies charge the candidate a penalty", "It breaches employment law"],
+    a: 1,
+    why: "Two agencies claiming the placement fee for the same candidate is a commercial problem the employer did not ask for, and the simplest resolution is to remove the candidate from consideration. Tracking which agency holds your CV with which employer is what prevents an entirely self-inflicted rejection."
+  },
+  {
+    q: "What should you do if four to six weeks of genuine application volume produces no responses at all?",
+    opts: ["Keep going - it is a numbers game", "Treat it as a diagnostic signal that something is wrong with the CV or the targeting", "Lower your salary expectations", "Apply to more senior roles"],
+    a: 1,
+    why: "Ordinary silence is normal, but a total absence of response across meaningful volume suggests a systematic problem - ATS parsing failures, missing keywords, or targeting roles you do not match. That is fixable, and distinguishing it from ordinary silence is why monthly review beats daily anxiety."
+  },
+  {
+    q: "Why disclose your shift-work willingness, notice period and clearance eligibility to a recruiter early?",
+    opts: ["It is legally required", "It makes you easy to place, and vague candidates get deprioritised in favour of ones whose constraints are known", "It increases your salary offer", "It speeds up referencing"],
+    a: 1,
+    why: "A recruiter matching candidates to roles works fastest with complete information. Being specific about what you want and will accept makes you straightforward to submit, while a candidate whose constraints are unclear generates work and gets set aside for one who does not."
+  },
+  {
+    q: "Applying to a service desk role at an MSP that runs a SOC is:",
+    opts: ["A distraction from real security applications", "A worthwhile parallel option that preserves a genuine internal progression route and costs little to pursue", "Only appropriate after six months of failed applications", "Damaging to your positioning as a security candidate"],
+    a: 1,
+    why: "Internal movement from service desk into a security team is a well-trodden route, and applying costs a fraction of an evening. Holding an offer also changes your position in every other conversation. You can always decline - what you cannot do is create the option retrospectively."
+  },
+  {
+    q: "When asked for salary expectations, you should:",
+    opts: ["State your current salary as a baseline", "Give a researched range for the role and region, and ask what they have budgeted", "Say you are flexible", "Refuse to discuss until an offer is made"],
+    a: 1,
+    why: "Your manufacturing salary is unrelated to the market rate for a SOC analyst and anchoring to it works against you in either direction. A researched range shows you understand the market, and asking their budget often surfaces information worth more than anything you would have volunteered."
+  },
+  {
+    q: "Which metric should you hold yourself accountable to during the campaign?",
+    opts: ["Interview invitations received", "Applications sent, connections made and drills completed - the things you control", "Rejections received", "Time spent on job boards"],
+    a: 1,
+    why: "Outcome metrics depend on decisions made by other people, and measuring yourself against them during a months-long search is corrosive. Tracking effort makes progress visible during the long stretch where outcomes are not, which is what keeps a campaign running long enough to succeed."
+  }
+]} />
+
+<TaskList step="track/07-campaign/05-applications" tasks={[
+  { text: "Build the tiered target list of 60-80 named organisations", detail: "40 MSSPs, 15 defence, 15 in-house, 10 side doors. Check careers pages directly, not just aggregators." },
+  { text: "Create three or four tailored CV variants", detail: "MSSP Tier 1, in-house, cleared/defence, side door. Adjust summary and keywords per advert from these." },
+  { text: "Set a weekly cadence and hold it", detail: "15-25 applications, 2-3 hours relationship building, 1 hour tracker review." },
+  { text: "Use the application tracker in this academy from the first application", detail: "Track → Evidence & Applications. Record which agency holds your CV with which employer." },
+  { text: "Register with three specialist UK cyber recruitment agencies", detail: "Give them your numbers up front and ask what is missing from your profile." },
+  { text: "Write a 300-word cover letter template and adapt paragraph one per employer" },
+  { text: "Start the defence and cleared applications early", detail: "Vetting timelines are long. Applying in month one means an offer might land in month four." },
+  { text: "Review monthly against effort metrics, not outcomes" },
+  { text: "Ask for specific feedback after every interview, whatever the result", detail: "Post-interview feedback is the only rejection that carries real information." },
+  { text: "Keep the Phase 8 technical rhythm running throughout the campaign" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Cyber Security Jobsite", url: "https://www.cybersecurityjobsite.com/", type: "do", note: "UK-only, so no US noise. Use it to find roles, then apply through the employer's own careers page where possible - direct applications are less crowded.", primary: true },
+  { title: "UK Cyber Security Council", url: "https://www.ukcybersecuritycouncil.org.uk/", type: "read", minutes: 20, note: "Role definitions and career pathways. Useful for checking whether a job title means what you think it means." },
+  { title: "Glassdoor", url: "https://www.glassdoor.co.uk/", type: "read", minutes: 15, note: "Salary data and interview reviews per employer. Check each target before interviewing - candidates frequently post the actual questions." },
+  { title: "CV Library and Indeed UK", url: "https://www.indeed.co.uk/", type: "do", note: "Broad coverage including roles that never reach specialist boards. Set alerts for SOC Analyst, Security Analyst and Cyber Security Analyst within your radius." },
+  { title: "Security Cleared Jobs", url: "https://www.securityclearedjobs.com/", type: "do", note: "Defence and cleared roles specifically, including positions that sponsor SC. Start here early - the timelines are long." },
+  { title: "Immersive Labs Cyber Million", url: "https://www.immersivelabs.com/", type: "read", note: "An initiative targeting entry-level cyber roles for non-traditional backgrounds. Check current status and whether it is still running." }
+]} />
+
+<Gate
+  step="track/07-campaign/05-applications"
+  conditions={[
+    "I have a tiered target list of 60-80 named organisations",
+    "I have three or four CV variants and tailor from them per advert",
+    "I am holding a weekly cadence of 15-25 applications",
+    "Every application is in the tracker, including which agency holds my CV where",
+    "I have registered with three specialist UK cyber agencies and asked what is missing",
+    "Defence and cleared applications went in early",
+    "I review monthly against effort metrics rather than daily against outcomes",
+    "I ask for specific feedback after every interview"
+  ]}
+  unlocks="Phase 7 complete. Final step: the weekly rhythm that keeps you sharp while you apply, and keeps you employable once you land."
+/>

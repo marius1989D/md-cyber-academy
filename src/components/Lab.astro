@@ -1,0 +1,28 @@
+---
+/**
+ * Rung 4. Links a module to concrete work in the MD AI Cyber Range and states
+ * what evidence counts as done — so a lab is a deliverable, not a suggestion.
+ */
+interface Props {
+  title: string;
+  /** Which box in the range this runs on. */
+  host?: string;
+  minutes?: number;
+}
+const { title, host, minutes } = Astro.props;
+---
+<section class="my-8 overflow-hidden rounded-xl border-2" style="border-color: var(--accent)">
+  <header
+    class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5"
+    style="background: var(--accent); color:#fff"
+  >
+    <span class="font-mono text-[0.65rem] uppercase tracking-[0.18em] opacity-80">Rung 4 · Lab</span>
+    <h3 class="text-[1.02rem] font-bold">{title}</h3>
+    <span class="ml-auto font-mono text-[0.68rem] opacity-90">
+      {host && <span>{host}</span>}{host && minutes ? ' · ' : ''}{minutes && <span>~{minutes} min</span>}
+    </span>
+  </header>
+  <div class="prose-md max-w-none p-4 sm:p-5" style="background: var(--surface-2)">
+    <slot />
+  </div>
+</section>

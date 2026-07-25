@@ -1,0 +1,123 @@
+---
+title: "AI Supply Chain Security"
+course: ai-security
+order: 4
+summary: "The rarest differentiator in the field: what a model file actually is, why loading one runs code, and how to defend the pipeline."
+rung: 4
+minutes: 26
+atlas: ["AML.T0010", "AML.T0058", "AML.T0011"]
+objectives: ["CY0-001 3.1", "CY0-001 3.3"]
+tags: ["supply-chain", "pickle", "model-hub", "sbom", "provenance"]
+updated: 2026-07-24
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Most people in security can talk about prompt injection. Very few can talk credibly about the AI supply chain, which is exactly why it is worth owning. It is where traditional software supply chain security meets a category of risk that has no equivalent outside ML: **a model file that executes code the moment you load it.** If you understand nothing else from this module, understand that — it is the single fact that reframes a downloaded model from "data" to "untrusted executable."
+
+## What a model file actually is
+
+A trained model is weights plus the code needed to reconstruct the object that holds them. How those two are packaged determines whether loading the file is safe. The dominant historical format in the Python ecosystem is **pickle**, and pickle is not a data format — it is a serialised *program*.
+
+Python's `pickle` module serialises objects by recording instructions for rebuilding them. Among those instructions is `__reduce__`, which can specify an arbitrary callable to invoke during unpickling. That means a pickle file can carry a payload that runs when the file is deserialised — before you have done anything with the "model" at all.
+
+```python
+# The entire vulnerability, in miniature.
+import pickle, os
+
+class Payload:
+    def __reduce__(self):
+        # Whatever this returns is CALLED at unpickle time.
+        return (os.system, ("id > /tmp/pwned",))
+
+# An attacker ships this as "model.pkl". You load it:
+# pickle.load(open("model.pkl","rb"))  ← command runs here, no model needed
+```
+
+<Callout type="warn">
+`torch.load()` on a `.pt`/`.pth` file uses pickle by default. `joblib.load`, and many scikit-learn `.pkl` artifacts, use pickle. A `.bin` "PyTorch model" from a random repo is a pickle. Loading any of these from an untrusted source is running a stranger's code as your user. This is AML.T0058 — the model file *is* the malware.
+</Callout>
+
+## The attack surface, laid out
+
+The AI pipeline has more untrusted-input points than a traditional software build, because it pulls artifacts and data from many places:
+
+- **The model hub.** A public hub is an app store with far weaker gatekeeping. Typosquatted repos, a legitimate account compromised, or a popular model reuploaded with a poisoned pickle — all observed in the wild.
+- **The dataset.** Training and fine-tuning data pulled from public sources is a poisoning vector (Module 3) and a licence/PII liability.
+- **The dependencies.** The ML stack is a deep tree — `transformers`, `torch`, CUDA libraries, hundreds of transitive packages. Ordinary software supply chain risk, at ML scale.
+- **The pre-trained base.** Backdoors survive fine-tuning, so an inherited base model is inherited risk (Module 3's warning).
+
+## The format shift that fixes the worst of it
+
+The ecosystem's answer to the pickle problem is **safetensors** — a format that stores *only* tensors and metadata, with no mechanism to execute code on load. It is the reason "just use safetensors" has become standard advice.
+
+| | pickle (`.pkl`, `.pt`, `.bin`) | safetensors (`.safetensors`) |
+|---|---|---|
+| Can execute code on load | **Yes** | No |
+| Stores arbitrary Python objects | Yes | Tensors + metadata only |
+| Safe from untrusted sources | No | Yes (by design) |
+| Load speed | Slower | Faster (zero-copy, mmap) |
+
+Preferring safetensors removes the *arbitrary-code-execution* risk. It does **not** remove poisoning or backdoor risk — the weights themselves can still be malicious. Safetensors makes loading safe; it does not make the model trustworthy. Those are two different problems and conflating them is a common mistake.
+
+## Defending the pipeline
+
+Treat this as software supply chain security with ML-specific additions:
+
+- **Provenance.** Pull models and datasets only from sources you can attribute, prefer signed artifacts, and pin versions/hashes rather than floating tags. Verify the hash you got matches the hash you expected.
+- **Prefer safetensors**, and when you must handle a pickle from outside, scan it (tools like `picklescan` / `fickling` inspect for dangerous opcodes) and deserialise it in a sandbox with no network and no credentials — never on your workstation or a build agent with secrets.
+- **An ML-BOM.** Extend the SBOM idea to models and datasets: record every model, base, and dataset with its source and hash, so when a hub repo is found poisoned you can answer "did we ever pull that?" in seconds.
+- **Least privilege at load.** The process that loads a model should hold nothing worth stealing — no cloud keys, no write access beyond its scratch space.
+
+<Callout type="detect">
+The load step is your detection chokepoint. Loading a model should not spawn a shell, open a socket, or touch the filesystem outside its working directory. In a hardened pipeline, run model loads under a syscall monitor (even a simple `strace`/eBPF rule) and alert on `execve`, outbound connections, or writes outside scratch during deserialisation. A model that phones home while loading has already told you everything you need to know.
+</Callout>
+
+<Quiz mid="ai-security/04-ai-supply-chain" title="AI Supply Chain Security" questions={[
+  {
+    q: "Why is loading an untrusted pickle-based model file a remote-code-execution risk?",
+    opts: ["Pickle files contain compiled binaries that auto-run", "Pickle can specify an arbitrary callable via __reduce__ that executes during deserialisation", "Loading decrypts the file with a shared key", "The OS treats .pkl files as executables"],
+    a: 1,
+    why: "Pickle serialises rebuild instructions, and __reduce__ can name any callable to invoke at unpickle time. The payload runs when the file is deserialised — before you use the 'model' at all — which is why an untrusted pickle is untrusted code."
+  },
+  {
+    q: "What specific risk does switching from pickle to safetensors eliminate?",
+    opts: ["Model poisoning and backdoors", "Arbitrary code execution when loading the file", "Membership inference attacks", "Licence and PII liability in datasets"],
+    a: 1,
+    why: "Safetensors stores only tensors and metadata with no code-execution mechanism, so it removes the arbitrary-code-execution risk on load. It does not touch poisoning or backdoors — the weights themselves can still be malicious. Safe to load is not the same as safe to trust."
+  },
+  {
+    q: "A backdoored base model is downloaded and fine-tuned on your own clean data. What is the likely outcome?",
+    opts: ["Fine-tuning always removes backdoors", "The backdoor can survive fine-tuning and persist into your model", "The backdoor only affects the original author", "Clean data guarantees a clean result"],
+    a: 1,
+    why: "Well-constructed backdoors survive fine-tuning and transfer learning. Inheriting a base model means inheriting its hidden triggers, which is why base-model provenance is a security control rather than a convenience."
+  },
+  {
+    q: "When you must load a pickle from an untrusted source, the safest handling is to:",
+    opts: ["Load it quickly before it can do harm", "Scan it for dangerous opcodes and deserialise it in a sandbox with no network or credentials", "Rename it to .safetensors first", "Load it as root so it completes cleanly"],
+    a: 1,
+    why: "Static scanning (picklescan/fickling) catches known-dangerous opcodes, and sandboxed deserialisation with no network and no secrets contains anything the scan missed. Renaming does not change the format, and loading with more privilege makes a compromise worse."
+  },
+  {
+    q: "What is the primary purpose of an ML-BOM (bill of materials for models and datasets)?",
+    opts: ["To speed up model loading", "To record every model, base and dataset with source and hash so you can answer 'did we ever use that?' when one is found poisoned", "To compress model files", "To satisfy the EU AI Act's accuracy requirement"],
+    a: 1,
+    why: "An ML-BOM extends SBOM thinking to ML artifacts, giving you an inventory keyed by source and hash. When a hub repo or dataset is disclosed as poisoned, that inventory turns an open-ended investigation into an instant lookup."
+  }
+]} />
+
+<Lab title="Weaponise and then defang a pickle" host="2018 MBP attack box — isolated VM, no network" minutes={55}>
+
+Do this in a throwaway VM with networking off. You are proving the mechanism to yourself; treat the payload as live.
+
+1. Write a class whose `__reduce__` returns a harmless-but-visible action — `(os.system, ("touch /tmp/PWNED",))`. Pickle an instance to `model.pkl`.
+2. In a fresh Python process, `pickle.load` it. Confirm `/tmp/PWNED` appears — code ran with no model involved.
+3. Install `picklescan` and run it against your file. Confirm it flags the dangerous opcode *without* executing it.
+4. Re-save a genuine small model (train a trivial sklearn classifier) as **safetensors** (or `skops`), and confirm loading it performs no such action.
+5. Bonus: run the malicious load under `strace -f -e trace=execve,network` and capture the `execve` line — the detection signal from the callout.
+
+**Evidence of completion:** a journal entry with (a) the proof that `pickle.load` executed your payload, (b) picklescan's flagged output, and (c) the `strace` line showing the `execve` at load time. You now have a demonstrable, defensible account of the single most differentiating risk in AI security — worth its own slide in any interview.
+
+</Lab>

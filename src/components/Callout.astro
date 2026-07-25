@@ -1,0 +1,25 @@
+---
+interface Props {
+  type?: 'key' | 'warn' | 'detect';
+  title?: string;
+}
+const { type = 'key', title } = Astro.props;
+
+const STYLES = {
+  key:    { accent: 'var(--gold, #b8860b)', icon: '◆', label: 'Key point' },
+  warn:   { accent: 'var(--bad)',           icon: '▲', label: 'Watch out' },
+  detect: { accent: 'var(--ok)',            icon: '◉', label: 'Detection' },
+} as const;
+const s = STYLES[type];
+---
+<aside
+  class="my-6 rounded-r-lg border-l-[3px] py-3 pl-4 pr-4"
+  style={`border-color:${s.accent}; background: var(--surface-3)`}
+>
+  <p class="eyebrow flex items-center gap-2" style={`color:${s.accent}`}>
+    <span aria-hidden="true">{s.icon}</span>{title ?? s.label}
+  </p>
+  <div class="mt-1.5 text-[0.94rem] leading-relaxed" style="color: var(--text-2)">
+    <slot />
+  </div>
+</aside>

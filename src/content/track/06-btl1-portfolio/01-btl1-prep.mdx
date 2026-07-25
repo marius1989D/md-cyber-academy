@@ -1,0 +1,418 @@
+---
+title: "BTL1 Preparation"
+phase: 6
+order: 1
+summary: "Map what Phases 1-5 already covered against the BTL1 domains, then spend your time only on the three areas this track has not taught you."
+weeks: "Weeks 24-30"
+minutes: 480
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["05-lab/05-soar-automation"]
+academy: ["forensics/04-windows-artefacts"]
+attack: ["T1003.001", "T1566.001"]
+tags: ["btl1", "forensics", "threat-intelligence", "splunk", "exam-prep"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import QueryChallenge from '../../../components/track/QueryChallenge.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="What's the difference between an IOC and a TTP, and how would you assess the reliability of an intel report?">
+BTL1 is the credential that flips you from paper to practitioner, because it is a
+24-hour practical investigation rather than a multiple-choice test. The good news
+is that you have already done most of the work - Phases 1 to 5 cover the majority
+of its domains at or above the required depth. The efficient move now is not to
+start a new course from scratch, but to audit honestly, find the three areas this
+track genuinely has not taught you, and spend your remaining weeks only there.
+</Why>
+
+## Verify the syllabus first
+
+<Callout type="warn">
+**Check the current BTL1 syllabus on Security Blue Team's site before planning
+your revision.** Course content, domain names and exam format are revised
+periodically, and anything you read elsewhere - including this page - may describe
+an earlier version. Download or read the current course outline and note the
+domains it actually lists. The audit below is a method, not a substitute for the
+official list.
+</Callout>
+
+## The audit
+
+Broadly, BTL1 spans security fundamentals, phishing analysis, threat
+intelligence, digital forensics, SIEM, and incident response. Map each against
+what you have already done:
+
+| Domain | Track coverage | Verdict |
+|---|---|---|
+| **Security fundamentals** | Phases 1-2 throughout | Covered, and deeper than required |
+| **Phishing analysis** | Phase 4 step 1 - headers, DMARC alignment, URL and attachment triage | Covered thoroughly |
+| **Incident response** | Phase 2 step 1, Phase 4 step 6 - lifecycle, escalation, report writing | Covered thoroughly |
+| **SIEM** | Phase 3 entirely | **Covered, but in the wrong language** |
+| **Threat intelligence** | Touched in Phase 2 step 5 only | **Gap** |
+| **Digital forensics** | Barely touched | **Gap - the biggest one** |
+
+Three areas need real work. Everything else is revision, not learning.
+
+## Gap 1 - Digital forensics
+
+This is the largest gap and the one to start on. The track taught you to read
+logs; forensics teaches you to read the artefacts a system leaves behind whether
+or not anyone was logging.
+
+**Windows artefacts that matter:**
+
+- **Prefetch** (`C:\Windows\Prefetch`) - evidence a program executed, with run
+  count and last-run timestamps. Proves execution even where process logging was
+  absent.
+- **Shimcache / AppCompatCache** and **Amcache** - execution and presence
+  artefacts in the registry. Nuanced: Shimcache proves a file *existed* at a path,
+  not necessarily that it ran.
+- **ShellBags** - folders a user browsed, including ones since deleted.
+- **Jump Lists and LNK files** - recently accessed files, with original paths.
+- **UserAssist** - GUI program execution counts per user.
+- **`$MFT` and USN Journal** - file creation, modification and deletion history.
+- **SRUM** - resource usage, including bytes sent per application. Useful for
+  exfiltration questions.
+- **Browser artefacts** - history, downloads, cache, session restore.
+- **Event logs** - which you already know well.
+
+**Memory forensics:** process list, network connections, injected code, command
+history, and credential material. Volatility is the standard tool.
+
+**The tooling to know:** Eric Zimmerman's suite for artefact parsing, KAPE for
+triage collection, Autopsy for disk analysis, Volatility for memory. All free.
+
+<Callout type="key">
+The forensic mindset differs from the SOC mindset in one specific way: **you assume
+the logs are incomplete or tampered with, and corroborate from artefacts the
+attacker did not think to clean.** An attacker who clears the Security log rarely
+clears Prefetch, Shimcache, ShellBags and the USN Journal as well. That
+corroboration habit is what BTL1 is testing.
+</Callout>
+
+## Gap 2 - Threat intelligence
+
+Lightly touched in Phase 2. What you need:
+
+**The intelligence lifecycle:** direction, collection, processing, analysis,
+dissemination, feedback. A cycle, not a pipeline.
+
+**The three levels:**
+- **Strategic** - long-term, for executives. Which actors target our sector.
+- **Operational** - campaigns and actor TTPs. Feeds hunting priorities.
+- **Tactical** - IOCs and technical detail. Feeds detections directly.
+
+**Source reliability.** The Admiralty (NATO) system scores source reliability A-F
+and information credibility 1-6, so a report might be graded B2. The point is that
+**reliability of the source and credibility of the claim are assessed
+separately** - a normally-reliable source can still report something implausible.
+
+**IOC management:** formats (STIX/TAXII, MISP, OpenIOC), decay - indicators go
+stale and must expire - and the retrospective hunting value you learned in Phase 2.
+
+**Attribution:** why it is difficult, why false flags exist, and why a SOC analyst
+should rarely attribute in a report. "Consistent with TTPs publicly associated
+with X" is defensible; "this was X" usually is not.
+
+## Gap 3 - Splunk, because BTL1 is not KQL
+
+You have spent Phase 3 becoming fluent in KQL. BTL1's SIEM domain uses **Splunk**.
+The concepts transfer completely; only the syntax changes. Two weeks of deliberate
+translation practice closes this.
+
+| Concept | KQL | SPL |
+|---|---|---|
+| Source selection | `SecurityEvent` | `index=windows sourcetype=...` |
+| Filter | `\| where EventID == 4625` | `EventCode=4625` |
+| Select fields | `\| project A, B` | `\| table A, B` |
+| Compute a field | `\| extend X = ...` | `\| eval X=...` |
+| Aggregate | `\| summarize count() by A` | `\| stats count by A` |
+| Distinct count | `dcount(A)` | `dc(A)` |
+| Sort | `\| sort by X desc` | `\| sort -X` |
+| Limit | `\| take 20` | `\| head 20` |
+| Time bucket | `bin(TimeGenerated, 1h)` | `bin _time span=1h` |
+| Join | `\| join kind=inner ...` | `\| join type=inner ...` |
+| Rename | `\| project-rename B = A` | `\| rename A as B` |
+
+<QueryChallenge
+  step="track/06-btl1-portfolio/01-btl1-prep"
+  id="kql-to-spl"
+  title="Translate your password spray detection to SPL"
+  lang="spl"
+  tables={["index=windows", "sourcetype=WinEventLog:Security", "EventCode", "Account_Name", "src_ip", "_time"]}
+>
+<div slot="brief">
+
+You wrote this in Phase 3:
+
+```kql
+SecurityEvent
+| where TimeGenerated > ago(24h)
+| where EventID == 4625
+| summarize DistinctAccounts = dcount(Account),
+            TotalAttempts = count(),
+            Accounts = make_set(Account, 100)
+    by IpAddress
+| where DistinctAccounts > 10
+| extend AttemptsPerAccount = round(TotalAttempts * 1.0 / DistinctAccounts, 2)
+| where AttemptsPerAccount < 5
+| sort by DistinctAccounts desc
+```
+
+Write the SPL equivalent. Search the last 24 hours.
+
+</div>
+<div slot="solution">
+
+```spl
+index=windows sourcetype=WinEventLog:Security EventCode=4625 earliest=-24h
+| stats dc(Account_Name) as DistinctAccounts,
+        count as TotalAttempts,
+        values(Account_Name) as Accounts
+        by src_ip
+| where DistinctAccounts > 10
+| eval AttemptsPerAccount = round(TotalAttempts / DistinctAccounts, 2)
+| where AttemptsPerAccount < 5
+| sort - DistinctAccounts
+```
+
+**The mappings to internalise:**
+
+- **Time filtering moves into the base search** as `earliest=-24h`, rather than
+  being a pipeline stage. This is the biggest structural difference and it matters
+  for performance in exactly the same way KQL's early time filter does - the more
+  you constrain the base search, the less Splunk has to retrieve.
+- **`stats` replaces `summarize`**, and the `as` aliasing is required rather than
+  optional.
+- **`values()` replaces `make_set()`.** Note `values()` returns unique values
+  sorted; `list()` preserves order and duplicates but caps at 100.
+- **`dc()` is `dcount()`.**
+- **`eval` replaces `extend`**, and SPL does not need the `* 1.0` trick because
+  `eval` division is already floating point.
+- **`sort - Field`** for descending, with the minus before the field name.
+- **`| where` exists in SPL too** and is used after `stats`, but filtering before
+  `stats` should go in the base search or a `search` command instead.
+
+**Common wrong shapes:** leaving the time filter as a pipeline stage, which works
+but scans far more data; using `| search EventCode=4625` after the base search
+instead of putting it in the base search; and assuming field names match - Splunk's
+Windows field names differ from Sentinel's (`Account_Name` and `src_ip` rather
+than `Account` and `IpAddress`), which depends on the sourcetype and any Common
+Information Model normalisation in place.
+
+**The transferable point:** every KQL query you have written is a translation
+exercise away from SPL. Doing ten of them is enough to make the SIEM domain feel
+familiar rather than foreign.
+
+</div>
+</QueryChallenge>
+
+<Scenario
+  step="track/06-btl1-portfolio/01-btl1-prep"
+  id="forensic-corroborate"
+  title="The Security log was cleared"
+  minutes={9}
+>
+<div slot="brief">
+
+You are handed a triage collection from a host suspected of compromise. Event
+1102 is present - the Security log was cleared at 22:41 - and there is almost
+nothing before it.
+
+```text
+ARTEFACTS AVAILABLE (KAPE triage collection)
+
+Prefetch
+  RUNDLL32.EXE-1A2B3C4D.pf   Run count: 3   Last run: 22:12
+  CERTUTIL.EXE-5E6F7A8B.pf   Run count: 1   Last run: 22:09
+  CMD.EXE-9C0D1E2F.pf        Run count: 7   Last run: 22:38
+  WTS.EXE-3A4B5C6D.pf        Run count: 2   Last run: 22:14
+
+Amcache
+  C:\Windows\Temp\wts.exe    SHA1: 8f2a...   First seen: 22:10
+
+USN Journal (excerpt)
+  22:09:41  wts.exe          FileCreate     C:\Windows\Temp\
+  22:14:02  wsc.dll          FileCreate     C:\Users\Public\
+  22:39:55  cleanup.bat      FileCreate     C:\Windows\Temp\
+  22:40:12  cleanup.bat      FileDelete     C:\Windows\Temp\
+
+Registry - SYSTEM hive
+  Services\WinTelemetrySvc   ImagePath: C:\Windows\Temp\wts.exe
+                             Created: 22:15 (key LastWrite)
+
+SRUM
+  wts.exe   BytesSent: 3,847,201,664   Interface: Ethernet
+            Window: 22:20 - 22:38
+
+Browser history (Edge, user j.mcallister)
+  22:04  hxxps://docsign-review[.]com/invoice/44821
+  22:03  Outlook Web Access
+```
+
+The Security log is gone. Reconstruct what happened and say what each artefact
+proves.
+
+</div>
+<div slot="model">
+
+**The Security log being cleared removed the obvious evidence and almost none of
+the actual evidence.** This is the central forensic lesson: an attacker who clears
+one log rarely clears the half-dozen artefacts Windows writes without asking.
+
+**The reconstructed timeline:**
+
+```text
+22:03  User opens Outlook Web Access                    [browser history]
+22:04  User visits docsign-review.com/invoice/44821     [browser history]
+       -> initial access, phishing link. Same domain as
+          the Phase 4 campaign.
+22:09  certutil.exe executes (run count 1)              [Prefetch]
+22:09  wts.exe created in C:\Windows\Temp               [USN Journal]
+       -> download cradle. certutil fetched the payload. [T1105]
+22:10  wts.exe first seen                               [Amcache]
+22:12  rundll32.exe executes                            [Prefetch]
+22:14  wsc.dll created in C:\Users\Public               [USN Journal]
+22:14  wts.exe executes                                 [Prefetch]
+       -> loader drops a DLL to a world-writable path
+22:15  Service WinTelemetrySvc created,
+       ImagePath C:\Windows\Temp\wts.exe                [registry]
+       -> persistence [T1543.003]
+22:20  3.8 GB sent by wts.exe                           [SRUM]
+ -22:38 -> exfiltration [T1041]
+22:38  cmd.exe last run (run count 7)                   [Prefetch]
+22:39  cleanup.bat created                              [USN Journal]
+22:40  cleanup.bat deleted                              [USN Journal]
+22:41  Security log cleared                             [event 1102]
+       -> anti-forensics [T1070.001]
+```
+
+**What each artefact proves, precisely - and the precision matters:**
+
+- **Prefetch proves execution.** Run counts and last-run timestamps establish that
+  certutil, rundll32, wts.exe and cmd.exe actually ran, which the cleared Security
+  log would otherwise have been your only source for. Note cmd.exe's run count of
+  7 suggests interactive use, not a single scripted call.
+- **Amcache proves presence and gives you the hash.** That SHA1 is your pivot for
+  hunting the same binary across the estate, and for reputation lookup.
+- **The USN Journal proves file creation and deletion**, including
+  `cleanup.bat` - which was created and deleted within seventeen seconds. **The
+  deletion of the cleanup script is itself strong evidence of deliberate
+  anti-forensics**, and the journal records it even though the file is gone.
+- **The registry service key proves persistence**, with a LastWrite timestamp
+  placing it precisely in the sequence.
+- **SRUM proves data volume left the host.** 3.8 GB attributed to a named process
+  over a known window. This is the finding that determines whether this is a
+  notifiable breach, and it survives entirely independently of any network
+  logging.
+- **Browser history proves initial access** and ties this host to the phishing
+  campaign.
+
+**The one thing to be careful about:** Prefetch tells you a program ran and when
+it last ran - it does not tell you what arguments it used. You can infer that
+certutil was used as a downloader from the file creation forty seconds later, but
+inferring is not observing, and a report must say which is which. That distinction
+is exactly the observation-versus-inference discipline from Phase 4 step 6, and
+BTL1 grades the report.
+
+**What I would do next:** hash `wts.exe` and `wsc.dll` and hunt both estate-wide;
+pivot on `docsign-review.com` in mail and proxy logs to find other recipients;
+check whether the service persistence exists on any other host; and determine what
+was in the 3.8 GB by looking at what this user and host had access to.
+
+**The transferable habit:** when a log is missing, do not stop - ask which
+artefacts record the same activity by a different mechanism. Execution, file
+creation, persistence and data volume are each recorded in several places, and an
+attacker almost never cleans them all.
+
+</div>
+</Scenario>
+
+<Quiz mid="track/06-btl1-portfolio/01-btl1-prep" title="BTL1 Preparation" questions={[
+  {
+    q: "The Security event log has been cleared. Which artefact most directly proves that a specific executable ran?",
+    opts: ["ShellBags", "Prefetch", "The registry Run key", "Browser history"],
+    a: 1,
+    why: "Prefetch files are created when a program executes and record run count and last-run timestamps. They survive Security log clearing because they are a performance feature rather than a security log, which is precisely why attackers routinely forget them. ShellBags record folder browsing, not execution."
+  },
+  {
+    q: "In the Admiralty grading system, what does a rating of B2 convey?",
+    opts: ["The report is two years old", "Source reliability is graded separately from information credibility - a usually-reliable source reporting probably-true information", "Two independent sources confirmed it", "The intelligence is tactical rather than strategic"],
+    a: 1,
+    why: "The letter grades source reliability A to F and the number grades information credibility 1 to 6. Assessing them separately matters because a normally-reliable source can still pass on something implausible, and a poor source can occasionally be right. Conflating the two is a common analytical error."
+  },
+  {
+    q: "Why should a SOC analyst generally avoid attributing an intrusion to a named actor in a report?",
+    opts: ["Attribution is legally prohibited", "Attribution is genuinely difficult, false flags exist, and overclaiming damages the report's credibility - 'consistent with TTPs publicly associated with X' is defensible", "Only law enforcement may attribute", "Actor names change too frequently"],
+    a: 1,
+    why: "Tooling is shared, leaked and deliberately mimicked, so TTP overlap is suggestive rather than conclusive. Stating similarity to publicly reported behaviour is defensible; asserting identity usually is not, and a confident wrong attribution undermines everything else in the report."
+  },
+  {
+    q: "What does Shimcache (AppCompatCache) reliably prove?",
+    opts: ["That a file was executed", "That a file existed at a given path, which is not the same as proving execution", "How many times a file ran", "Which user launched the file"],
+    a: 1,
+    why: "Shimcache records file paths and metadata for application compatibility purposes, and entries can be created without the file being executed. Treating it as execution evidence is a classic forensic error. Prefetch, Amcache and UserAssist give stronger execution evidence, and corroborating across several is the correct approach."
+  },
+  {
+    q: "In SPL, which command is the equivalent of KQL's `summarize count() by Field`?",
+    opts: ["| eval count by Field", "| stats count by Field", "| table count, Field", "| where count > 0 by Field"],
+    a: 1,
+    why: "stats is SPL's aggregation command. eval computes a new field per event, equivalent to KQL's extend, and table selects fields for display, equivalent to project. Mapping the four core verbs - stats, eval, table, where - covers most of the translation between the two languages."
+  },
+  {
+    q: "Why is SRUM useful when investigating suspected data exfiltration?",
+    opts: ["It records the contents of transferred files", "It records bytes sent per application, attributing network volume to a specific process independently of network logs", "It stores a copy of deleted files", "It logs all DNS queries"],
+    a: 1,
+    why: "The System Resource Usage Monitor tracks per-application resource consumption including network bytes sent. It gives you volume attributed to a named process even when no network telemetry was collected, which can be the deciding evidence for whether a breach is notifiable."
+  },
+  {
+    q: "What is the core mindset difference between SOC triage and digital forensics?",
+    opts: ["Forensics is slower", "Forensics assumes logs may be incomplete or tampered with, and corroborates from artefacts the attacker did not think to clean", "Forensics only examines memory", "SOC triage does not use timestamps"],
+    a: 1,
+    why: "SOC triage generally trusts the telemetry it receives. Forensics starts from the assumption that an attacker with access may have removed evidence, so findings are corroborated across independent artefacts - execution, file creation, persistence and network volume are each recorded in several places, and clearing all of them is rare."
+  }
+]} />
+
+<TaskList step="track/06-btl1-portfolio/01-btl1-prep" tasks={[
+  { text: "Read the current BTL1 syllabus and redo the audit against the actual domain list", detail: "My table is a method. The official list is the syllabus." },
+  { text: "Work through the Windows artefact list and know what each proves - and does not prove" },
+  { text: "Install Eric Zimmerman's tools and parse artefacts from your own lab VM", detail: "PECmd for Prefetch, AppCompatCacheParser, MFTECmd, SBECmd. Free, and the standard toolset." },
+  { text: "Run a KAPE triage collection on your lab VM after firing an atomic", detail: "Then parse it and reconstruct what you did from artefacts alone, without looking at the logs." },
+  { text: "Complete one memory analysis with Volatility", detail: "Dump memory from the lab VM after running an atomic, then find the process, its connections and any injection." },
+  { text: "Learn the intelligence lifecycle and the Admiralty grading system" },
+  { text: "Translate ten of your KQL queries into SPL", detail: "Start with the ones from Phase 3 and Phase 5. Two weeks of this closes the SIEM gap entirely." },
+  { text: "Install Splunk Free and load a sample dataset", detail: "Boss of the SOC datasets are free and substantial. Practise in the actual interface." },
+  { text: "Complete a full CyberDefenders challenge end to end as a dress rehearsal" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Blue Team Level 1 course page", by: "Security Blue Team", url: "https://securityblue.team/why-btl1/", type: "ref", note: "The authoritative syllabus, format and pricing. Check the current domain list before planning revision - and watch for seasonal discounts before buying.", primary: true },
+  { title: "Eric Zimmerman's tools", by: "Eric Zimmerman", url: "https://ericzimmerman.github.io/", type: "do", cost: "Free", note: "The standard Windows artefact parsing suite. PECmd, AppCompatCacheParser, MFTECmd, SBECmd, Timeline Explorer. Free and what practitioners actually use." },
+  { title: "SANS Windows forensic analysis poster", by: "SANS", url: "https://www.sans.org/posters/windows-forensic-analysis/", type: "ref", note: "Free poster mapping every artefact to what it proves. Print it. This is the single most efficient way to learn the forensics domain." },
+  { title: "13Cubed - Windows forensics playlist", by: "Richard Davis", url: "https://www.youtube.com/@13Cubed", type: "watch", note: "Precise, calm coverage of Prefetch, Shimcache, Amcache, SRUM and memory analysis. Directly on the gap this step identifies." },
+  { title: "Splunk Free and Boss of the SOC datasets", by: "Splunk", url: "https://github.com/splunk/botsv3", type: "do", cost: "Free", note: "Splunk Free plus a substantial realistic dataset. The fastest way to make SPL feel familiar rather than foreign." },
+  { title: "Splunk search reference", by: "Splunk", url: "https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/WhatsInThisManual", type: "ref", note: "Every SPL command. Use it alongside your KQL-to-SPL translation practice." },
+  { title: "MISP threat intelligence platform", url: "https://www.misp-project.org/", type: "read", minutes: 30, note: "Open-source intel sharing. Read the data model to understand how IOCs are structured, scored and expired in practice." }
+]} />
+
+<Gate
+  step="track/06-btl1-portfolio/01-btl1-prep"
+  conditions={[
+    "I have audited my readiness against the current official syllabus",
+    "I can name the key Windows artefacts and state precisely what each proves and does not prove",
+    "I have parsed artefacts from my own lab and reconstructed activity without using logs",
+    "I have completed at least one memory analysis",
+    "I know the intelligence lifecycle, the three levels, and Admiralty grading",
+    "I can translate between KQL and SPL fluently and have practised in Splunk itself",
+    "I have completed a full multi-source challenge as a dress rehearsal"
+  ]}
+  unlocks="Next: the 24-hour practical itself - strategy, pacing, and the report that carries the marks."
+/>

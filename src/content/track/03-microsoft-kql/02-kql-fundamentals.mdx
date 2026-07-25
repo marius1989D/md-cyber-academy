@@ -1,0 +1,275 @@
+---
+title: "KQL Fundamentals"
+phase: 3
+order: 2
+summary: "Query fluency built by writing queries, not reading them — the skill that decides whether you're useful in week one or week seven."
+weeks: "Weeks 12–13"
+minutes: 300
+kind: learn
+pillar: siem
+cost: 0
+prereq: ["03-microsoft-kql/01-sentinel-architecture"]
+objectives: ["SC-200 3.1", "SC-200 3.2"]
+attack: ["T1110.003", "T1059.001"]
+tags: ["kql", "sentinel", "sc-200", "hunting"]
+updated: 2026-07-24
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import QueryChallenge from '../../../components/track/QueryChallenge.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Here's a table schema. Write me a query that finds failed logons grouped by source IP.">
+Certificates get you past the CV screen. Query fluency is what a hiring manager
+is actually measuring in the technical round, because it is the difference
+between an analyst who starts contributing on Monday and one who needs six
+weeks of supervision. It cannot be faked and it cannot be learned by reading —
+only by writing queries until the syntax stops being something you think about.
+Every section below is a challenge, not a lesson.
+</Why>
+
+## The shape of the language
+
+KQL reads left to right, piping a table through operators. Once that clicks, the
+whole language is small:
+
+```kql
+SecurityEvent                       // start with a table
+| where TimeGenerated > ago(1h)     // filter early — always
+| where EventID == 4625             // filter more
+| summarize Attempts = count()      // aggregate
+    by Account, IpAddress
+| where Attempts > 10               // filter the aggregate
+| sort by Attempts desc             // order
+| take 20                           // limit
+```
+
+<Callout type="key">
+**Filter early and filter on time first.** `where TimeGenerated > ago(1h)` as the
+first line is not stylistic — it lets the engine skip most of the data before
+doing anything else. On a real workspace the same query with time filtering last
+can be a hundred times slower. Interviewers notice.
+</Callout>
+
+## The operators worth knowing cold
+
+| Operator | Does | Note |
+|---|---|---|
+| `where` | Filter rows | Chain several; the engine optimises |
+| `project` | Choose columns | `project-away` drops, `project-rename` renames |
+| `extend` | Add a computed column | Where you do string parsing and maths |
+| `summarize` | Aggregate | `count()`, `dcount()`, `min()`, `max()`, `make_set()`, `arg_max()` |
+| `by` | Group | Follows `summarize` |
+| `join` | Combine tables | `kind=inner`, `leftouter`, `leftanti` — `leftanti` is the one people forget |
+| `union` | Stack tables | Useful across `DeviceEvents` and `SecurityEvent` |
+| `bin()` | Bucket a value | `bin(TimeGenerated, 1h)` for time series |
+| `ago()` / `now()` | Relative time | `ago(7d)`, `ago(90m)` |
+| `has` / `contains` | String match | `has` is token-based and much faster — prefer it |
+| `let` | Declare a variable | Use for thresholds and reusable sub-queries |
+
+<Callout type="warn">
+`contains` does a substring scan; `has` matches whole tokens and uses the index.
+On a large table the difference is enormous. Reaching for `contains` by habit is
+the most common performance mistake beginners make, and the easiest to fix.
+</Callout>
+
+## Challenge 1 — find the spray
+
+<QueryChallenge
+  step="track/03-microsoft-kql/02-kql-fundamentals"
+  id="spray"
+  title="Password spray detection"
+  lang="kql"
+  tables={["SecurityEvent", "EventID", "Account", "IpAddress", "TimeGenerated", "LogonType"]}
+>
+<div slot="brief">
+
+Write a query that surfaces likely password spraying in the last 24 hours: a
+single source IP producing failed logons (event 4625) against **more than ten
+distinct accounts**, where each account has only a small number of attempts.
+
+Return the source IP, the count of distinct accounts, the total attempts, and
+the list of accounts targeted.
+
+</div>
+<div slot="solution">
+
+```kql
+SecurityEvent
+| where TimeGenerated > ago(24h)
+| where EventID == 4625
+| summarize
+    DistinctAccounts = dcount(Account),
+    TotalAttempts    = count(),
+    Accounts         = make_set(Account, 100),
+    FirstSeen        = min(TimeGenerated),
+    LastSeen         = max(TimeGenerated)
+    by IpAddress
+| where DistinctAccounts > 10
+| extend AttemptsPerAccount = round(TotalAttempts * 1.0 / DistinctAccounts, 2)
+| where AttemptsPerAccount < 5
+| sort by DistinctAccounts desc
+```
+
+**Why the shape is what it is:**
+
+- `dcount(Account)` is the spray signature — breadth, not depth.
+- `AttemptsPerAccount` is what separates spraying from brute force. Without it,
+  one account hammered 500 times would also match `DistinctAccounts > 10` if the
+  attacker mixed both.
+- `make_set(Account, 100)` caps the list so a huge campaign doesn't blow up the row.
+- `FirstSeen`/`LastSeen` give you the window immediately, which is the first
+  thing you need when you start triaging.
+
+**Common wrong shapes:** filtering time last instead of first; using
+`count()` alone without `dcount()`, which finds brute force rather than spraying;
+forgetting that a NAT gateway or VPN concentrator will legitimately produce many
+accounts from one IP, so this needs an exclusion list before it becomes a rule.
+
+</div>
+</QueryChallenge>
+
+## Challenge 2 — the joins people get wrong
+
+`leftanti` answers "what's in A that isn't in B", which is how you find things
+that *should* have happened and didn't — the most under-used detection shape
+there is.
+
+<QueryChallenge
+  step="track/03-microsoft-kql/02-kql-fundamentals"
+  id="leftanti"
+  title="First-time RDP between host pairs"
+  lang="kql"
+  tables={["SecurityEvent", "Computer", "IpAddress", "LogonType", "Account"]}
+>
+<div slot="brief">
+
+Find RDP logons (logon type 10) in the **last 24 hours** where that specific
+source-IP-to-destination-computer pair has **never** been seen in the preceding
+**30 days**. This is one of the highest-value, lowest-cost lateral movement
+detections you can build.
+
+</div>
+<div slot="solution">
+
+```kql
+let lookback = SecurityEvent
+    | where TimeGenerated between (ago(31d) .. ago(1d))
+    | where EventID == 4624 and LogonType == 10
+    | distinct IpAddress, Computer;
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where EventID == 4624 and LogonType == 10
+| join kind=leftanti lookback on IpAddress, Computer
+| project TimeGenerated, Account, IpAddress, Computer
+| sort by TimeGenerated desc
+```
+
+**Why this works:** `leftanti` keeps only the rows on the left with no match on
+the right — so what survives is a host pair that has never spoken RDP before.
+The `let` block builds the baseline as a `distinct` pair list, which stays small
+and fast even over 30 days.
+
+**Note the `between (ago(31d) .. ago(1d))`.** If the baseline included the last
+24 hours, today's activity would match itself and the query would return nothing.
+That off-by-one is the single most common mistake in first-time-seen detections,
+and it fails silently — which is worse than failing loudly.
+
+**In production you'd add:** an exclusion for jump boxes and admin subnets,
+otherwise the IT team's normal work floods it.
+
+</div>
+</QueryChallenge>
+
+## Challenge 3 — time series and beaconing
+
+<QueryChallenge
+  step="track/03-microsoft-kql/02-kql-fundamentals"
+  id="beacon"
+  title="Regular-interval outbound connections"
+  lang="kql"
+  tables={["DeviceNetworkEvents", "DeviceName", "RemoteIP", "RemoteUrl", "InitiatingProcessFileName", "Timestamp"]}
+>
+<div slot="brief">
+
+C2 beacons phone home on a regular interval. Write a query over the last 7 days
+that finds device-to-remote-IP pairs with a **high number of connections** and a
+**low variance in the gap between them** — the statistical fingerprint of
+automated beaconing rather than human browsing.
+
+</div>
+<div slot="solution">
+
+```kql
+DeviceNetworkEvents
+| where Timestamp > ago(7d)
+| where ActionType == "ConnectionSuccess"
+| where not(ipv4_is_private(RemoteIP))
+| sort by DeviceName, RemoteIP, Timestamp asc
+| extend PrevTime = prev(Timestamp)
+| extend PrevKey  = strcat(prev(DeviceName), prev(RemoteIP))
+| where PrevKey == strcat(DeviceName, RemoteIP)
+| extend GapSeconds = datetime_diff('second', Timestamp, PrevTime)
+| summarize
+    Connections = count(),
+    MeanGap     = avg(GapSeconds),
+    StdDevGap   = stdev(GapSeconds),
+    Process     = make_set(InitiatingProcessFileName, 5)
+    by DeviceName, RemoteIP
+| where Connections > 50
+| extend Jitter = round(StdDevGap / MeanGap, 3)
+| where Jitter < 0.15 and MeanGap > 30
+| sort by Jitter asc
+```
+
+**The idea:** `Jitter` is the coefficient of variation — standard deviation over
+mean. Human traffic is bursty and irregular, so jitter is high. A beacon sleeping
+60 seconds ± 3 has jitter near zero. Modern C2 frameworks deliberately add jitter
+to defeat exactly this, so a real rule sets the threshold higher and accepts more
+false positives.
+
+**`prev()` needs the sort.** Window functions in KQL operate on row order, so the
+`sort by DeviceName, RemoteIP, Timestamp asc` is load-bearing, and the `PrevKey`
+check stops you computing a gap across a boundary between two different pairs.
+
+**Reality check:** this will also find software update checks, telemetry and
+monitoring agents, which are the most regular traffic on any network. That's not
+a flaw in the query — tuning it is the actual job, and Phase 5 step 3 is where
+you learn to do it.
+
+</div>
+</QueryChallenge>
+
+<TaskList step="track/03-microsoft-kql/02-kql-fundamentals" tasks={[
+  { text: "Complete all three challenges before reading any solution" },
+  { text: "Work through the Microsoft KQL tutorial in a live workspace", detail: "The Log Analytics demo workspace is free and has real data — link below." },
+  { text: "Write one query a day for two weeks", detail: "Not a big one. One. Consistency beats intensity for syntax fluency, exactly like subnetting." },
+  { text: "Rewrite three community Sentinel rules from memory after reading them" },
+  { text: "Convert one of your queries into a saved analytics rule", detail: "Query → detection is the step that turns study into portfolio evidence." },
+  { text: "Time yourself writing the spray query from a blank editor", detail: "Under four minutes is the target. That's roughly what a live technical interview allows." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Must Learn KQL", by: "Rod Trent", url: "https://github.com/rod-trent/MustLearnKQL", type: "read", note: "A free, complete, well-sequenced KQL course as a series of short chapters. The best free KQL resource that exists, and it reads well on a phone.", primary: true },
+  { title: "Log Analytics demo environment", by: "Microsoft", url: "https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/DemoLogsBlade", type: "do", note: "A live workspace with real data and no subscription needed. This is where you should be doing the daily query." },
+  { title: "KQL quick reference", by: "Microsoft", url: "https://learn.microsoft.com/en-us/azure/data-explorer/kql-quick-reference", type: "ref", note: "One page, every operator. Keep it open while you practise." },
+  { title: "Azure Sentinel community rules repo", by: "Microsoft", url: "https://github.com/Azure/Azure-Sentinel/tree/master/Detections", type: "read", note: "Hundreds of production detections in KQL. Read them like literature — pick a folder and study how experienced engineers structure a rule." },
+  { title: "SC-200 learning path", by: "Microsoft Learn", url: "https://learn.microsoft.com/en-us/training/courses/sc-200t00", type: "read", note: "Free, complete, mobile-friendly. The KQL modules here map directly to this step and to the exam in Phase 3 step 5." },
+  { title: "KQL Café community", url: "https://kqlcafe.github.io/website/", type: "watch", note: "Community sessions on real hunting queries. Good background listening." }
+]} />
+
+<Gate
+  step="track/03-microsoft-kql/02-kql-fundamentals"
+  conditions={[
+    "I can write a `summarize ... by` aggregation from a blank editor without looking anything up",
+    "I can explain when to use `leftanti` and give a detection example",
+    "I know why `has` beats `contains` and why time filters go first",
+    "I wrote the spray query in under four minutes from scratch",
+    "I have written at least fourteen queries against live data",
+    "I have converted one query into a saved analytics rule"
+  ]}
+  unlocks="Next: hunting queries — time series, anomalies and the joins that find what the rules missed."
+/>

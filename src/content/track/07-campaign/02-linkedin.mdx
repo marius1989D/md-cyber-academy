@@ -1,0 +1,298 @@
+---
+title: "LinkedIn & Visibility"
+phase: 7
+order: 2
+summary: "Be findable by recruiter search, credible when found, and known to a handful of people in UK cyber before you ever apply."
+weeks: "Week 29"
+minutes: 200
+kind: campaign
+pillar: interview
+cost: 0
+prereq: ["07-campaign/01-cv"]
+tags: ["linkedin", "networking", "personal-brand", "job-search"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why>
+A meaningful share of UK entry-level SOC hiring happens through recruiters running
+keyword searches and through people who already recognise your name. Applying cold
+through a portal puts you in a stack of two hundred; being found, or being
+remembered, puts you in a conversation. This step is not about becoming a content
+creator - it is about being findable by the right search and credible when someone
+lands on your profile.
+</Why>
+
+## How recruiters actually find you
+
+LinkedIn Recruiter search matches keywords against your **headline, job titles,
+skills and About section** most heavily. That has three practical consequences:
+
+1. **Your headline must contain the words a recruiter types.** "SOC Analyst",
+   "Security Analyst", "Microsoft Sentinel", "KQL", "Threat Detection".
+2. **Your current job title is a manufacturing one**, which no security search
+   will match. You cannot lie about it - but you can add a second, honest position
+   for your own project work, which is legitimate and searchable.
+3. **The Skills section is a literal keyword list.** Fill it with the technologies
+   from the adverts you are targeting.
+
+<Callout type="warn">
+**Do not invent a job.** Adding "Security Analyst at [made-up company]" is
+fabrication and will end a process when checked. What is legitimate: adding your
+own project or brand as a self-employed or project entry, described accurately as
+independent lab and research work. The distinction is whether the work described
+actually happened - it did.
+</Callout>
+
+## The headline
+
+The most valuable 220 characters on your profile. It appears in every search
+result, every comment, every connection request.
+
+**Weak:** *"Injection Moulding Technician at [Company]"* - accurate, invisible to
+every security search.
+
+**Weak:** *"Aspiring Cyber Security Professional | Passionate about Blue Team |
+Seeking Opportunities"* - no searchable technology, and "aspiring" and "seeking"
+both signal the thing you least want emphasised.
+
+**Strong:** *"SOC Analyst (CEH, BTL1) | Microsoft Sentinel, KQL, Defender XDR |
+Detection Engineering | Career changer from manufacturing"*
+
+Certifications, three searchable technologies, a discipline, and the career change
+stated plainly rather than apologetically. Owning it is stronger than hiding it,
+and it filters out employers who would have rejected you at that hurdle anyway.
+
+## The About section
+
+Five short paragraphs, first person, no third-person biography voice.
+
+1. **What you do now**, in one line - the same factual framing as your CV summary.
+2. **The evidence** - the lab, the detections, the numbers, the certifications.
+3. **The background**, honestly translated - process monitoring, alarm triage,
+   documented escalation under a 24/7 rota.
+4. **What you are looking for** - Tier 1 SOC, MSSP or in-house, shift work
+   acceptable, SC clearance eligible, location and commute radius.
+5. **Contact** - portfolio link, GitHub, email.
+
+The first two lines are what shows before "see more" is clicked, so put the
+strongest content there.
+
+## Featured section
+
+Underused and highly effective. Pin three things:
+
+- Your best write-up - blog post 2 or 3
+- Your GitHub portfolio repo
+- Your BTL1 credential
+
+These render as cards with images and are the first thing a visitor's eye goes to
+after the headline.
+
+## Posting - the honest version
+
+You do not need to post daily. You need to be visible enough that your name is
+familiar to a few people who work in UK SOCs.
+
+**A sustainable rhythm:**
+
+- **Publish each blog post as a LinkedIn article** (native, not just a link -
+  LinkedIn suppresses reach on posts containing external links). Four posts across
+  the campaign is enough.
+- **Comment substantively two or three times a week** on posts by UK practitioners.
+  Not "Great post!" - a specific observation, a question, or an addition. This is
+  where recognition actually accumulates, and it costs five minutes.
+- **Post occasionally about what you are building.** A detection you tuned, a gap
+  you found, a technique you tested. Two or three sentences and a screenshot.
+
+<Callout type="key">
+**Commenting well is more effective than posting for someone with no audience.**
+A thoughtful comment on a post with two thousand views reaches more relevant people
+than a post to your forty connections. It also puts you in front of the author -
+frequently someone senior in the field - repeatedly, which is how people come to
+recognise your name.
+</Callout>
+
+## Connections
+
+Aim for a few hundred relevant connections, not thousands of anyone.
+
+**Who to connect with:** UK SOC analysts and managers, MSSP recruiters, people who
+post useful blue-team content, others on the same career-change path, and speakers
+from meetups you attend.
+
+**How:** always with a note. Two sentences, specific, no ask.
+
+> *"Hi [name] - I read your post on tuning Sentinel analytics rules and it
+> matched what I found building detections in my own lab, particularly the point
+> about scoped exclusions. Changing career into security from manufacturing and
+> finding your posts useful."*
+
+That gets accepted. "I'd like to add you to my professional network" mostly does
+not.
+
+## Beyond LinkedIn
+
+- **BSides events** across the UK - Cheltenham, London, Leeds, Manchester and
+  others. Cheap, welcoming, and genuinely useful for meeting people who hire.
+- **Local meetups and DC groups.** Milton Keynes puts you in reach of London,
+  Oxford, Cambridge, Northampton and Birmingham.
+- **CyberSecurity communities on Discord and Slack** - the Blue Team Village and
+  various UK-focused servers.
+
+Attending three events over the campaign and following up with the people you meet
+is worth more than three hundred additional connections.
+
+<Scenario
+  step="track/07-campaign/02-linkedin"
+  id="headline-choice"
+  title="Choose the headline"
+  minutes={6}
+>
+<div slot="brief">
+
+Four candidate headlines. Rank them for a recruiter searching LinkedIn for entry-level
+SOC candidates in the UK, and explain the reasoning.
+
+```text
+A  "Injection Moulding Technician at [Company] | CEH Certified"
+
+B  "Aspiring Cyber Security Analyst | Passionate about protecting
+    organisations | Open to opportunities | #cybersecurity #infosec"
+
+C  "SOC Analyst (CEH, BTL1) | Microsoft Sentinel, KQL, Defender XDR |
+    Detection Engineering | Career changer from manufacturing"
+
+D  "Cyber Security Professional | 10+ years experience | Expert in
+    threat detection and incident response"
+```
+
+</div>
+<div slot="model">
+
+**Ranking: C, A, B, D.**
+
+**C is clearly strongest.** It contains four searchable technology keywords
+(Sentinel, KQL, Defender XDR, detection engineering) plus two certifications, and
+a recruiter's search for "Sentinel KQL SOC" matches it directly. Crucially it
+states the career change plainly rather than hiding it - which both pre-empts the
+obvious question and filters out employers who would reject on that basis anyway.
+The claim "SOC Analyst" without a company reads as a professional identity rather
+than a job title, which is accepted convention and not a fabrication.
+
+**A is second, which may be surprising.** It is honest and contains one useful
+keyword (CEH). It will rarely surface in a security search because the dominant
+terms are manufacturing ones - but if someone does land on it, nothing there
+damages credibility. Weak reach, no downside.
+
+**B is third and worse than it looks.** "Aspiring" and "Open to opportunities"
+both emphasise the absence of a role, which is the thing you least want leading.
+"Passionate about protecting organisations" is unverifiable and universal. The
+hashtags do almost nothing in headline position. Most importantly it contains **no
+searchable technology at all** - a recruiter searching for Sentinel or KQL skills
+will never see it. It reads as effort without direction.
+
+**D is worst, and it is worst because it is dishonest.** "10+ years experience"
+and "Expert in threat detection and incident response" are false. This will
+surface in searches, generate calls, and collapse in the first two minutes of the
+first conversation - and the recruiter who discovers it will not forward you for
+anything else. A single overclaim on a public profile can end a relationship with
+an agency that covers a large share of the roles you want. The reputational cost
+in a small national market is real and lasting.
+
+**The general principle:** a headline needs to be *searchable*, *credible*, and
+*honest*, in that order of what people usually get wrong. C achieves all three. B
+fails searchability. D fails honesty, which is the only unrecoverable failure of
+the four.
+
+</div>
+</Scenario>
+
+<Quiz mid="track/07-campaign/02-linkedin" title="LinkedIn & Visibility" questions={[
+  {
+    q: "Why is the headline the most important field on a LinkedIn profile for job seeking?",
+    opts: ["It appears first on the profile page", "It is heavily weighted in recruiter keyword search and appears in every search result, comment and connection request", "It is the only field recruiters can filter on", "It determines profile completeness score"],
+    a: 1,
+    why: "Recruiter search matches headline, titles, skills and About most heavily, and the headline follows you everywhere on the platform. A headline containing no searchable technology means you simply do not appear for the searches that matter, regardless of how strong the rest of the profile is."
+  },
+  {
+    q: "Adding a self-employed or project entry for your own lab work is:",
+    opts: ["Fabrication and should be avoided", "Legitimate provided it accurately describes work you actually did", "Only acceptable if you registered a company", "Ignored by recruiter search"],
+    a: 1,
+    why: "The test is whether the work happened - it did. Describing independent lab and detection engineering work accurately is honest and makes it searchable, which a manufacturing job title never will be. Inventing employment at a company that did not employ you is a different thing entirely and is disqualifying when checked."
+  },
+  {
+    q: "For someone with a small network, which activity builds recognition most efficiently?",
+    opts: ["Posting daily original content", "Commenting substantively on posts by established practitioners", "Connecting with as many people as possible", "Endorsing others' skills"],
+    a: 1,
+    why: "A post to forty connections reaches forty people. A thoughtful comment on a post with two thousand views reaches a relevant audience and puts you in front of the author repeatedly - frequently someone senior. It costs five minutes and compounds, which posting into a void does not."
+  },
+  {
+    q: "Why publish blog posts as LinkedIn articles rather than posting a link?",
+    opts: ["Articles are indexed by Google", "LinkedIn suppresses reach on posts containing external links, so native articles reach considerably further", "External links are prohibited", "Articles can be edited afterwards"],
+    a: 1,
+    why: "The platform favours content that keeps users on it. A post whose main content is an outbound link typically sees markedly reduced distribution. Publishing natively - with the canonical version still on your own site - gets the reach without giving up ownership."
+  },
+  {
+    q: "A headline claiming \"10+ years experience, expert in threat detection\" when you have none is:",
+    opts: ["Acceptable positioning", "The only unrecoverable error, because it will collapse in conversation and damage your relationship with an agency covering many of the roles you want", "Effective for getting past initial filters", "Fine if the CV is accurate"],
+    a: 1,
+    why: "It will generate calls that end within two minutes, and the recruiter who discovers the overclaim will not put you forward for anything else. In a national market where a handful of agencies cover a large share of entry-level SOC roles, that reputational cost is lasting and entirely avoidable."
+  },
+  {
+    q: "What belongs in the Featured section?",
+    opts: ["Every certificate you hold", "Your strongest write-up, your portfolio repository, and your most credible certification", "Photographs from events", "Your CV as a PDF"],
+    a: 1,
+    why: "Featured items render as visual cards and draw the eye immediately after the headline, so they should be your three strongest pieces of evidence rather than a comprehensive list. A write-up demonstrates communication, a repo demonstrates technical work, and BTL1 demonstrates assessed practical capability."
+  },
+  {
+    q: "The most effective connection request is:",
+    opts: ["The default \"I'd like to add you to my professional network\"", "Two specific sentences referencing something they wrote, with no ask attached", "A message asking directly for a referral", "A request with your CV attached"],
+    a: 1,
+    why: "Default requests are frequently ignored, and requests opening with an ask feel transactional before any relationship exists. A short, specific note showing you actually read something they wrote gets accepted, and it starts a relationship you can return to later - which is when an ask becomes reasonable."
+  }
+]} />
+
+<TaskList step="track/07-campaign/02-linkedin" tasks={[
+  { text: "Rewrite the headline with certifications, three searchable technologies and a discipline" },
+  { text: "Add an honest self-employed or project entry for your lab and detection work", detail: "Accurate description of work you actually did. This is what makes you searchable." },
+  { text: "Rewrite the About section in five short first-person paragraphs", detail: "Strongest content in the first two lines, before the 'see more' fold." },
+  { text: "Fill the Skills section with the exact technologies from adverts you are targeting" },
+  { text: "Pin three items to Featured: best write-up, portfolio repo, BTL1" },
+  { text: "Set Open to Work with recruiter-only visibility", detail: "Recruiter-visible rather than the public green banner, which some hiring managers read negatively." },
+  { text: "Comment substantively three times a week for the rest of the campaign", detail: "Specific observation, question or addition. Never 'Great post!'." },
+  { text: "Send twenty personalised connection requests to UK SOC practitioners and recruiters" },
+  { text: "Attend one BSides or local meetup and follow up with three people afterwards", detail: "Milton Keynes is within reach of London, Oxford, Cambridge and Birmingham." },
+  { text: "Publish your existing blog posts as native LinkedIn articles" }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "BSides UK events", url: "https://bsides.uk/", type: "do", cost: "Low cost", note: "Community security conferences across the UK. Cheap, welcoming to newcomers, and attended by people who hire. Attending three over the campaign is worth more than hundreds of connections.", primary: true },
+  { title: "UK Cyber Security Council", url: "https://www.ukcybersecuritycouncil.org.uk/", type: "read", minutes: 20, note: "Career pathways, role definitions and professional standards. Useful vocabulary for describing yourself accurately." },
+  { title: "Simply Cyber", by: "Gerald Auger", url: "https://www.youtube.com/@SimplyCyber", type: "watch", minutes: 20, note: "Regular content on breaking in, networking and personal branding, with a large community around it." },
+  { title: "LinkedIn help - Open to Work settings", by: "LinkedIn", url: "https://www.linkedin.com/help/linkedin/answer/a507508", type: "ref", note: "The distinction between recruiter-only visibility and the public banner. Choose deliberately rather than by default." },
+  { title: "Blue Team Village Discord", url: "https://www.blueteamvillage.org/", type: "do", cost: "Free", note: "Active defensive security community with genuine discussion. Somewhere to ask questions and be recognised without needing an audience." },
+  { title: "Meetup - UK security groups", url: "https://www.meetup.com/", type: "do", note: "Search for security and DEF CON groups near Milton Keynes, London, Oxford and Birmingham. Most are free." }
+]} />
+
+<Gate
+  step="track/07-campaign/02-linkedin"
+  conditions={[
+    "My headline contains certifications and at least three searchable technologies",
+    "I have an honest project entry making my lab work searchable",
+    "The About section leads with evidence in its first two lines",
+    "Skills match the terminology in adverts I am targeting",
+    "Three strong items are pinned to Featured",
+    "I am commenting substantively at least twice a week",
+    "I have attended at least one in-person event and followed up",
+    "Nothing on my profile overclaims"
+  ]}
+  unlocks="Next: the technical interview drills - 120 questions, spoken aloud, against a clock."
+/>

@@ -1,0 +1,95 @@
+---
+/**
+ * The dead-time queue.
+ *
+ * Every item is tagged with format and reading time because the deciding
+ * question on a factory floor with eleven spare minutes is never "is this
+ * good?" — it's "can I finish this before I'm needed?". Cost is stated on
+ * every row so a paid item can never be mistaken for a free one.
+ */
+export interface Resource {
+  title: string;
+  url: string;
+  /** Who made it — shown so you can judge the source at a glance. */
+  by?: string;
+  /** read = article/docs, watch = video, do = interactive, ref = lookup. */
+  type: 'read' | 'watch' | 'do' | 'ref';
+  /** Minutes. Omit for reference material you dip into. */
+  minutes?: number;
+  /** Free unless stated. Use a short string like "£10/mo". */
+  cost?: string;
+  /** Why this one, in a few words. */
+  note?: string;
+  /** Marks the single best starting point in the list. */
+  primary?: boolean;
+}
+
+interface Props {
+  title?: string;
+  items: Resource[];
+}
+
+const { title = 'Read on the go', items } = Astro.props;
+
+const TYPE = {
+  read: { icon: '📖', label: 'Read' },
+  watch: { icon: '▶', label: 'Watch' },
+  do: { icon: '⌨', label: 'Do' },
+  ref: { icon: '⌗', label: 'Reference' },
+} as const;
+---
+<section class="my-7">
+  <header class="flex items-center justify-between gap-4 border-b pb-2">
+    <p class="eyebrow" style="color: var(--accent)">📖 {title}</p>
+    <p class="shrink-0 font-mono text-[0.68rem]" style="color: var(--text-3)">
+      {items.filter((i) => !i.cost).length} free
+    </p>
+  </header>
+
+  <ul class="mt-3 space-y-2">
+    {items.map((item) => (
+      <li>
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="block rounded-lg border p-3 transition-colors hover:border-[var(--accent)]"
+          style={
+            item.primary
+              ? 'background: var(--surface-2); border-color: var(--rule-strong)'
+              : 'background: var(--surface-2); border-color: var(--rule)'
+          }
+        >
+          <div class="flex items-baseline gap-2">
+            <span class="shrink-0 text-[0.8rem]" aria-hidden="true">{TYPE[item.type].icon}</span>
+            <span class="min-w-0 flex-1 text-[0.92rem] font-semibold leading-snug">
+              {item.title}
+              {item.primary && (
+                <span
+                  class="ml-2 rounded px-1.5 py-px align-middle font-mono text-[0.58rem] uppercase tracking-wider"
+                  style="background: var(--accent); color:#fff"
+                >
+                  Start here
+                </span>
+              )}
+            </span>
+          </div>
+
+          {item.note && (
+            <p class="mt-1 pl-6 text-[0.83rem] leading-relaxed" style="color: var(--text-3)">
+              {item.note}
+            </p>
+          )}
+
+          <p class="mt-1.5 flex flex-wrap gap-x-3 pl-6 font-mono text-[0.66rem]" style="color: var(--text-3)">
+            {item.by && <span>{item.by}</span>}
+            {item.minutes && <span>~{item.minutes} min</span>}
+            <span style={item.cost ? 'color: var(--accent)' : 'color: var(--ok)'}>
+              {item.cost ?? 'Free'}
+            </span>
+          </p>
+        </a>
+      </li>
+    ))}
+  </ul>
+</section>

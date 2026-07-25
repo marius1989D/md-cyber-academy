@@ -1,0 +1,333 @@
+---
+title: "Network Triage & pcap"
+phase: 4
+order: 3
+summary: "Beaconing, DNS tunnelling and C2 patterns found in real captures - plus an honest account of what encryption hides and what it does not."
+weeks: "Week 20"
+minutes: 240
+kind: learn
+pillar: triage
+cost: 0
+prereq: ["04-applied-triage/02-endpoint"]
+academy: ["network/04-traffic-analysis"]
+attack: ["T1071.001", "T1071.004", "T1572", "T1041", "T1568.002"]
+tags: ["network", "pcap", "zeek", "beaconing", "c2", "triage"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import Scenario from '../../../components/track/Scenario.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="Most traffic is encrypted now. What can you still detect at the network layer?">
+Endpoint telemetry can be tampered with by an attacker who owns the endpoint;
+network telemetry usually cannot, because it is collected elsewhere. That makes it
+the independent witness, and it is why network evidence carries disproportionate
+weight in an investigation. The encryption question above is a favourite because
+it separates candidates who think TLS ended network monitoring from those who can
+list six things still visible in an encrypted session.
+</Why>
+
+## What you actually work with
+
+Full packet capture is expensive and rarely available beyond a short buffer. Most
+SOCs work with **Zeek logs** (or equivalent), which summarise every connection
+into structured records:
+
+| Log | Contains |
+|---|---|
+| `conn.log` | Every connection: endpoints, ports, duration, bytes each way, state |
+| `dns.log` | Query, type, response, return code |
+| `http.log` | Method, host, URI, user-agent, status, response size |
+| `ssl.log` | SNI, TLS version, cipher, certificate subject and issuer, JA3 |
+| `files.log` | Files seen traversing the network, with hashes |
+| `notice.log` | Zeek's own detections |
+
+`conn.log` alone answers most triage questions. The fields that matter most:
+`duration`, `orig_bytes`, `resp_bytes`, and `conn_state`.
+
+<Callout type="key">
+The byte ratio is one of the most useful single signals in network triage. Normal
+web browsing sends a little and receives a lot - a low `orig_bytes` to high
+`resp_bytes` ratio. **Exfiltration inverts it.** A host sending far more than it
+receives, sustained, is worth investigating regardless of the destination's
+reputation.
+</Callout>
+
+## Beaconing
+
+Malware checks in on a schedule. Humans do not. That difference is detectable
+without decrypting anything:
+
+- **Regular intervals** with low variance. Compute the gaps between connections
+  from one host to one destination, then the coefficient of variation (standard
+  deviation over mean). Human traffic is bursty and irregular; a beacon sleeping
+  60 seconds is near-constant.
+- **Consistent small payloads.** Check-ins that carry no tasking are near-identical
+  in size.
+- **Long-lived, low-volume relationships.** Days of contact, very little data.
+- **Activity outside working hours**, continuing when the user is not present.
+
+Modern C2 frameworks add **jitter** - randomising the sleep by a percentage -
+specifically to defeat this. So real detections use a wider tolerance and accept
+more false positives, and you must be ready to say so rather than presenting
+beaconing detection as a solved problem.
+
+**The reliable false positive sources:** software update checks, telemetry
+agents, monitoring tools, NTP, and certificate revocation checking. These are the
+most regular traffic on any network, which is precisely why tuning matters here.
+
+## DNS as a covert channel
+
+You met the theory in Phase 1. Applied:
+
+- **Tunnelling (T1071.004)** - data encoded in subdomain labels. Signals: unusually
+  long labels, high character entropy, high query volume to one registrable domain,
+  TXT or NULL record types from hosts with no reason to use them, and low or zero
+  cache-hit behaviour because every query must be unique.
+- **DGA (T1568.002)** - bursts of NXDOMAIN as malware hunts for a live C2 domain.
+- **DNS over HTTPS** - if endpoints resolve via DoH to an external provider, your
+  DNS visibility disappears entirely. Detecting and blocking unauthorised DoH is
+  itself a control worth naming.
+
+## What TLS does and does not hide
+
+The interview question. Encrypted payloads, yes - but a great deal remains:
+
+1. **SNI** - the hostname, in cleartext in the Client Hello. Encrypted Client Hello
+   closes this, but adoption is partial.
+2. **Certificate details** - subject, issuer, validity dates. Self-signed
+   certificates, or default framework certificates, are a real signal.
+3. **JA3 / JA4 fingerprints** - a hash of how the client negotiates TLS. Different
+   client libraries produce different fingerprints, so a fingerprint that does not
+   match any legitimate software on your estate is suspicious even when the
+   destination looks fine.
+4. **Metadata** - who talked to whom, when, for how long, how many bytes each way.
+5. **Timing and volume patterns** - beaconing, as above.
+6. **The destination itself** - IP, ASN, domain age, reputation.
+
+<Callout type="warn">
+Do not oversell JA3. It is a strong signal, not proof: fingerprints collide across
+software using the same TLS library, and JA3 can be deliberately mimicked. JA4
+improved on it. Presenting it as a reliable identifier is the trap; presenting it
+as a strong correlation signal is correct.
+</Callout>
+
+<Scenario
+  step="track/04-applied-triage/03-network"
+  id="zeek-triage"
+  title="Zeek logs from a suspected compromise"
+  minutes={10}
+>
+<div slot="brief">
+
+An endpoint alert was closed as inconclusive last week. A hunt over network logs
+surfaces this for the same host. Analyse it.
+
+```text
+HOST: 10.20.7.44  (WKSTN-2210, user: t.abara, marketing)
+WINDOW: 7 days
+
+conn.log  - aggregated by destination
+┌──────────────────┬───────┬──────┬────────────┬────────────┬──────────┐
+│ dest             │ port  │ conns│ orig_bytes │ resp_bytes │ mean gap │
+├──────────────────┼───────┼──────┼────────────┼────────────┼──────────┤
+│ 104.21.x.x       │ 443   │ 9,847│    412 KB  │    398 KB  │  61.2 s  │
+│ (cdn-metrics.io) │       │      │            │            │ stdev 4.1│
+├──────────────────┼───────┼──────┼────────────┼────────────┼──────────┤
+│ 52.x.x.x         │ 443   │ 1,204│    2.1 MB  │   840 MB   │ variable │
+│ (windowsupdate)  │       │      │            │            │          │
+├──────────────────┼───────┼──────┼────────────┼────────────┼──────────┤
+│ 185.199.x.x      │ 443   │    3 │   1.9 GB   │    41 KB   │     n/a  │
+│ (storage-prov)   │       │      │            │            │          │
+└──────────────────┴───────┴──────┴────────────┴────────────┴──────────┘
+
+ssl.log  - for 104.21.x.x
+  SNI:          cdn-metrics.io
+  cert subject: CN=cdn-metrics.io
+  cert issuer:  CN=cdn-metrics.io          (self-signed)
+  validity:     issued 9 days ago
+  JA3:          51c64c77e60f3980eea90869b68c58a8
+
+dns.log  - excerpt
+  cdn-metrics.io          A     104.21.x.x    (first seen 8 days ago)
+  a3f9c2e1b7d4.telemetry-sync.net   TXT   NXDOMAIN
+  b8e1d5a2f6c3.telemetry-sync.net   TXT   NXDOMAIN
+  ... 1,412 similar queries over 7 days, all unique subdomains
+
+CONTEXT
+  - JA3 51c64c... does not match any approved software baseline.
+  - No other host on the estate contacts cdn-metrics.io.
+  - The 185.199.x.x transfer occurred at 02:14 on day 6.
+```
+
+Identify every finding, rank them, and state your conclusion.
+
+</div>
+<div slot="model">
+
+**This host is compromised. There are three distinct findings and they form a
+complete attack narrative: C2, a covert channel, and exfiltration.**
+
+**Finding 1 - C2 beaconing to `cdn-metrics.io` (highest confidence).**
+
+- 9,847 connections with a mean gap of 61.2 seconds and a standard deviation of
+  4.1 gives a jitter coefficient of about 0.067. That is machine-regular. Human
+  traffic never looks like this.
+- **Near-symmetric byte counts** (412 KB out, 398 KB in) across nearly ten thousand
+  connections is check-in traffic carrying little tasking - completely unlike web
+  browsing, which is heavily asymmetric toward inbound.
+- **Self-signed certificate issued nine days ago**, with the domain first resolved
+  eight days ago. Fresh infrastructure stood up immediately before use.
+- **JA3 matches no approved software**, and **no other host contacts this domain**.
+  A legitimate service used by one machine on the estate is close to a
+  contradiction in terms.
+
+Every one of those is individually suggestive; together they are conclusive.
+
+**Finding 2 - DNS tunnelling to `telemetry-sync.net` (high confidence).**
+
+1,412 unique high-entropy subdomains, all TXT queries, all returning NXDOMAIN.
+This is a covert channel: the data is in the query name, so the response does not
+matter - which is exactly why NXDOMAIN is expected rather than a sign of failure.
+TXT queries from a marketing workstation have no legitimate explanation. Note this
+is a *second* channel, distinct from finding 1, which suggests either a backup C2
+or a deliberately separated exfiltration path.
+
+**Finding 3 - bulk exfiltration (high confidence, highest impact).**
+
+Three connections, **1.9 GB outbound against 41 KB inbound**, at 02:14 to a cloud
+storage provider. The inverted byte ratio is the signal, and the volume plus the
+hour makes it unambiguous. This is T1041 / T1567 - the data leaving.
+
+**The Windows Update entry is a deliberate control.** 840 MB inbound against 2.1 MB
+outbound, variable intervals, to a known Microsoft endpoint - normal patching, and
+included so that "large transfer" alone is not treated as the signal. **Direction
+and regularity are what matter, not volume.**
+
+**Ranking for response:** finding 3 first, because data has already left and the
+scoping question - what was taken - drives regulatory and customer obligations.
+Then finding 1, because it is the live control channel and cutting it stops
+further activity. Then finding 2, as a second channel that must also be closed or
+the attacker retains access.
+
+**Conclusion and actions:**
+
+- **Escalate immediately as a confirmed compromise with data exfiltration.** The
+  exfiltration element materially changes the incident class - this is potentially
+  a notifiable data breach, and that determination has a clock on it.
+- **Recommend containment:** isolate WKSTN-2210, preserving memory. Block both
+  domains and the storage destination at the perimeter.
+- **Scope urgently:** what did that host have access to, and what was in the 1.9 GB?
+  Check file share access logs and any DLP telemetry for the hours before 02:14.
+- **Hunt the estate** for the JA3 fingerprint, both domains, and the beaconing
+  pattern. One host contacting unique infrastructure is unusual enough that I would
+  want to be certain it is genuinely one host.
+- **Revisit the endpoint alert closed as inconclusive last week.** That was almost
+  certainly the initial access, and reopening it with this context will identify
+  the entry vector.
+
+**The lesson worth carrying:** the endpoint alert alone was inconclusive; the
+network view made it obvious. Neither telemetry source is sufficient, and the
+network view is the harder one for an attacker to tamper with.
+
+</div>
+</Scenario>
+
+<Drill
+  step="track/04-applied-triage/03-network"
+  id="tls-visibility"
+  question="Most traffic is encrypted now. What can you still detect at the network layer?"
+  seconds={90}
+  hits={[
+    "SNI in the TLS Client Hello reveals the hostname in cleartext, though Encrypted Client Hello is closing this",
+    "Certificate details - self-signed certs, recent issuance, default framework certificates",
+    "JA3/JA4 client fingerprints, as a strong correlation signal rather than proof",
+    "Connection metadata: who, when, how long, bytes in each direction",
+    "Timing patterns - beaconing regularity and jitter",
+    "Byte ratio direction, which reveals exfiltration regardless of encryption",
+    "Destination reputation, ASN and domain age"
+  ]}
+  trap="Saying encryption has made network monitoring obsolete, or overselling JA3 as a reliable identifier. Fingerprints collide and can be mimicked - call it a strong signal, not proof."
+/>
+
+<Quiz mid="track/04-applied-triage/03-network" title="Network Triage & pcap" questions={[
+  {
+    q: "A host shows 1.9 GB outbound and 41 KB inbound to an external destination. This byte ratio suggests:",
+    opts: ["Normal software updating", "Data exfiltration", "A denial of service attack", "Certificate revocation checking"],
+    a: 1,
+    why: "Normal client traffic is asymmetric toward inbound - you request a little and receive a lot. An inverted ratio, especially at volume, means data is leaving. Direction is a far more reliable signal than raw volume, which is why a large inbound Windows Update transfer is unremarkable while a large outbound one is not."
+  },
+  {
+    q: "Why do C2 frameworks add jitter to their check-in intervals?",
+    opts: ["To reduce network bandwidth", "To defeat detections that identify beaconing by low variance in connection timing", "To bypass TLS inspection", "To avoid DNS caching"],
+    a: 1,
+    why: "Beacon detection computes the variance in gaps between connections; perfectly regular traffic stands out immediately. Randomising the sleep by a percentage raises that variance toward human-like levels. Defenders respond by widening tolerances, which increases false positives - the arms race here is real and worth acknowledging rather than presenting beaconing detection as solved."
+  },
+  {
+    q: "Repeated TXT queries for unique high-entropy subdomains, all returning NXDOMAIN, indicates:",
+    opts: ["A misconfigured DNS resolver", "DNS tunnelling, where the data is carried in the query name and the response is irrelevant", "Normal CDN behaviour", "Certificate transparency logging"],
+    a: 1,
+    why: "In DNS tunnelling the payload is encoded into the subdomain label, so the query itself is the transmission and NXDOMAIN responses are expected rather than a failure. Uniqueness is inherent - every query carries different data, so nothing can be cached - and TXT records are favoured because they can carry more data back."
+  },
+  {
+    q: "What is a JA3 fingerprint?",
+    opts: ["A hash of the server's certificate", "A hash of how a client negotiates TLS, which varies by the client library used", "A hash of the encrypted payload", "The DNS record of the destination"],
+    a: 1,
+    why: "JA3 hashes characteristics of the TLS Client Hello - cipher suites, extensions, curves - producing a fingerprint of the client software rather than the destination. A fingerprint matching no approved software on your estate is suspicious even when the destination looks benign. Fingerprints do collide across software sharing a TLS library, so treat it as a strong signal rather than an identifier."
+  },
+  {
+    q: "Why is network telemetry considered a more trustworthy witness than endpoint telemetry during an intrusion?",
+    opts: ["It is more detailed", "It is collected off the host, so an attacker who controls the endpoint cannot easily tamper with it", "It is always retained longer", "It is unaffected by encryption"],
+    a: 1,
+    why: "An attacker with SYSTEM on a host can stop the agent, clear logs or manipulate what is reported. Network collection happens elsewhere on infrastructure they typically do not control, so it remains intact. This is why network evidence carries disproportionate weight and why an endpoint that stops reporting is itself a finding."
+  },
+  {
+    q: "A self-signed certificate on a destination that was first resolved eight days ago is significant because:",
+    opts: ["Self-signed certificates cannot be used for TLS", "It suggests freshly stood-up infrastructure, which is characteristic of purpose-built C2", "Browsers block self-signed certificates entirely", "It proves the traffic is malicious"],
+    a: 1,
+    why: "Legitimate services almost always use CA-issued certificates, and established services have domain history. Self-signed plus very recent registration plus contact from only one host on the estate is a strong combination - though none of these alone is proof, which is why the conclusion rests on the combination rather than any single field."
+  },
+  {
+    q: "If endpoints resolve DNS via DoH to an external provider, the main consequence for the SOC is:",
+    opts: ["DNS queries become faster", "Internal DNS visibility is lost, removing tunnelling and DGA detection", "Certificates can no longer be validated", "Beaconing detection becomes more accurate"],
+    a: 1,
+    why: "DNS over HTTPS moves resolution into an encrypted channel to a third party, so your internal resolvers never see the queries and the entire DNS detection surface disappears. Detecting and blocking unauthorised DoH is therefore a control in its own right, and Sysmon event 22 becomes more valuable because it captures resolution at the process level regardless."
+  }
+]} />
+
+<TaskList step="track/04-applied-triage/03-network" tasks={[
+  { text: "Work through five Malware Traffic Analysis exercises end to end", detail: "Real malicious pcaps with questions and published answers. The single best free network triage training that exists." },
+  { text: "Learn the six core Zeek logs and the key fields in conn.log" },
+  { text: "Compute a jitter coefficient by hand on a beacon capture", detail: "Standard deviation over mean of the inter-arrival gaps. Doing it manually once makes the KQL version make sense." },
+  { text: "Capture your own machine's traffic for an hour and find the beacons", detail: "You will find several - update checks, telemetry, sync clients. That is the false positive population you would be tuning against." },
+  { text: "Identify SNI, certificate issuer and JA3 in a real TLS session in Wireshark" },
+  { text: "Write a short note on what your lab cannot see at the network layer", detail: "Feeds directly into the blind-spot section of your portfolio write-ups." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Malware Traffic Analysis - training exercises", by: "Brad Duncan", url: "https://www.malware-traffic-analysis.net/training-exercises.html", type: "do", note: "Real malicious captures with guided questions and answers. Free, extensive, and the closest thing to network triage on the job.", primary: true },
+  { title: "Zeek log documentation", url: "https://docs.zeek.org/en/master/logs/index.html", type: "ref", note: "Every log type and field. Learn conn, dns, http and ssl properly - they answer most triage questions." },
+  { title: "CyberDefenders - network challenges", url: "https://cyberdefenders.org/blueteam-ctf-challenges/", type: "do", cost: "Free tier", note: "Guided blue-team challenges with pcaps. Several are free and closely mirror real investigations." },
+  { title: "JA4+ suite", by: "FoxIO", url: "https://github.com/FoxIO-LLC/ja4", type: "read", minutes: 25, note: "The successor to JA3 and its rationale. Reading why JA3 needed replacing teaches you its limitations, which is the part interviewers probe." },
+  { title: "Security Onion documentation", url: "https://docs.securityonion.net/", type: "ref", note: "Free, complete network monitoring platform bundling Zeek and Suricata. Deploying it in your lab is a strong portfolio addition." },
+  { title: "Wireshark display filter reference", url: "https://www.wireshark.org/docs/dfref/", type: "ref", note: "Filters are the actual skill. Bookmark it and stop scrolling packet lists." }
+]} />
+
+<Gate
+  step="track/04-applied-triage/03-network"
+  conditions={[
+    "I know the six core Zeek logs and what each answers",
+    "I can identify beaconing from timing regularity and explain how jitter complicates it",
+    "I can recognise DNS tunnelling and explain why NXDOMAIN responses are expected",
+    "I can list six things still visible in an encrypted session",
+    "I can explain JA3 accurately, including its limitations",
+    "I have completed at least five real pcap exercises"
+  ]}
+  unlocks="Next: malware triage - static and dynamic assessment, and knowing precisely when to stop and escalate."
+/>

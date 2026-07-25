@@ -1,0 +1,296 @@
+---
+title: "Defender XDR & Advanced Hunting"
+phase: 3
+order: 4
+summary: "The four pillars, the tables each contributes, and how to trace one attack from the email through the endpoint to the identity."
+weeks: "Weeks 16-17"
+minutes: 280
+kind: learn
+pillar: siem
+cost: 0
+prereq: ["03-microsoft-kql/03-kql-hunting"]
+academy: ["detection/09-xdr"]
+objectives: ["SC-200 2.1", "SC-200 2.2", "SC-200 2.3"]
+attack: ["T1566.002", "T1059.001", "T1078.004"]
+tags: ["defender", "xdr", "advanced-hunting", "mde", "sc-200"]
+updated: 2026-07-25
+---
+
+import Why from '../../../components/track/Why.astro';
+import TaskList from '../../../components/track/TaskList.astro';
+import Resources from '../../../components/track/Resources.astro';
+import Gate from '../../../components/track/Gate.astro';
+import QueryChallenge from '../../../components/track/QueryChallenge.astro';
+import Drill from '../../../components/track/Drill.astro';
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+
+<Why asked="How do Defender XDR and Sentinel relate, and when would you use each?">
+Most UK enterprises run both, and candidates routinely confuse them or assume one
+replaces the other. Knowing the division of labour - and being able to trace a
+single attack across email, endpoint and identity in one query - is the practical
+skill that Phase 4's triage work depends on. This is also where the SC-200 spends
+a large share of its objectives, so the exam and the job point the same way.
+</Why>
+
+## The four pillars
+
+Defender XDR unifies four products. Each contributes signal and its own hunting
+tables:
+
+| Pillar | Covers | Key tables |
+|---|---|---|
+| **Defender for Endpoint** | Devices - process, file, network, registry | `DeviceProcessEvents`, `DeviceNetworkEvents`, `DeviceFileEvents`, `DeviceRegistryEvents`, `DeviceLogonEvents`, `DeviceImageLoadEvents`, `DeviceEvents` |
+| **Defender for Office 365** | Email and collaboration | `EmailEvents`, `EmailAttachmentInfo`, `EmailUrlInfo`, `EmailPostDeliveryEvents`, `UrlClickEvents` |
+| **Defender for Identity** | On-prem AD signals | `IdentityLogonEvents`, `IdentityDirectoryEvents`, `IdentityQueryEvents`, `IdentityInfo` |
+| **Defender for Cloud Apps** | SaaS activity | `CloudAppEvents` |
+
+Plus the cross-cutting alert tables: **`AlertInfo`** (the alert itself) and
+**`AlertEvidence`** (the entities involved). Joining those two is how you pivot
+from "an alert fired" to "here is every account, device, file and IP it touched".
+
+<Callout type="key">
+`EmailPostDeliveryEvents` and `UrlClickEvents` are the two most under-used tables
+in the whole set. Post-delivery records what happened to a message *after* it
+landed - including ZAP retracting it once it was reclassified. `UrlClickEvents`
+records whether a user actually clicked a Safe Links URL, and what the verdict
+was. In a phishing investigation, "did anyone click?" is the question that decides
+severity, and this table answers it directly.
+</Callout>
+
+## Defender XDR and Sentinel - the division of labour
+
+Both are Microsoft, both do detection, and they overlap. The honest framing:
+
+**Defender XDR** is deep, first-party telemetry across Microsoft workloads, with
+built-in correlation. It knows a device, a mailbox and an identity are related
+because it owns all three. Retention on the hunting tables is limited - typically
+30 days.
+
+**Sentinel** is the broad SIEM: it ingests everything else too - firewalls, AWS,
+network appliances, third-party tooling - with configurable long retention, custom
+analytics rules, and SOAR.
+
+**Typical architecture:** Defender does the deep Microsoft-workload work and
+forwards its alerts and incidents to Sentinel, which correlates them with
+everything non-Microsoft and holds the long tail of data. The two are increasingly
+surfaced in a single unified portal, which blurs the boundary in the interface but
+not in the architecture.
+
+**The practical consequence for you:** the same KQL runs in both, but **table names
+differ**. Endpoint data is `DeviceProcessEvents` in Defender advanced hunting and,
+if you connect the connector, also lands in Sentinel. Windows Security events
+collected by an agent land in `SecurityEvent`. Knowing which table lives where is
+a recurring source of confusion and a fair interview question.
+
+## Custom detections
+
+In Defender you can promote an advanced hunting query into a **custom detection
+rule** - it runs on a schedule, raises alerts, and can trigger automated response
+actions (isolate device, restrict app execution, disable user). Requirements worth
+remembering: the query must return `Timestamp` and a device or user identifier
+column so the alert can be attributed to an entity.
+
+This is the Defender-side equivalent of the hunt-to-detection lifecycle you
+practised in the last step.
+
+## Response actions
+
+Available from the portal or via API, and worth naming because they show you
+understand where automation ends and authority begins:
+
+- **Device:** isolate (full or selective), run antivirus scan, restrict app
+  execution, collect investigation package, live response session
+- **File:** quarantine, block by hash across the estate
+- **Identity:** disable user, force password reset, require re-authentication
+
+<Callout type="warn">
+Selective isolation keeps the Defender connection alive so you retain visibility
+and live-response capability while cutting everything else. It is almost always
+the right choice over full isolation during an active investigation - full
+isolation blinds you too. This distinction is a good detail to raise.
+</Callout>
+
+## Challenge - trace a phishing attack end to end
+
+<QueryChallenge
+  step="track/03-microsoft-kql/04-defender-xdr"
+  id="phish-to-endpoint"
+  title="Email to click to execution"
+  lang="kql"
+  tables={["EmailEvents", "EmailUrlInfo", "UrlClickEvents", "DeviceProcessEvents", "NetworkMessageId", "RecipientEmailAddress", "AccountUpn"]}
+>
+<div slot="brief">
+
+A phishing campaign was reported. Build a single query that establishes, for the
+last 7 days: who received it, who actually clicked the link, and whether
+suspicious process execution followed on that user's device within an hour.
+
+Assume the campaign is identifiable by a sender domain of `docsign-review.com`.
+
+</div>
+<div slot="solution">
+
+```kql
+let campaign = materialize(
+    EmailEvents
+    | where Timestamp > ago(7d)
+    | where SenderFromDomain =~ "docsign-review.com"
+    | project NetworkMessageId, EmailTimestamp = Timestamp,
+              RecipientEmailAddress, Subject, DeliveryAction,
+              SenderFromAddress
+);
+let clicks =
+    UrlClickEvents
+    | where Timestamp > ago(7d)
+    | project ClickTime = Timestamp, NetworkMessageId,
+              AccountUpn, Url, ActionType, IsClickedThrough;
+let execs =
+    DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where InitiatingProcessFileName in~
+        ("outlook.exe","msedge.exe","chrome.exe","winword.exe","excel.exe")
+    | where FileName in~
+        ("powershell.exe","cmd.exe","wscript.exe","cscript.exe",
+         "mshta.exe","rundll32.exe","regsvr32.exe")
+    | extend Account = tolower(AccountName)
+    | project ExecTime = Timestamp, Account, DeviceName,
+              FileName, ProcessCommandLine, InitiatingProcessFileName;
+campaign
+| join kind=leftouter clicks on NetworkMessageId
+| extend Account = tolower(tostring(split(RecipientEmailAddress, "@")[0]))
+| join kind=leftouter execs on Account
+| where isempty(ExecTime)
+     or ExecTime between (ClickTime .. ClickTime + 1h)
+| project EmailTimestamp, RecipientEmailAddress, Subject, DeliveryAction,
+          Clicked = isnotempty(ClickTime), ClickTime, IsClickedThrough,
+          DeviceName, ExecTime, InitiatingProcessFileName,
+          FileName, ProcessCommandLine
+| sort by EmailTimestamp asc
+```
+
+**Why it is built this way:**
+
+- **`NetworkMessageId` is the join key between email and click.** It is the unique
+  identifier for a message across the Office 365 tables, and it is the reason you
+  can connect a delivery to a click at all. Knowing this field by name is a strong
+  signal.
+- **`leftouter` on clicks, not `inner`.** You need the recipients who *did not*
+  click as well - that is the denominator for scoping, and it tells you who still
+  needs warning.
+- **`IsClickedThrough`** distinguishes a user who hit the Safe Links warning page
+  and stopped from one who clicked past it. Materially different severity for that
+  individual.
+- **The account normalisation again** - `RecipientEmailAddress` is a full address,
+  `AccountName` on the device side is not. Same fix as the previous step.
+- **`isempty(ExecTime) or ExecTime between (...)`** keeps rows where nothing
+  executed, so a single result set answers all three questions rather than
+  silently dropping the clean recipients.
+
+**Common wrong shapes:** using `inner` joins throughout, which returns only the
+worst-affected users and makes the campaign look far smaller than it is; joining
+email to device on address without normalising; and filtering the execution window
+before the join, when `ClickTime` is not yet in scope.
+
+**In practice you would extend this** with `EmailAttachmentInfo` if the campaign
+carried a file, and `EmailPostDeliveryEvents` to see whether ZAP retracted
+anything after the fact. And the output feeds straight into a Phase 4 escalation:
+delivered count, clicked count, clicked-through count, and execution count are
+exactly the four numbers an incident manager will ask for.
+
+</div>
+</QueryChallenge>
+
+<Drill
+  step="track/03-microsoft-kql/04-defender-xdr"
+  id="xdr-vs-sentinel"
+  question="How do Defender XDR and Sentinel relate, and when would you use each?"
+  seconds={90}
+  hits={[
+    "Defender XDR is deep first-party telemetry across Microsoft workloads - endpoint, email, identity, cloud apps - with built-in cross-pillar correlation",
+    "Sentinel is the broad SIEM: everything else too, long configurable retention, custom analytics rules and SOAR",
+    "Typical architecture is Defender forwarding alerts and incidents into Sentinel for correlation with non-Microsoft sources",
+    "Defender hunting tables have limited retention, typically around 30 days; Sentinel holds the long tail",
+    "Same KQL, but table names differ between them, which is a common source of confusion",
+    "Both increasingly surfaced in a unified portal, which blurs the interface but not the architecture"
+  ]}
+  trap="Saying one replaces the other. They are complementary, and most enterprises run both. The candidate who explains the division of labour sounds like someone who has worked in a real Microsoft estate."
+/>
+
+<Quiz mid="track/03-microsoft-kql/04-defender-xdr" title="Defender XDR & Advanced Hunting" questions={[
+  {
+    q: "Which field joins EmailEvents to UrlClickEvents?",
+    opts: ["RecipientEmailAddress", "NetworkMessageId", "InternetMessageId", "AccountUpn"],
+    a: 1,
+    why: "NetworkMessageId is the unique identifier for a message across the Office 365 tables, and it is what lets you connect a delivered email to whether its link was clicked. Recipient address would match all mail to that person rather than this specific message, and knowing the correct key by name is a strong practical signal."
+  },
+  {
+    q: "In a phishing investigation, which table tells you whether a user actually clicked the link?",
+    opts: ["EmailEvents", "EmailUrlInfo", "UrlClickEvents", "AlertEvidence"],
+    a: 2,
+    why: "EmailEvents records delivery and EmailUrlInfo records which URLs a message contained, but only UrlClickEvents records an actual Safe Links click with its verdict. The IsClickedThrough field further distinguishes users who hit the warning page and stopped from those who proceeded - which changes severity for that individual."
+  },
+  {
+    q: "Which two tables would you join to see every entity involved in a Defender alert?",
+    opts: ["DeviceEvents and DeviceInfo", "AlertInfo and AlertEvidence", "IdentityInfo and IdentityLogonEvents", "CloudAppEvents and EmailEvents"],
+    a: 1,
+    why: "AlertInfo carries the alert metadata - title, severity, category - while AlertEvidence carries the accounts, devices, files, IPs and URLs it involved. Joining them on AlertId is how you pivot from 'an alert fired' to the full entity picture, and it is a core advanced-hunting pattern."
+  },
+  {
+    q: "What is the main advantage of selective device isolation over full isolation?",
+    opts: ["It is faster to apply", "It preserves the Defender connection, so you keep visibility and live response while cutting other network access", "It does not require administrator approval", "It automatically remediates the threat"],
+    a: 1,
+    why: "Full isolation severs everything including your own telemetry and response channel, leaving you blind on a host you are actively investigating. Selective isolation maintains the Defender agent's connection so you can continue collecting evidence and run live response, while stopping attacker communication. It is usually the correct choice during an active investigation."
+  },
+  {
+    q: "A custom detection rule created from an advanced hunting query must return which columns?",
+    opts: ["Only Timestamp", "Timestamp plus a device or user identifier so the alert can be attributed to an entity", "AlertId and Severity", "Any three columns"],
+    a: 1,
+    why: "Without a timestamp the platform cannot schedule or window the rule, and without an entity identifier the resulting alert cannot be attributed to a device or account - which breaks correlation and any automated response action. It is the same principle as entity mapping in Sentinel, expressed differently."
+  },
+  {
+    q: "Endpoint telemetry appears as DeviceProcessEvents in Defender. In Sentinel, Windows Security events collected via an agent appear as:",
+    opts: ["DeviceProcessEvents", "SecurityEvent", "WindowsEvent only", "They cannot be collected in Sentinel"],
+    a: 1,
+    why: "Agent-collected Windows Security log data lands in SecurityEvent, while Defender's own endpoint telemetry lands in the Device* tables and can also be forwarded to Sentinel via the connector. The same underlying activity can therefore appear in different tables with different schemas, which is a recurring source of confusion and a fair interview question."
+  },
+  {
+    q: "Why does Defender XDR's limited hunting table retention matter operationally?",
+    opts: ["It prevents custom detections from working", "Retention is typically around 30 days, which is often shorter than dwell time, so Sentinel or archive holds the longer tail needed for retrospective investigation", "It means alerts are deleted after 30 days", "It restricts the number of queries per day"],
+    a: 1,
+    why: "This is the Phase 2 retention-versus-dwell-time argument applied concretely. If an intrusion began 90 days ago, the Defender hunting tables no longer hold the initial access evidence, which is precisely why forwarding to Sentinel with longer retention - or to archive - matters for real investigations."
+  }
+]} />
+
+<TaskList step="track/03-microsoft-kql/04-defender-xdr" tasks={[
+  { text: "Learn the four pillars and at least three tables each", detail: "Write them out from memory. Table names are the vocabulary of a Microsoft SOC." },
+  { text: "Complete the phishing correlation challenge before reading the solution" },
+  { text: "Run AlertInfo joined to AlertEvidence in a live tenant", detail: "The Defender evaluation lab or your developer tenant. Seeing the entity expansion makes the pattern stick." },
+  { text: "Write and deploy one custom detection rule from a hunting query", detail: "Include the required Timestamp and entity columns. This mirrors the Sentinel analytics rule you built in step 1." },
+  { text: "Explore the Defender evaluation lab and generate real telemetry", detail: "It includes simulated attacks, so you get realistic multi-pillar data without attacking anything of your own." },
+  { text: "Write a one-page comparison of Defender XDR and Sentinel", detail: "Division of labour, retention, table naming, when each is the right tool. This is an interview answer in written form." },
+  { text: "Practise the four scoping numbers for a phishing campaign", detail: "Delivered, clicked, clicked through, executed. Those are what an incident manager asks for first." }
+]} />
+
+<Resources title="Read on the go" items={[
+  { title: "Advanced hunting schema reference", by: "Microsoft", url: "https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-schema-tables", type: "ref", note: "Every table and every column. Bookmark it - you will consult it constantly, and knowing where to look beats memorising.", primary: true },
+  { title: "Microsoft 365 Defender hunting queries", by: "Microsoft", url: "https://github.com/microsoft/Microsoft-365-Defender-Hunting-Queries", type: "read", note: "Hundreds of community and Microsoft queries organised by ATT&CK tactic. The best free source of idiomatic XDR hunting patterns." },
+  { title: "SC-200 learning path", by: "Microsoft Learn", url: "https://learn.microsoft.com/en-us/training/courses/sc-200t00", type: "read", note: "The Defender XDR modules map directly onto this step and carry substantial exam weight. Free and mobile-friendly." },
+  { title: "Defender for Endpoint evaluation lab", by: "Microsoft", url: "https://learn.microsoft.com/en-us/defender-endpoint/evaluation-lab", type: "do", note: "A hosted lab with simulated attacks and preconfigured devices. Generates realistic multi-pillar telemetry to hunt against." },
+  { title: "Custom detection rules", by: "Microsoft", url: "https://learn.microsoft.com/en-us/defender-xdr/custom-detection-rules", type: "read", minutes: 25, note: "Requirements, frequency options and response actions. Read before building your own." },
+  { title: "Defender XDR Ninja training", by: "Microsoft Tech Community", url: "https://techcommunity.microsoft.com/blog/microsoftthreatprotectionblog/become-a-microsoft-defender-xdr-ninja/1789376", type: "watch", cost: "Free", note: "Structured free curriculum across all four pillars, beginner to advanced. Pairs with the Sentinel Ninja course." }
+]} />
+
+<Gate
+  step="track/03-microsoft-kql/04-defender-xdr"
+  conditions={[
+    "I can name the four pillars and three tables each from memory",
+    "I can explain the division of labour between Defender XDR and Sentinel",
+    "I know NetworkMessageId joins email to click, and why UrlClickEvents matters",
+    "I can join AlertInfo to AlertEvidence to expand an alert into its entities",
+    "I have deployed at least one custom detection rule",
+    "I can explain selective versus full isolation and when to use each",
+    "I can produce the four phishing scoping numbers from a single query"
+  ]}
+  unlocks="Final Phase 3 step: the SC-200 exam sprint - the highest-return credential in this track."
+/>

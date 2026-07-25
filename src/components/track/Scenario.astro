@@ -1,0 +1,154 @@
+---
+/**
+ * The format multiple choice cannot test.
+ *
+ * A real alert arrives with no options list. You have to decide what you'd
+ * look at, in what order, and what would change your mind. So: write your
+ * answer blind, then reveal the model answer and grade yourself honestly.
+ *
+ * Self-grading is the point. Nobody marks a Tier 1's triage notes at 3am
+ * either — calibration is the skill, and it only develops if you commit to an
+ * answer before you see a better one.
+ */
+interface Props {
+  /** Step id, for namespacing. */
+  step: string;
+  /** Unique within the step. */
+  id: string;
+  title: string;
+  /** Minutes you should spend before revealing. */
+  minutes?: number;
+}
+
+const { step, id, title, minutes = 5 } = Astro.props;
+const key = `${step}::scenario::${id}`;
+---
+<section class="my-8 overflow-hidden rounded-xl border-2" data-scenario={key} style="border-color: var(--rule-strong)">
+  <header
+    class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2.5"
+    style="background: var(--surface-3)"
+  >
+    <span class="font-mono text-[0.63rem] uppercase tracking-[0.18em]" style="color: var(--accent)">
+      ⚑ Scenario · no options
+    </span>
+    <h3 class="text-[1rem] font-bold">{title}</h3>
+    <span class="ml-auto font-mono text-[0.66rem]" style="color: var(--text-3)">~{minutes} min</span>
+  </header>
+
+  <div class="p-4 sm:p-5" style="background: var(--surface-2)">
+    <!-- The artifact and the question -->
+    <div class="prose-md max-w-none text-[0.94rem]">
+      <slot name="brief" />
+    </div>
+
+    <label class="mt-4 block">
+      <span class="eyebrow">Your answer — write it before you reveal</span>
+      <textarea
+        data-scenario-input
+        rows="7"
+        placeholder="What do you look at first, in what order, and what would change your conclusion?"
+        class="mt-1.5 w-full resize-y rounded-lg border p-3 font-mono text-[0.85rem] leading-relaxed"
+        style="background: var(--surface); border-color: var(--rule); color: var(--text)"
+      ></textarea>
+    </label>
+
+    <div class="mt-3 flex flex-wrap items-center gap-2">
+      <button class="btn text-[0.75rem]" data-scenario-reveal>Reveal model answer</button>
+      <span class="font-mono text-[0.66rem]" style="color: var(--text-3)" data-scenario-status></span>
+    </div>
+
+    <!-- Model answer, hidden until committed -->
+    <div class="mt-4 hidden" data-scenario-model>
+      <div
+        class="rounded-lg border-l-[3px] p-4"
+        style="border-color: var(--ok); background: var(--ok-soft)"
+      >
+        <p class="eyebrow" style="color: var(--ok)">◉ Model answer</p>
+        <div class="prose-md mt-2 max-w-none text-[0.92rem]">
+          <slot name="model" />
+        </div>
+      </div>
+
+      <div class="mt-4 rounded-lg border p-3.5" style="border-color: var(--rule)">
+        <p class="eyebrow">Grade yourself — honestly</p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button class="btn text-[0.73rem]" data-grade="0">Missed it</button>
+          <button class="btn text-[0.73rem]" data-grade="1">Partly there</button>
+          <button class="btn text-[0.73rem]" data-grade="2">Solid</button>
+        </div>
+        <p class="mt-2.5 text-[0.8rem]" style="color: var(--text-3)">
+          Anything below “solid” comes back in your review deck. Marking yourself
+          generously here only costs you in an interview later.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { saveAttempt, getAttempt } from '../../lib/track-store';
+
+  for (const card of document.querySelectorAll<HTMLElement>('[data-scenario]')) {
+    const key = card.dataset.scenario!;
+    const input = card.querySelector<HTMLTextAreaElement>('[data-scenario-input]')!;
+    const revealBtn = card.querySelector<HTMLButtonElement>('[data-scenario-reveal]')!;
+    const model = card.querySelector<HTMLElement>('[data-scenario-model]')!;
+    const status = card.querySelector<HTMLElement>('[data-scenario-status]')!;
+
+    const GRADES = ['Missed it', 'Partly there', 'Solid'];
+
+    const paintGrade = (grade: number | null) => {
+      for (const b of card.querySelectorAll<HTMLButtonElement>('[data-grade]')) {
+        const on = Number(b.dataset.grade) === grade;
+        b.style.background = on ? 'var(--accent)' : '';
+        b.style.color = on ? '#fff' : '';
+        b.style.borderColor = on ? 'var(--accent)' : '';
+      }
+      if (grade !== null) status.textContent = `Graded: ${GRADES[grade]}`;
+    };
+
+    // Restore any previous attempt.
+    const prev = getAttempt(key);
+    if (prev) {
+      input.value = prev.text;
+      if (prev.grade !== null || prev.text) {
+        model.classList.remove('hidden');
+        revealBtn.textContent = 'Model answer shown';
+        revealBtn.disabled = true;
+        revealBtn.style.opacity = '0.5';
+      }
+      paintGrade(prev.grade);
+    }
+
+    let saveTimer: ReturnType<typeof setTimeout>;
+    input.addEventListener('input', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saveAttempt(key, input.value, getAttempt(key)?.grade ?? null);
+        status.textContent = 'Saved';
+      }, 700);
+    });
+
+    revealBtn.addEventListener('click', () => {
+      if (input.value.trim().length < 20) {
+        status.textContent = 'Write something first — guessing badly still beats reading passively.';
+        input.focus();
+        return;
+      }
+      saveAttempt(key, input.value, null);
+      model.classList.remove('hidden');
+      revealBtn.disabled = true;
+      revealBtn.textContent = 'Model answer shown';
+      revealBtn.style.opacity = '0.5';
+      model.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
+    for (const btn of card.querySelectorAll<HTMLButtonElement>('[data-grade]')) {
+      btn.addEventListener('click', () => {
+        const grade = Number(btn.dataset.grade) as 0 | 1 | 2;
+        saveAttempt(key, input.value, grade);
+        paintGrade(grade);
+      });
+    }
+  }
+</script>
