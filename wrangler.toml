@@ -16,5 +16,5 @@ not_found_handling = "404-page"
 [[d1_databases]]
 binding = "DB"
 database_name = "md-cyber-academy"
-# Replace with the id printed by: npx wrangler d1 create md-cyber-academy
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+# Created with: npx wrangler d1 create md-cyber-academy
+database_id = "328e58fa-a4b7-44f8-8f92-1b34bbfb2940"
