@@ -1,0 +1,188 @@
+---
+title: "Sentinel and KQL: Detection on a Real Platform"
+course: detection
+order: 7
+summary: "Turn six modules of principle into a working analytics rule, and learn the query habits that separate a detection that runs from one that times out."
+rung: 3
+minutes: 32
+attack: ["T1003.001", "T1059.001"]
+atlas: []
+objectives: []
+tags: ["sentinel", "kql", "kusto", "analytics-rules", "nrt", "defender-xdr", "siem"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Six modules of principle now meet a product. Microsoft Sentinel is the platform this course uses as its concrete example — it is what most UK SOC job adverts name, and it is the subject of Track 6's KQL phase. Everything you have learned so far has a specific home in it: detections become analytics rules, the graded coverage of Module 2 becomes rule metadata, the entity mapping of Module 6 becomes a wizard tab.
+
+One currency note before anything else, because it affects every screenshot and tutorial you will read: **after 31 March 2027, Sentinel will no longer be supported in the Azure portal** and will be available only in the Microsoft Defender portal, with new customers already being onboarded there since July 2025. Learn the concepts, expect the navigation to move.
+
+## The pieces
+
+| Component | What it is |
+|---|---|
+| **Log Analytics workspace** | The data store. Tables, retention, and the table plans from Module 3 all live here |
+| **Data connectors** | The collection layer — the "collect" stage of Module 3's pipeline |
+| **Analytics rules** | Detections. Scheduled, NRT, Fusion, and Microsoft-security rules that promote vendor alerts |
+| **Incidents** | Correlated containers of alerts and entities — Module 6's output |
+| **Hunting queries** | Saved KQL you run on demand rather than on a schedule |
+| **Workbooks** | Visualisation and reporting |
+| **Automation rules and playbooks** | Response logic, including the Module 4 exception mechanism. Module 13's subject |
+
+## KQL as a pipeline
+
+Kusto Query Language reads left to right, each `|` passing a table to the next operator. That is the whole mental model:
+
+```kusto
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| where FileName =~ "powershell.exe"
+| where InitiatingProcessFileName has_any ("winword.exe", "excel.exe", "outlook.exe")
+| project Timestamp, DeviceName, AccountName,
+          InitiatingProcessFileName, FileName, ProcessCommandLine
+| order by Timestamp desc
+```
+
+That is Module 5's Office-spawns-a-shell detection, expressed. Note `Timestamp` rather than `TimeGenerated`: **Defender XDR advanced-hunting tables use `Timestamp`, Log Analytics tables use `TimeGenerated`.** Writing the wrong one is the single most common first-day error, and it fails as an unknown-column error rather than silently, which is at least merciful.
+
+The operators worth genuine fluency are few: `where`, `project`, `extend`, `summarize`, `join`, `union`, `let`, `distinct`, `count`, `top`, `order by`, `parse`, and `mv-expand`. Nearly every detection is a `where` chain ending in a `project`, and nearly every hunt is a `summarize` looking for the long tail from Module 5.
+
+## Query habits that decide whether your rule works
+
+Microsoft's KQL best-practice guidance is unusually concrete, and these are the rules that matter for detection work:
+
+- **Filter immediately after the table reference**, and put **`datetime` predicates first** — Kusto indexes datetime columns efficiently, "often completely eliminating whole data shards" before anything else is evaluated.
+- **Use `has`, not `contains`.** `has` matches whole tokens and uses the index; `contains` scans for substrings. Microsoft's guidance is explicit that `has` "works better, since it doesn't look for substrings".
+- **Filter on table columns, not calculated ones.** `T | where predicate(Expression)` beats `T | extend _v = Expression | where predicate(_v)`, because a calculated column cannot use the index.
+- **Name the column; never search with `*`,** which does a full-text search across every column.
+- **Prefer case-sensitive comparisons** (`==` over `=~`) where the data allows, and avoid `tolower(Col) == "x"` — compare with `=~` instead.
+- **On `join`, put the smaller table first** (left-most), and use `in` rather than a left-semi join when filtering on a single column.
+- **End exploratory queries with `limit` or `count`** so an unbounded query over an unknown dataset does not return gigabytes.
+
+<Callout type="key">
+Look again at `has` versus `contains`, because it connects two modules. In Module 4 the dangerous tuning request was `exclude where SourceImage contains "acmebkp.exe"` — and the danger was precisely that `contains` matches a substring anywhere, so `evil-acmebkp.exe` and a copy dropped in `%TEMP%` both matched the exclusion.
+
+So the same operator choice is both a **performance** decision and a **security** decision. `contains` is slower *and* semantically sloppier than you intend. When you reach for it, ask whether you actually mean "this token" (`has`), "this exact value" (`==`), or "this path prefix" (`startswith`) — you almost always do, and each of those is faster and tighter than the substring scan.
+</Callout>
+
+## Rule types, and the scheduling detail that matters
+
+Sentinel offers several analytics rule types; two need distinguishing precisely.
+
+**Scheduled rules** run on an interval you choose over a lookback window you choose, and they run with a **built-in five-minute delay** to accommodate ingestion lag — the problem Module 3 made you measure.
+
+**Near-real-time (NRT) rules** are hard-coded to run **once every minute**, capturing events ingested in the preceding minute, with only a **two-minute delay**. The mechanism is the interesting part and it is a direct callback: NRT rules avoid the ingestion-lag problem by **querying on events' ingestion time rather than their generation time (`TimeGenerated`)**. Module 3 told you those two timestamps differ; this is a product feature built entirely on that distinction.
+
+NRT's constraints are real, so know them before designing around it: a maximum of **50 NRT rules** per customer, they only work properly on sources with an ingestion delay under **12 hours**, and event grouping is limited — a query returning more than 30 events produces alerts for the first 29 plus a 30th that summarises the rest.
+
+## Reviewing a submitted rule
+
+Rung 3. A colleague submits this for peer review before deployment. Find the problems.
+
+```kusto
+// Detect LSASS access -- SUBMITTED FOR REVIEW
+DeviceProcessEvents
+| extend Cmd = tolower(ProcessCommandLine)
+| where Cmd contains "lsass"
+| where Timestamp > ago(90d)
+| join DeviceInfo on DeviceId
+| project Timestamp, DeviceName, Cmd
+```
+
+Six problems, and only one of them is about detection logic.
+
+1. **The time filter is last.** It should come immediately after the table reference so the datetime index eliminates data before anything else runs. As written, `tolower()` and a substring scan are applied to 90 days of data first.
+2. **`ago(90d)` in a scheduled rule.** If this runs every five minutes over a 90-day window it will re-alert on the same events roughly 26,000 times and cost a fortune. The lookback must match the schedule.
+3. **`contains` on a calculated column.** Two violations at once: substring scanning instead of `has`, and filtering on `Cmd` (an `extend` result) rather than an indexed table column.
+4. **`tolower()` for case-insensitivity.** Use `=~`, or better here, match the token.
+5. **`join DeviceInfo` with no size consideration** and no filter before it, so the join runs over everything that survived.
+6. **The logic is wrong anyway.** Matching "lsass" in a command line finds processes that *mention* lsass — it does not find processes that *accessed* LSASS memory. The behaviour from Module 5 lives in process-access telemetry, not in a command-line substring. An attacker never has to put the string "lsass" on a command line.
+
+Point six is the one to lead with in a real review. The performance problems make the rule expensive; the logic problem makes it useless, and no amount of query tuning fixes a hypothesis that does not describe the behaviour.
+
+<Callout type="warn">
+Two operational habits Sentinel specifically rewards.
+
+**Set the lookback to match the schedule, then add your measured ingestion lag** — no more. A rule running every 5 minutes over 15 minutes of data triples its cost and creates duplicate alerts on the same events unless you handle it. Sentinel's event-grouping and alert-suppression settings exist for this; use them deliberately rather than discovering the duplicates in the queue.
+
+**Fill in the metadata even though the wizard lets you skip it.** Tactics and entity mapping are not decoration: Module 6 established that Fusion will not correlate a rule that lacks them. A rule deployed with blank tactics works in isolation and can never become part of a multistage incident, which is exactly the kind of failure nobody notices for a year.
+</Callout>
+
+<Quiz mid="detection/07-sentinel" title="Sentinel and KQL: Detection on a Real Platform" questions={[
+  {
+    q: "Why should datetime predicates come first in a KQL query, immediately after the table reference?",
+    opts: ["It makes the query easier to read", "Kusto indexes datetime columns efficiently and can eliminate whole data shards before other predicates are evaluated", "It is required syntax", "It prevents duplicate alerts"],
+    a: 1,
+    why: "Microsoft's guidance is to apply the where operator immediately after the table reference and to apply datetime predicates first, because the index on those columns can often eliminate entire data shards without accessing them. Filtering late means expensive operations such as substring scans or tolower() run across the full dataset first."
+  },
+  {
+    q: "What is the difference between has and contains in KQL, and why does it matter beyond performance?",
+    opts: ["They are identical; has is just newer syntax", "has matches whole tokens and uses the index, contains scans for substrings -- so contains is both slower and matches more than you usually intend", "contains is case-sensitive and has is not", "has only works on numeric columns"],
+    a: 1,
+    why: "Microsoft recommends has because it does not look for substrings. The security consequence appeared in Module 4: an exclusion written as contains 'acmebkp.exe' also matches evil-acmebkp.exe and copies dropped anywhere. The operator choice is simultaneously a performance decision and a scoping decision."
+  },
+  {
+    q: "A scheduled rule runs every 5 minutes with a lookback of ago(90d). What happens?",
+    opts: ["Nothing unusual -- a longer lookback improves detection", "It re-evaluates 90 days of data every 5 minutes, re-alerting on the same events thousands of times at very high cost", "The rule will refuse to save", "Only the most recent 5 minutes are actually queried"],
+    a: 1,
+    why: "The lookback window must match the schedule, plus your measured ingestion lag. A 90-day window on a 5-minute schedule re-scans the same data roughly 26,000 times, producing duplicate alerts on identical events and a large bill. Alert suppression and event grouping settings exist to manage the remainder."
+  },
+  {
+    q: "How do near-real-time (NRT) rules avoid the ingestion delay problem that forces scheduled rules to run on a five-minute delay?",
+    opts: ["They ingest data faster", "They query on events' ingestion time rather than their generation time (TimeGenerated), and run on a two-minute delay", "They only run on Basic table plans", "They bypass the Log Analytics workspace"],
+    a: 1,
+    why: "NRT rules run once a minute over events ingested in the preceding minute with a two-minute delay, and they query ingestion time rather than TimeGenerated. This is a product feature built directly on the distinction Module 3 established between event time and ingestion time. Constraints apply: 50 NRT rules maximum, sources must have under 12 hours of ingestion delay, and grouping is limited to 29 individual alerts plus a summary."
+  },
+  {
+    q: "You are querying DeviceProcessEvents in Defender advanced hunting and your filter on TimeGenerated fails. Why?",
+    opts: ["TimeGenerated requires a special permission", "Defender XDR advanced-hunting tables use Timestamp; TimeGenerated is the Log Analytics convention", "The table has no time column", "TimeGenerated only exists on Basic plan tables"],
+    a: 1,
+    why: "The two ecosystems use different names for the event-time column: Timestamp in Defender advanced-hunting tables, TimeGenerated in Log Analytics tables. It is the most common first-day error, and mercifully it fails loudly as an unknown column rather than silently returning nothing."
+  },
+  {
+    q: "A submitted rule matches ProcessCommandLine contains 'lsass' to detect credential theft. What is the most important objection in review?",
+    opts: ["It should use has instead of contains", "The hypothesis is wrong -- it finds processes that mention lsass, not processes that accessed LSASS memory, and an attacker need never put that string on a command line", "The project clause returns too many columns", "It should join to DeviceInfo for context"],
+    a: 1,
+    why: "The operator, the filter order and the join are all real problems, but they only make the rule expensive. The logic problem makes it useless: LSASS access is visible in process-access telemetry, not in a command-line substring. Lead with the hypothesis in review, because no amount of query optimisation rescues a rule that does not describe the behaviour."
+  },
+  {
+    q: "Why does leaving the tactics and entity mapping fields blank on an analytics rule matter, even though the rule still fires?",
+    opts: ["The rule runs more slowly", "Fusion will not correlate a rule lacking kill-chain and entity information, so it can never contribute to a multistage incident", "The rule cannot be exported to Sigma", "Alerts will not appear in the SecurityAlert table"],
+    a: 1,
+    why: "Module 6 established the requirement: analytics rules must carry tactics and entity mapping to be used by the correlation engine. A rule deployed with blank metadata works in isolation and is permanently excluded from multistage incidents -- a failure that produces no error and typically goes unnoticed."
+  }
+]} />
+
+<Lab title="Build, map and deploy a real analytics rule" host="Free Microsoft Sentinel trial or Log Analytics workspace" minutes={75}>
+
+You are going to take the detection you wrote in Module 1, express it in KQL, deploy it as a Sentinel analytics rule with full metadata, and prove it fires. Use a free trial workspace or a Microsoft 365 Developer tenant — never a production workspace.
+
+1. **Set up.** Create a Log Analytics workspace and enable Sentinel on it. Connect at least one data source you can generate events for — the Microsoft Entra ID connector is the easiest, or Defender for Endpoint if you have it.
+2. **Explore the schema.** Run `<TableName> | take 10` and read the column names. Confirm which time column your table uses, `Timestamp` or `TimeGenerated`. Write it down; this decides every query that follows.
+3. **Write the query badly on purpose.** Express your detection with the time filter last and using `contains`. Run it and record the time taken and data scanned shown in the query statistics.
+4. **Optimise it.** Move the datetime filter immediately after the table reference, replace `contains` with `has` or `==`, filter on table columns rather than `extend` results, and `project` only the columns you need. Re-run and record the new statistics.
+5. **Compare.** Note the difference in duration and data processed. This measurement is what makes the best-practice list real rather than advice.
+6. **Deploy it as a scheduled rule.** Set the frequency and the lookback so they match, adding only your measured ingestion lag from Module 3. Do not accept the defaults without deciding on them.
+7. **Complete the metadata.** Map at least two entities using strong identifiers, set the MITRE tactics and techniques, and write the description as if the next analyst has never met you.
+8. **Validate.** Generate the behaviour, confirm the alert fires and an incident is created, and check that your mapped entities appear on the incident.
+9. **Tune once.** Apply one exception using Module 4's method — combined conditions, an owner and an expiry — then re-validate that the rule still fires on the real behaviour.
+
+**Evidence of completion:** a journal entry with (a) the naive and optimised versions of your query with the measured duration and data scanned for each, (b) a screenshot or transcription of the deployed rule showing frequency, lookback and your justification for both, (c) the completed entity mapping and MITRE tactics, (d) proof the alert fired and created an incident with entities populated, and (e) your exception with its owner and expiry. Item (a) is the one that teaches: seeing your own query go from seconds to milliseconds on the same data makes the operator choices permanent in a way that reading a table never does.
+
+</Lab>
+
+## Sources
+
+- [Microsoft Learn — What is Microsoft Sentinel?](https://learn.microsoft.com/en-us/azure/sentinel/overview) — platform components and the Azure portal retirement timeline
+- [Microsoft Learn — Best practices for Kusto Query Language queries](https://learn.microsoft.com/en-us/kusto/query/best-practices) — applying `where` immediately after table references, datetime predicates first because the index can eliminate whole data shards, `has` over `contains` because it "doesn't look for substrings", filtering on table columns rather than calculated columns, avoiding `*` full-text search, case-sensitive comparison preferences, join ordering with the smallest table first, and ending exploratory queries with `limit` or `count`
+- [Microsoft Learn — Kusto Query Language overview](https://learn.microsoft.com/en-us/kusto/query/) — the pipeline model and operator reference
+- [Microsoft Learn — summarize operator](https://learn.microsoft.com/en-us/kusto/query/summarize-operator) — the aggregation used for the long-tail hunting from Module 5
+- [Microsoft Learn — Quick threat detection with near-real-time (NRT) analytics rules](https://learn.microsoft.com/en-us/azure/sentinel/near-real-time-rules) — NRT rules running once a minute on a two-minute delay versus the scheduled-rule five-minute delay, querying ingestion time rather than `TimeGenerated`, and the limits of 50 rules per customer, sources under 12 hours of ingestion delay, and 29 individual alerts plus a summarising 30th
+- [Microsoft Learn — Detect threats with built-in analytics rules](https://learn.microsoft.com/en-us/azure/sentinel/detect-threats-built-in) — the analytics rule types available
+- [Microsoft Learn — Create custom analytics rules](https://learn.microsoft.com/en-us/azure/sentinel/detect-threats-custom) — query scheduling, lookback period, event grouping and alert suppression
+- [Microsoft Learn — DeviceProcessEvents table](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-deviceprocessevents-table) — the schema used in the worked queries, including `Timestamp`, `FileName`, `ProcessCommandLine`, `InitiatingProcessFileName` and `InitiatingProcessParentFileName`
+- [Microsoft Learn — Hunting in Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/hunts) — saved hunting queries, the subject of Module 8
+- [Microsoft Learn — Automate threat response with playbooks](https://learn.microsoft.com/en-us/azure/sentinel/automate-responses-with-playbooks) — the response layer, the subject of Module 13
