@@ -1,0 +1,169 @@
+---
+title: "Kerberos and Domain Authentication"
+course: network
+order: 2
+summary: "Why the protocol that removed passwords from the wire hands an attacker an offline-crackable hash on request, and which field in event 4769 proves it happened."
+rung: 3
+minutes: 26
+attack: ["T1558.003", "T1558.004", "T1558.001", "T1558.002", "T1550.003"]
+atlas: []
+objectives: ["CEH v13 M04", "CEH v13 M06"]
+tags: ["kerberos", "active-directory", "kerberoasting", "spn", "event-4769"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 1 taught you to read a connection. Active Directory is where those connections start carrying *identity*, and in a Windows estate almost every intrusion you triage will pass through it. The good news is that AD's authentication protocol is well documented and its attacks follow from its design rather than from bugs. Understand the design and you can derive most of the attacks yourself — which is exactly what an interviewer is testing when they ask you to explain Kerberoasting.
+
+## What a domain controller actually is
+
+Two services on one box, and it helps to keep them separate in your head:
+
+- **A directory.** Every user, computer, group and organisational unit is an object with attributes, queryable over LDAP on port 389. This is the phone book, and it is readable by any authenticated domain user — which is why AD reconnaissance is so productive and so quiet.
+- **A Key Distribution Center (KDC).** The Kerberos authentication service, on port 88. This is the passport office.
+
+One directory attribute deserves naming now because the rest of the module hangs off it: the **service principal name (SPN)**. Microsoft's definition is precise — an SPN is "the name by which a client uniquely identifies an instance of a service". When an account runs a service that clients authenticate to, that account gets an SPN registered against it, in the form `service/host`. So `MSSQLSvc/db01.corp.local:1433` is not a machine; it is a pointer to *whichever account runs that SQL service*.
+
+## Kerberos in three exchanges
+
+RFC 4120 defines three exchanges. Learn them by their message names, because that is how documentation and tooling refer to them:
+
+| Exchange | Messages | What the client gets |
+|---|---|---|
+| **AS** (Authentication Service) | `KRB_AS_REQ` → `KRB_AS_REP` | A ticket-granting ticket (TGT), proving who you are |
+| **TGS** (Ticket-Granting Service) | `KRB_TGS_REQ` → `KRB_TGS_REP` | A service ticket for one specific SPN |
+| **AP** (client/server) | `KRB_AP_REQ` → `KRB_AP_REP` | Access to the service itself |
+
+The point of all this is that your password never crosses the network. Instead you prove you know it by encrypting a timestamp with a key derived from it — **pre-authentication** — and from then on you present tickets. RFC 4120 is explicit about why pre-auth exists: without it, an attacker could obtain known plaintext and mount cryptographic attacks against password-derived keys. Hold that sentence; it comes back in a moment.
+
+## The one design fact that generates the attacks
+
+Here is the load-bearing detail. When the KDC issues a service ticket, RFC 4120 says it encrypts the ticket "using the encryption key extracted from the server principal's record in the Kerberos database". In an AD domain, that key is derived from the **service account's password**.
+
+<Callout type="key">
+Put those two facts together and you have the whole attack class. **Any authenticated domain user can request a service ticket for any SPN in the directory, and the KDC will return it encrypted with a key derived from that service account's password.** No authorisation check on the request, because the ticket is useless without the service's key — the design assumes only the service can decrypt it.
+
+But the requester does not need to decrypt it *online*. They can take it away and grind it offline, at whatever speed their hardware allows, with no lockout, no failed-logon events, and nothing further sent to the domain. That is **T1558.003 Kerberoasting**, and it is not a vulnerability in Kerberos. It is Kerberos working as specified, against service accounts whose passwords were chosen by a human in 2015.
+</Callout>
+
+This is why the *encryption type* matters so much. If the ticket comes back as RC4-HMAC, the encryption key is effectively the account's NT hash, which is fast to attack offline. ATT&CK names the tell directly: 4769 requests with RC4 encryption, etype **0x17**. AES tickets (0x11 and 0x12) are far more expensive to crack, which is why an attacker will ask for RC4 if the account will still issue it.
+
+## The family of ticket attacks
+
+Kerberoasting is one of five you should be able to distinguish on demand. Note that four are Credential Access and the last one is not — getting that wrong is a common interview stumble.
+
+| Technique | What the attacker holds | What it gets them |
+|---|---|---|
+| **T1558.003 Kerberoasting** | A normal domain account | A service ticket to crack offline, yielding the service account's password |
+| **T1558.004 AS-REP Roasting** | Nothing but a username | An AS-REP to crack offline, but only for accounts with pre-auth disabled |
+| **T1558.002 Silver Ticket** | A service account's hash | Forged service tickets for that one resource, created **without contacting the KDC** |
+| **T1558.001 Golden Ticket** | The `krbtgt` account's hash | Forged TGTs: any user, any group, the whole domain |
+| **T1550.003 Pass the Ticket** | A stolen ticket from memory | Authentication as that user, no password needed (Lateral Movement, not Credential Access) |
+
+**AS-REP Roasting** is the one that follows from the RFC sentence I told you to hold. Accounts flagged "do not require Kerberos preauthentication" will return an AS-REP containing data encrypted with the account's key to *anyone who asks*, including an unauthenticated attacker with only a username. Microsoft's own guidance on event 4768 puts it bluntly: all accounts should use pre-authentication, and an account configured otherwise "is a security risk".
+
+The two forged-ticket attacks are worth comparing rather than memorising. A silver ticket is narrow and quiet: one service, and the KDC never sees the request, so there is no 4769 to find. A golden ticket is total: `krbtgt` signs every ticket in the domain, so its hash forges anything. The remediation asymmetry is the interview-worthy part — recovering from a golden ticket means rotating the `krbtgt` password twice, and that is a planned operation, not a click.
+
+## Reading a real one
+
+Rung 3. Here is a slice of 4769 events from one domain controller, ordered by time. Decide what you are looking at before reading on.
+
+```text
+Time      TargetUserName        ServiceName              TicketEncryptionType  Status  IpAddress
+10:41:02  j.hartley@CORP.LOCAL  MSSQLSvc/db01:1433       0x17                  0x0     10.10.9.14
+10:41:02  j.hartley@CORP.LOCAL  HTTP/intranet            0x17                  0x0     10.10.9.14
+10:41:03  j.hartley@CORP.LOCAL  MSSQLSvc/db02:1433       0x17                  0x0     10.10.9.14
+10:41:03  j.hartley@CORP.LOCAL  CIFS/fileserv01          0x17                  0x0     10.10.9.14
+10:41:04  j.hartley@CORP.LOCAL  TERMSRV/jump01           0x17                  0x0     10.10.9.14
+10:41:04  j.hartley@CORP.LOCAL  svc_backup               0x17                  0x0     10.10.9.14
+```
+
+This is Kerberoasting, and every column contributes. **One user account** requesting **six unrelated SPNs** — a database, a web app, a file server, a jump host — inside three seconds, all from **one client address**, all **succeeding** (`0x0`), and all issued as **RC4 (0x17)**. Nothing here is a failure, which is precisely the problem: a naive alert on failed authentication sees a clean bill of health.
+
+Reason about what a legitimate `j.hartley` looks like instead. A real user requests service tickets for the handful of services they actually use, spread across a working day, driven by opening an application. They do not enumerate the SPN catalogue alphabetically in one breath. **The signal is not any single event — it is the fan-out of distinct service names per account per unit time.** Whoever holds `j.hartley`'s session has queried the directory for every account with an SPN and is now collecting one ticket for each.
+
+<Callout type="detect">
+Now the tuning reality, because "alert on 4769 with 0x17" is where a lot of first detection rules die. Event 4769 fires **every time the KDC issues a service ticket**, and generates **only on domain controllers** — it is one of the highest-volume events in the estate. Two specific traps:
+
+- **Failure code 0x20** (`KRB_AP_ERR_TKT_EXPIRED`) is everywhere and, in Microsoft's own words, has "little to no security relevance". Filter it before you do anything else.
+- **RC4 alone is not malicious.** Plenty of estates still have accounts that can only do RC4, and they will generate 0x17 all day. Alerting on the etype without a behavioural component buys you a queue of false positives and a reputation for noisy rules.
+
+Build the rule on the *fan-out* — distinct `ServiceName` values per `TargetUserName` per short window — and use RC4 and the client address as enrichment that raises severity, not as the trigger. One useful bonus: since the January 2025 cumulative update, Windows Server 2016 and later log an expanded 4769 that adds `ClientAdvertizedEncryptionTypes`, `AccountAvailableKeys` and `ServiceAvailableKeys`. Those let you separate "RC4 because this account has no AES keys" from "RC4 because the requester asked for it despite AES being available" — which is the false-positive problem, solved at the source. Check which version your DCs emit before you write the rule.
+</Callout>
+
+<Quiz mid="network/02-active-directory" title="Kerberos and Domain Authentication" questions={[
+  {
+    q: "Why can any authenticated domain user obtain a crackable service ticket for a service they have no right to use?",
+    opts: ["Because the KDC has a known authorisation bypass", "Because the KDC performs no authorisation on the TGS request -- the ticket is encrypted with the service account's key and assumed useless to anyone else", "Because service tickets are sent unencrypted", "Because domain users are implicitly local administrators on member servers"],
+    a: 1,
+    why: "The TGS exchange issues a ticket for any requested SPN, encrypted with a key derived from the service account's password. The design assumes only the service can decrypt it, so no authorisation check is needed on the request. Kerberoasting breaks that assumption by not decrypting online at all -- the attacker takes the ticket away and cracks it offline, with no lockout and no failed logons."
+  },
+  {
+    q: "In event 4769, a Ticket Encryption Type of 0x17 means:",
+    opts: ["AES256-CTS-HMAC-SHA1-96", "RC4-HMAC", "DES-CBC-MD5", "The request failed"],
+    a: 1,
+    why: "0x17 is RC4-HMAC, the default suite for operating systems before Windows Vista and Server 2008. It matters because an RC4 ticket is encrypted with a key equivalent to the account's NT hash, which is cheap to attack offline. 0x11 and 0x12 are AES128 and AES256 respectively and are the expected modern values; 0xffffffff appears in failure events."
+  },
+  {
+    q: "Which attack requires only a valid username, no domain credentials at all?",
+    opts: ["Kerberoasting", "AS-REP Roasting against an account with pre-authentication disabled", "Golden Ticket", "Pass the Ticket"],
+    a: 1,
+    why: "AS-REP Roasting (T1558.004) works against accounts flagged 'do not require Kerberos preauthentication'. Those accounts return an AS-REP containing key-derived encrypted data to any unauthenticated requester who knows the username. Kerberoasting needs a valid domain account to make the TGS request; Golden Ticket needs the krbtgt hash; Pass the Ticket needs a stolen ticket."
+  },
+  {
+    q: "What makes a Silver Ticket harder to detect than Kerberoasting?",
+    opts: ["It uses AES instead of RC4", "The forged service ticket is created without contacting the KDC, so no 4769 is generated", "It only works outside business hours", "It leaves no trace on the target service either"],
+    a: 1,
+    why: "A silver ticket is forged offline from a service account's hash, letting the adversary create TGS tickets without interacting with the KDC. No TGS request means no 4769 on the domain controller, so your Kerberos telemetry never sees it. Detection has to move to the target service and the host, which is why endpoint logs matter alongside DC logs."
+  },
+  {
+    q: "An analyst writes a detection that alerts on every 4769 with encryption type 0x17. What is the most likely outcome?",
+    opts: ["Reliable Kerberoasting detection with few false positives", "A high false-positive rate, because accounts that can only use RC4 legitimately generate 0x17 continuously", "No alerts at all, since 0x17 is never used in modern domains", "It will only fire on golden ticket usage"],
+    a: 1,
+    why: "RC4 on its own is a configuration state, not an attack. Estates with accounts lacking AES keys emit 0x17 all day. The durable signal is behavioural -- the fan-out of distinct service names per account in a short window -- with the encryption type and client address as enrichment that raises severity rather than as the trigger."
+  },
+  {
+    q: "A Golden Ticket is forged using which account's password hash?",
+    opts: ["The Domain Administrator account", "The krbtgt account", "The computer account of the domain controller", "The target service account"],
+    a: 1,
+    why: "krbtgt is the KDC service account responsible for encrypting and signing all Kerberos tickets in the domain, so its hash forges TGTs for any user in any group. That is also why remediation is heavy: the krbtgt password must be rotated twice, as a planned operation. A service account hash gives only a silver ticket, scoped to that one resource."
+  },
+  {
+    q: "Which of these five techniques sits under Lateral Movement rather than Credential Access?",
+    opts: ["T1558.003 Kerberoasting", "T1558.004 AS-REP Roasting", "T1550.003 Pass the Ticket", "T1558.001 Golden Ticket"],
+    a: 2,
+    why: "Pass the Ticket is T1550.003, a sub-technique of Use Alternate Authentication Material, under Lateral Movement -- the attacker already has the ticket and is using it to reach another system. The roasting and forging techniques are all T1558 Steal or Forge Kerberos Tickets, under Credential Access, because their objective is obtaining the credential material in the first place."
+  }
+]} />
+
+<Lab title="Roast a service account in your own lab, then detect it" host="AD lab VM (DC + member) -- never a production domain" minutes={60}>
+
+This must be your own isolated lab domain. Build one with two VMs if you have not already; it is the single most reusable asset in your range, and every later module in this course assumes it.
+
+1. On the DC, enable the **Audit Kerberos Service Ticket Operations** subcategory so 4769 is generated, and confirm events are landing in the Security log.
+2. Create a service account, register an SPN against it, and deliberately give it a weak password from a wordlist you have. Create a second service account with a long random password.
+3. From a normal, non-privileged domain user, enumerate the accounts that carry an SPN and request a ticket for each. Impacket's `GetUserSPNs.py -request` from the attack box, or `Rubeus.exe kerberoast`, will both do the enumeration and the TGS request in one step. Note that you did this as an ordinary user with no special rights — that is the whole point.
+4. Take the two hashes away and crack them offline with hashcat in Kerberoast mode: `hashcat -m 13100 tickets.txt rockyou.txt`. The weak account should fall; the long-random one should not. You have just demonstrated why service-account password length is the real control, not the protocol.
+5. Now switch hats. On the DC, pull the 4769 events your requests generated and confirm the shape from the worked example: one account, many distinct `ServiceName` values, `TicketEncryptionType` 0x17, `Status` 0x0, one client address, seconds apart.
+6. Write the detection as pseudo-logic and state its threshold: count distinct `ServiceName` per `TargetUserName` within a short window (say, more than 5 in 60 seconds), with RC4 and a non-standard client address as severity enrichment rather than the trigger. Then write the one sentence explaining why alerting on 0x17 alone would have failed.
+
+**Evidence of completion:** a journal entry with (a) the cracked weak-account password next to the uncracked strong one and the hashcat command that did it, (b) the 4769 fan-out you produced, redacted of lab specifics, and (c) your detection pseudo-logic with its window and threshold, plus the one-line reason RC4-only alerting fails. That detection is the artifact an interviewer actually wants — it proves you can turn "I know what Kerberoasting is" into "here is the rule I would write and the false positives I planned for".
+
+</Lab>
+
+## Sources
+
+- [RFC 4120 — The Kerberos Network Authentication Service (V5)](https://datatracker.ietf.org/doc/html/rfc4120) — the AS, TGS and AP exchanges; that a ticket is encrypted with the key from the server principal's database record; and the stated rationale for pre-authentication (denying an attacker known plaintext against password-derived keys)
+- [Microsoft Learn — Service Principal Names](https://learn.microsoft.com/en-us/windows/win32/ad/service-principal-names) — the SPN definition, "the name by which a client uniquely identifies an instance of a service", and the `service/host` form
+- [Microsoft Learn — 4769(S, F) A Kerberos service ticket was requested](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4769) — that 4769 fires on every TGS issue and only on domain controllers; the Ticket Encryption Type values (0x11 AES128, 0x12 AES256, 0x17 RC4-HMAC, 0xffffffff on failure); that failure code 0x20 (`KRB_AP_ERR_TKT_EXPIRED`) has "little to no security relevance"; the recommendation to alert on RC4/DES etypes; and the January 2025 cumulative-update fields (`ClientAdvertizedEncryptionTypes`, `AccountAvailableKeys`, `ServiceAvailableKeys`)
+- [Microsoft Learn — 4768(S, F) A Kerberos authentication ticket (TGT) was requested](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4768) — the Pre-Authentication Type field (0 = logon without pre-authentication) and the guidance that an account not requiring pre-authentication "is a security risk"
+- [MITRE ATT&CK T1558.003 — Steal or Forge Kerberos Tickets: Kerberoasting](https://attack.mitre.org/techniques/T1558/003/) — the technique and its detection tell of 4769 requests with RC4 encryption (etype 0x17)
+- [MITRE ATT&CK T1558.004 — AS-REP Roasting](https://attack.mitre.org/techniques/T1558/004/) — cracking an AS-REP for accounts with Kerberos pre-authentication disabled
+- [MITRE ATT&CK T1558.002 — Silver Ticket](https://attack.mitre.org/techniques/T1558/002/) — forging a service ticket from a service account's hash without contacting the KDC
+- [MITRE ATT&CK T1558.001 — Golden Ticket](https://attack.mitre.org/techniques/T1558/001/) — forging TGTs with the `krbtgt` account hash, which signs every ticket in the domain
+- [MITRE ATT&CK T1550.003 — Use Alternate Authentication Material: Pass the Ticket](https://attack.mitre.org/techniques/T1550/003/) — reusing a stolen ticket to move laterally, under Lateral Movement rather than Credential Access
+- [hashcat — example hashes](https://hashcat.net/wiki/doku.php?id=example_hashes) — mode 13100 for Kerberos 5 etype 23 TGS-REP (Kerberoasting) and 18200 for etype 23 AS-REP
+- [Impacket — GetUserSPNs](https://github.com/fortra/impacket) and [Rubeus](https://github.com/GhostPack/Rubeus) — the tooling used in the lab to enumerate SPNs and request the tickets
