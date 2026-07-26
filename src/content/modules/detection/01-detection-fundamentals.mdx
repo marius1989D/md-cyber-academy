@@ -1,0 +1,184 @@
+---
+title: "What Makes a Detection Good"
+course: detection
+order: 1
+summary: "The arithmetic that decides whether your rule helps the SOC or buries it, and the framework that stops a good idea shipping as a bad alert."
+rung: 2
+minutes: 28
+attack: []
+atlas: []
+objectives: []
+tags: ["detection-engineering", "precision", "pyramid-of-pain", "ads-framework", "false-positives"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+The network course kept running into the same wall. Alerting on RC4 alone buries you. Alerting on periodicity alone buries you. Alerting on failed logons misses cloud token theft entirely. That was not a coincidence — it was this course showing through. Detection engineering is the discipline of deciding *what to alert on*, and it is mostly a fight against noise rather than a search for cleverness.
+
+Start by separating two words that get used interchangeably and should not be. A **detection** is a hypothesis about adversary behaviour, expressed precisely enough to evaluate against data. An **alert** is what fires when it matches. Most bad detection work comes from writing the query first and never articulating the hypothesis — because an unstated hypothesis cannot be reviewed, tested, or disproved.
+
+## The four outcomes, and the one you cannot see
+
+Every detection produces one of four results against reality:
+
+| | Malicious activity present | No malicious activity |
+|---|---|---|
+| **Rule fires** | True positive | **False positive** |
+| **Rule silent** | **False negative** | True negative |
+
+Two of those are quietly asymmetric. False positives are *visible and expensive* — they arrive in a queue, consume an analyst, and erode trust in the rule. False negatives are **invisible**: the rule stayed silent, nothing appeared, and everyone assumed it was working. You will never get a ticket telling you a detection failed to fire.
+
+That asymmetry drives a bias worth naming: teams over-correct toward silence, because silence feels like success. A rule that never fires looks healthy on a dashboard and is indistinguishable from a rule that is broken. This is why validation — deliberately executing the behaviour to confirm the rule fires — is not optional polish. It is the only way to measure the outcome you cannot otherwise observe.
+
+## The arithmetic that ruins good ideas
+
+Here is the calculation every detection engineer should be able to do on a whiteboard, because it explains almost every unhappy SOC.
+
+Take a rule running over **1,000,000** events a day. Suppose **10** of those events are genuinely malicious, and the rule is good: it catches **90%** of them, so **9 true positives**. Now suppose it has a false positive rate of just **0.1%** — one in a thousand benign events, which sounds excellent.
+
+The remaining 999,990 benign events produce **about 1,000 false positives**.
+
+- **Recall** (of the real attacks, how many did I catch?) = 9/10 = **90%**. Excellent.
+- **Precision** (of my alerts, how many were real?) = 9 / (9 + 1,000) = **0.9%**.
+
+Roughly **one alert in 112 is real.** The rule is 90% effective and completely unusable. Nothing is wrong with the maths and nothing is wrong with the analyst — the problem is that malicious events are vanishingly rare compared to benign ones, so even a tiny false positive rate is multiplied by an enormous denominator.
+
+<Callout type="key">
+This is the **base rate problem**, and it is the single most important idea in the course. When the thing you are looking for is rare, *precision is dominated by your false positive rate, not by how good your rule is at finding attacks.* Halving your false positive rate does more for the SOC than improving your catch rate ever will.
+
+It also reframes what "tuning" means. Tuning is not weakening a detection out of laziness. Tuning is the work that moves a rule from 0.9% precision to something an analyst can act on — and a rule nobody can action is not a detection, it is a liability with a name.
+</Callout>
+
+## Why some indicators are worth more than others
+
+Not all detections are equally durable, and David Bianco's **Pyramid of Pain** is the standard way to reason about it. From the bottom up, each level costs the adversary more to evade:
+
+| Level | What you detect on | Cost to the adversary |
+|---|---|---|
+| Hash values | A specific file hash | Trivial. Any change produces a new hash |
+| IP addresses | A C2 address | Trivial. Change the address, especially via anonymising services |
+| Domain names | A C2 domain | Small. Requires registration and payment, but still cheap |
+| Network / host artifacts | User-agent strings, registry keys, named pipes | Real. Forces reconfiguration and recompilation |
+| Tools | The attacker's utility itself | Significant. They must find, build or learn a replacement |
+| **TTPs** | The *behaviour* — how they operate | Highest. Bianco's point: respond to TTPs fast enough and "you force them to do the most time-consuming thing possible: learn new behaviors" |
+
+Climb the pyramid where you can. But hold the trade-off honestly, because the pyramid is often quoted as if the bottom were worthless: hash and IP detections are cheap, extremely precise, and near-zero noise — they are excellent *when you have them*. They simply expire the moment the adversary changes anything. Behavioural detections are durable and survive infrastructure changes, and they are also where all the false positives live, because legitimate software does most of the same things. **You want both, and you should know which kind you are writing and why.**
+
+## Making a detection reviewable
+
+An idea in someone's head cannot be peer-reviewed, and a query with no documentation cannot be maintained after its author leaves. Palantir's **Alerting and Detection Strategy (ADS) framework** exists precisely because alerts were reaching production without rigour. It requires nine sections before deployment:
+
+**Goal, Categorization, Strategy Abstract, Technical Context, Blind Spots and Assumptions, False Positives, Validation, Priority, Response.**
+
+Two of those are the ones beginners skip, and they are the two that matter most.
+
+- **Blind Spots and Assumptions** forces you to state what your rule *cannot* see. Every detection has an evasion; writing it down converts an unknown gap into a known, documented one that someone can plan around.
+- **Response** forces you to answer "what should the analyst do when this fires?" If you cannot write that sentence, the alert should not ship. An alert with no defined response is how queues fill with things nobody knows how to action.
+
+Note also **Categorization** — mapping to ATT&CK — which is what makes coverage measurable rather than a feeling, and the subject of the next module.
+
+## Judging two rules for the same technique
+
+Rung 2. Both of these aim at the same behaviour: credential theft via LSASS memory access. Which is the better detection?
+
+```text
+RULE A
+  hypothesis: (not stated)
+  logic:      process_name == "mimikatz.exe"
+  response:   (not stated)
+
+RULE B
+  hypothesis: Credential theft requires reading LSASS memory. Tools vary; the
+              access does not.
+  logic:      Sysmon Event ID 10 (ProcessAccess) where TargetImage ends with
+              lsass.exe AND GrantedAccess indicates memory read
+  known FPs:  EDR agents, some backup and monitoring software
+  blind spot: Does not catch LSASS dumping via a signed driver or a
+              kernel-mode technique
+  response:   Isolate host, capture memory, check for outbound transfer of
+              the dump file
+```
+
+Rule A sits at the bottom of the pyramid, on the *tool name*, and is defeated by renaming the file — which every operator does by default. It is nearly noise-free and will almost never fire on anything real. Rule B targets the behaviour that the technique requires regardless of tooling, so it survives renaming and reimplementation. It will also generate false positives from legitimate software, which is exactly why it carries a documented known-FP list and a response.
+
+The judgement to internalise: **Rule B is better despite being noisier, because its noise is documented and tunable while Rule A's silence is not.** A rule that cannot fail loudly fails quietly instead.
+
+<Callout type="detect">
+Two habits that separate a detection engineer from someone writing queries:
+
+- **Write the detection to a log source you have actually confirmed.** Sysmon Event ID 3 and 10 are disabled or unconfigured by default, Kerberos service-ticket auditing has to be switched on, and Entra non-interactive sign-ins need routing to your SIEM. A perfect rule over a log source nobody collects is worth nothing, and this is the most common reason a detection "does not work".
+- **Validate by executing the behaviour.** Red Canary's **Atomic Red Team** provides small, portable tests mapped to ATT&CK techniques for exactly this. Run the atomic, confirm the alert fires, and record the result. If you never fire your own rule on purpose, you are trusting a false negative to announce itself, and it will not.
+</Callout>
+
+<Quiz mid="detection/01-detection-fundamentals" title="What Makes a Detection Good" questions={[
+  {
+    q: "A rule sees 1,000,000 events a day, of which 10 are malicious. It catches 9 of them and has a 0.1% false positive rate. What is its approximate precision?",
+    opts: ["90%, because it caught 9 of 10 attacks", "About 0.9% -- roughly 1 alert in 112 is real", "99.9%, matching the false positive rate", "50%, because there are two outcomes"],
+    a: 1,
+    why: "Recall is 90% (9 of 10 caught), but precision is what the analyst experiences. A 0.1% false positive rate over 999,990 benign events produces about 1,000 false alerts, so precision is 9/(9+1000) = 0.9%. This is the base rate problem: when the target is rare, precision is dominated by the false positive rate, not by how well the rule finds attacks."
+  },
+  {
+    q: "Why are false negatives harder to manage than false positives?",
+    opts: ["They generate more alerts", "They are invisible -- the rule stays silent, so nothing appears to indicate the failure", "They are always caused by log source misconfiguration", "They only occur in behavioural detections"],
+    a: 1,
+    why: "A false positive arrives in a queue and demands attention. A false negative produces nothing at all, so a broken rule is indistinguishable from a healthy one that simply had nothing to fire on. That is why deliberately executing the behaviour to confirm the rule fires -- validation -- is the only reliable way to measure it."
+  },
+  {
+    q: "Detecting on a file hash sits at the bottom of the Pyramid of Pain. What does this actually mean for its use?",
+    opts: ["Hash detections are worthless and should never be written", "They are cheap and highly precise but expire as soon as the adversary changes anything; useful alongside behavioural rules, not instead of them", "They are the most durable form of detection", "They only work against nation-state adversaries"],
+    a: 1,
+    why: "The pyramid measures the cost to the adversary of evading, not the value to you. Hash and IP detections are near-zero noise and excellent when you have them -- they just break the moment anything changes. Behavioural detections are durable but carry the false positives. A good programme runs both and knows which it is writing."
+  },
+  {
+    q: "In the ADS framework, why is the 'Response' section required before an alert ships?",
+    opts: ["To satisfy compliance auditors", "Because an alert nobody knows how to action is not a detection -- it is a queue item with no outcome", "Because it determines which SIEM backend to use", "Because it sets the rule's schedule"],
+    a: 1,
+    why: "If you cannot write down what the analyst should do when the rule fires, the alert should not be deployed. Undefined response is how queues fill with items that get acknowledged and closed without investigation, which trains the team to ignore the rule -- and an ignored rule is functionally a false negative."
+  },
+  {
+    q: "Rule A matches process_name == 'mimikatz.exe'. Rule B matches process access to lsass.exe memory. Which is the better detection and why?",
+    opts: ["Rule A, because it produces almost no false positives", "Rule B, because it targets behaviour the technique requires regardless of tooling; its noise is documented and tunable, while Rule A's silence is not", "Rule A, because named indicators are easier to explain to management", "They are equivalent, since both target credential theft"],
+    a: 1,
+    why: "Rule A detects a filename, defeated by a rename that every operator performs by default -- it is quiet because it never fires, not because it is precise. Rule B detects the memory access the technique cannot avoid, so it survives renaming and reimplementation. Its false positives from EDR and backup software are real, but they are documented, tunable and visible; Rule A's failure is silent."
+  },
+  {
+    q: "You have written an excellent behavioural rule using Sysmon Event ID 10. What should you confirm first?",
+    opts: ["That the SIEM licence covers the extra volume", "That the log source is actually being generated and collected -- much Sysmon telemetry is off or unconfigured by default", "That the rule has a low false positive rate in testing", "That the technique appears in the ATT&CK matrix"],
+    a: 1,
+    why: "A perfect rule over a log source nobody collects detects nothing, and this is the most common reason a detection silently does not work. Sysmon network and process-access events, Kerberos ticket auditing and Entra non-interactive sign-ins all require deliberate enabling and routing. Confirm the telemetry exists before you tune anything."
+  },
+  {
+    q: "According to the Pyramid of Pain, what makes detecting on TTPs the most valuable level?",
+    opts: ["TTPs are the easiest indicators to collect", "Responding to TTPs forces the adversary to learn new behaviours, the most time-consuming thing you can impose on them", "TTP detections never produce false positives", "TTPs are the only level MITRE ATT&CK documents"],
+    a: 1,
+    why: "Bianco's point is about imposed cost: infrastructure and tooling can be swapped cheaply, but changing how an adversary operates means retraining and redeveloping. That durability is why behavioural detection is the goal -- while accepting that it is also where the false positives live, which is what makes tuning a core skill rather than an afterthought."
+  }
+]} />
+
+<Lab title="Write and validate one detection to ADS standard" host="Detection lab VM (Windows + Sysmon + a SIEM or Event Viewer)" minutes={60}>
+
+You are producing one properly documented, validated detection. One is enough — the point is the rigour, not the volume. This artifact is directly portfolio-usable.
+
+1. Pick a single ATT&CK technique you can safely execute in your own lab. `T1003.001` (LSASS memory) or `T1059.001` (PowerShell) are good first choices.
+2. Confirm the telemetry **before** writing anything. Verify the relevant Sysmon events are enabled and actually arriving in your log store. Record which event IDs you confirmed, and how.
+3. Write the detection as an ADS document with all nine sections: Goal, Categorization, Strategy Abstract, Technical Context, Blind Spots and Assumptions, False Positives, Validation, Priority, Response. Do not skip Blind Spots — name at least one concrete way an attacker evades your rule.
+4. Implement the logic as a query against your log store.
+5. Validate it. Install Atomic Red Team and run the atomic test for your chosen technique, then confirm your rule fires. Record the timestamp of the atomic and the timestamp of the alert.
+6. Now measure the noise. Run the rule over at least 24 hours of normal lab activity and count the alerts. Anything that is not your atomic is a false positive: identify what caused each one, and update the False Positives section with what you found rather than what you guessed.
+7. Estimate the precision you would expect in a real estate of 1,000 endpoints, and state whether you would ship this rule as an alert, as a lower-priority hunting query, or not at all. Justify the choice in one sentence.
+
+**Evidence of completion:** a journal entry containing (a) the complete nine-section ADS document, (b) proof of validation — the atomic test paired with the resulting alert and their timestamps, (c) your measured 24-hour false positive count with the cause of each, and (d) your ship/hunt/discard decision with its justification. Parts (b) and (c) are what make this portfolio evidence rather than a homework exercise: they prove you validated the rule instead of assuming it worked, and that you measured the noise instead of guessing at it.
+
+</Lab>
+
+## Sources
+
+- [David Bianco — The Pyramid of Pain](https://detect-respond.blogspot.com/2013/03/the-pyramid-of-pain.html) — the six levels from hash values to TTPs, and the point that responding to TTPs forces adversaries "to do the most time-consuming thing possible: learn new behaviors"
+- [Palantir — Alerting and Detection Strategy (ADS) Framework](https://github.com/palantir/alerting-detection-strategy-framework) — the nine required sections, and the stated motivation of a "lack of rigor around the creation, development, and implementation of an alert"
+- [Red Canary — Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) — "a library of tests mapped to the MITRE ATT&CK framework", used in the lab to validate that a rule actually fires
+- [SigmaHQ — Sigma](https://sigmahq.io/) — the generic, platform-agnostic detection format that lets a rule be written once and converted to multiple SIEM backends; the subject of module 12
+- [MITRE ATT&CK — Enterprise tactics](https://attack.mitre.org/tactics/enterprise/) — the framework behind the ADS Categorization section and the coverage mapping in module 2
+- [Microsoft Learn — Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon) — the event IDs used in the worked example and lab, including that several are disabled by default
