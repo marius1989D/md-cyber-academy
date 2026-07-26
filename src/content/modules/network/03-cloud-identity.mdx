@@ -1,0 +1,152 @@
+---
+title: "Cloud Identity: Tokens, Federation and the Sign-in Log"
+course: network
+order: 3
+summary: "Why the cloud perimeter is a bearer token, how an attacker gets one without your password, and the Entra sign-in field that shows MFA was never actually challenged."
+rung: 3
+minutes: 26
+attack: ["T1528", "T1550.001", "T1606.002", "T1621", "T1098.001", "T1078.004"]
+atlas: []
+objectives: ["CEH v13 M19"]
+tags: ["entra-id", "oauth", "oidc", "saml", "token-theft", "conditional-access", "sign-in-logs"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 2 was about identity inside a domain, where a domain controller vouches for you and Kerberos tickets do the work. This module is about identity once the resources leave the building — mailboxes, files and admin consoles that live in someone else's data centre. The mechanics change completely, and so does the thing an attacker steals. On-prem the prize was a ticket or a hash. In the cloud it is a **token**, and the uncomfortable truth of this whole module is that a token is a *bearer* credential: whoever holds it is treated as the user, no questions asked.
+
+## The perimeter is now a token
+
+There is no network boundary around a SaaS mailbox. The boundary is the check that happens at sign-in, and the *output* of that check is a token the client then presents on every subsequent request. Get past the check once — or steal what it produced — and you are inside, from anywhere on the internet. This is why "identity is the new perimeter" is not a slogan but an operational fact: for cloud resources, the identity system is the only perimeter there is.
+
+## OAuth 2.0, in the four roles that matter
+
+Almost all cloud authorisation runs on OAuth 2.0 (RFC 6749). It defines four roles, and you should be able to place any real system into them:
+
+- **Resource owner** — the user who owns the data (usually a person).
+- **Client** — the application acting on the user's behalf (a mail client, a third-party app).
+- **Authorization server** — the thing that authenticates the user and issues tokens. In a Microsoft estate this is **Microsoft Entra ID** (formerly Azure AD).
+- **Resource server** — the API holding the data and accepting tokens (Exchange Online, SharePoint, Microsoft Graph).
+
+OAuth issues two tokens that behave very differently, and confusing them is where a lot of cloud-security reasoning goes wrong:
+
+- The **access token** is short-lived (typically an hour) and is the bearer credential presented to the resource server on each call.
+- The **refresh token** is long-lived and does one job: mint fresh access tokens without re-prompting the user. RFC 6749 makes issuing it optional, but in practice it is what keeps you signed in for weeks.
+
+OAuth alone only handles *authorisation* — "this client may read that mailbox". **OpenID Connect** layers *authentication* on top by adding a third token, the **ID token**, which OIDC Core defines as a JWT "that contains Claims about the Authentication of an End-User". Its `sub` claim is the stable, never-reassigned identifier for the user. So: OAuth says what an app may do; OIDC says who signed in.
+
+<Callout type="key">
+Say the quiet part out loud: **MFA protects the moment a token is *issued*, not the token afterwards.** Once Entra has run your multifactor check and handed back a refresh token, that token embodies a fully-satisfied, MFA-passed session. An attacker who steals it does not face MFA again — they replay a credential for which MFA has already been answered. This is why session-token theft is the defining cloud attack and why "we have MFA" is a partial answer. MFA raises the cost of *getting* the first token; it does nothing for a token that has already left the building.
+</Callout>
+
+## Federation: bridging on-prem to cloud
+
+Many organisations still authenticate users against on-prem infrastructure and then *federate* that identity to the cloud. The bridge protocol is usually **SAML 2.0**, and the on-prem component that issues the SAML assertions — historically Active Directory Federation Services (AD FS) — signs each assertion with a **token-signing certificate**. The cloud trusts any assertion that certificate signs. Hold that fact; it is the entire basis of Golden SAML below.
+
+## The attacks that follow from bearer tokens
+
+None of these are Kerberos-style protocol bugs. They follow directly from the fact that tokens are bearer credentials and consent is delegated.
+
+- **Pass the token / token replay (T1550.001).** Steal an access or refresh token — from a compromised endpoint, a proxy-in-the-middle phishing page, or browser storage — and replay it. The stolen refresh token is the bigger prize: with it the attacker mints new access tokens on demand (T1528 covers the theft), operating as a valid cloud account (T1078.004) with MFA already satisfied.
+- **Consent phishing / illicit consent grant (T1528).** No password is stolen at all. The attacker registers a malicious OAuth app and sends the user a legitimate-looking Microsoft consent link. The user clicks *Accept*, granting the app delegated permissions to their mail or files. The app now holds its own OAuth token — one that **survives a password reset and was never subject to the user's MFA**, because the user authorised it themselves. This is the attack that breaks the "just reset the password" reflex.
+- **Golden SAML (T1606.002).** The cloud analogue of the Golden Ticket from Module 2. Steal the AD FS token-signing certificate's private key and you can forge SAML assertions for *any* user with *any* claims and lifetime you like — including a global administrator. Because the assertion is minted offline, Entra sees a valid federated sign-in with no preceding authentication event on the identity provider.
+- **Add credentials to an app or service principal (T1098.001).** A quieter persistence move: an attacker with directory rights adds their own client secret or certificate to an existing app registration or service principal. That application identity now authenticates as itself, no user and no MFA involved, and blends into normal service traffic.
+- **MFA fatigue / push bombing (T1621).** When the attacker already has the password but not the second factor, they trigger login after login, spraying the victim with Authenticator prompts until someone taps *Approve* to make it stop.
+
+## Reading a real one
+
+Rung 3. Here is a slice of Entra ID sign-in logs for one user, reduced to the fields that decide the case. Work out what happened before reading on.
+
+```text
+Time   Type             Status   IP / Location          Auth requirement       Conditional Access
+09:02  Interactive      Success  81.2.x.x  London, GB   multifactor auth        Success (MFA satisfied)
+09:03  Non-interactive  Success  81.2.x.x  London, GB    single-factor auth     Not applied
+11:47  Non-interactive  Success  203.0.x.x Lagos, NG     single-factor auth     Not applied
+11:47  Non-interactive  Success  203.0.x.x Lagos, NG     single-factor auth     Not applied
+```
+
+The 09:02 line is the real user: an *interactive* sign-in from London where the **Authentication requirement** is `multifactor` and Conditional Access is satisfied. The 09:03 line is normal too — a *non-interactive* token refresh from the same address. The two 11:47 lines are the compromise. They are **non-interactive** — no human, no fresh credential — from Lagos, minutes later, reusing a refresh token that was issued in London. The tell is not a failed login; every row says `Success`. The tell is the pairing: a session that satisfied MFA once in London is now producing tokens from Nigeria with the **Authentication requirement of `single-factor`**, because MFA was never re-challenged — the refresh token already carried the satisfied claim. That is token theft, and impossible-travel on the non-interactive log is how you see it.
+
+<Callout type="detect">
+Cloud identity telemetry is not one log, and knowing which one answers which question is the skill. Entra splits sign-ins into four streams — **interactive, non-interactive, service principal, and managed identity** — and the mistake beginners make is watching only the interactive one, which is exactly where token replay does *not* appear. Practical anchors:
+
+- **Non-interactive sign-in logs** are where refresh-token abuse surfaces. Correlate on impossible travel and on an `Authentication requirement` of `single-factor` for a session whose interactive origin was `multifactor`.
+- **Audit logs**, not sign-in logs, record the two persistence moves: a *Consent to application* event (illicit consent grant) and an *Add service principal credentials* / *Update application – Certificates and secrets* event (T1098.001). If you only watch sign-ins, you will miss both.
+- **Conditional Access** showing `Not applied` is not automatically benign — an interrupted or non-interactive flow shows the same value. Read it alongside the sign-in type rather than as a verdict on its own.
+
+The unifying rule: for cloud identity the interesting event is frequently a *success* with anomalous context, never a failure. Alerting on failed logons is the on-prem habit that blinds you here.
+</Callout>
+
+<Quiz mid="network/03-cloud-identity" title="Cloud Identity: Tokens, Federation and the Sign-in Log" questions={[
+  {
+    q: "Why does enforcing MFA fail to stop an attacker who has stolen a user's refresh token?",
+    opts: ["Refresh tokens contain the user's password in plaintext", "MFA is validated when the token is issued; a stolen refresh token already embodies an MFA-satisfied session and is replayed without a new challenge", "MFA only applies to administrator accounts", "Refresh tokens disable MFA on the tenant"],
+    a: 1,
+    why: "MFA raises the cost of obtaining the first token, not of using a token already issued. A refresh token carries a fully-satisfied, MFA-passed session, so replaying it mints new access tokens without re-prompting. This is why session-token theft is the defining cloud attack and why 'we have MFA' is only a partial control."
+  },
+  {
+    q: "In an OAuth 2.0 / OIDC flow, what is the specific job of the ID token as opposed to the access token?",
+    opts: ["The ID token is the long-lived credential used to mint new access tokens", "The ID token is a JWT asserting the authentication of the end-user (who signed in); the access token authorises API calls (what an app may do)", "The ID token encrypts the access token in transit", "They are two names for the same token"],
+    a: 1,
+    why: "OpenID Connect adds authentication on top of OAuth's authorisation. The ID token is a JWT containing claims about the end-user's authentication, with sub as the stable subject identifier — it answers 'who signed in'. The access token is the bearer credential the resource server accepts — it answers 'what may this client do'. The refresh token is the long-lived one that mints access tokens."
+  },
+  {
+    q: "A user reports nothing wrong, but a malicious third-party app is reading their mailbox. Their password was reset yesterday and MFA is enforced. How is the app still authenticated?",
+    opts: ["The password reset failed silently", "Consent phishing: the user granted the app delegated OAuth permissions, so it holds its own token that survives password resets and was never subject to the user's MFA", "MFA does not apply to mailboxes", "The attacker forged a Kerberos ticket"],
+    a: 1,
+    why: "In an illicit consent grant (T1528), the user themselves authorises a malicious OAuth app, which then holds a delegated token independent of the user's password and MFA. Resetting the password does not revoke the app's consent, which is why this attack defeats the standard 'just reset the password' response. Revoking the consent/app grant is the actual remediation."
+  },
+  {
+    q: "Which Entra sign-in log stream is the right place to hunt for refresh-token replay?",
+    opts: ["Interactive user sign-ins", "Non-interactive user sign-ins", "The audit log", "The provisioning log"],
+    a: 1,
+    why: "Token replay produces no human interaction, so it lands in the non-interactive sign-in logs, not the interactive ones beginners tend to watch. Correlate impossible travel there, and watch for a session whose interactive origin was multifactor now yielding single-factor non-interactive tokens from a new location. The audit log is for configuration changes like consent and credential additions, not sign-ins."
+  },
+  {
+    q: "An attacker steals the AD FS token-signing certificate's private key. What can they now do, and what is the on-prem analogue?",
+    opts: ["Only decrypt existing SAML assertions; analogous to Kerberoasting", "Forge SAML assertions for any user with any claims and lifetime, authenticating to the federated cloud as anyone including a global admin; analogous to a Golden Ticket", "Reset every user's password; analogous to a Silver Ticket", "Read the sign-in logs; analogous to Pass the Ticket"],
+    a: 1,
+    why: "Golden SAML (T1606.002) abuses the token-signing certificate to forge arbitrary SAML assertions the cloud will trust, including one claiming global-admin rights. It is the cloud analogue of the Golden Ticket: compromise the signing key at the root of trust and you can mint identity at will. Because assertions are forged offline, the IdP shows no matching authentication event."
+  },
+  {
+    q: "In the sign-in log, a successful non-interactive sign-in shows an Authentication requirement of single-factor while the user's earlier interactive sign-in that day was multifactor. Why is this worth investigating?",
+    opts: ["It always indicates a misconfiguration, never an attack", "A single-factor non-interactive token derived from an MFA-satisfied session is expected — but paired with a new/foreign IP it is the signature of refresh-token replay", "Single-factor sign-ins are impossible in a tenant with MFA", "It means Conditional Access has been disabled tenant-wide"],
+    a: 1,
+    why: "Non-interactive token refreshes legitimately show single-factor because the refresh token carries the already-satisfied MFA claim — so the etype-style trap is alerting on single-factor alone. The durable signal is behavioural: that single-factor non-interactive activity appearing from a location or IP inconsistent with the interactive origin. Context, not the factor value, makes the case."
+  }
+]} />
+
+<Lab title="Mint, decode and trace a real token in a free Entra tenant" host="2018 MBP attack box + free Microsoft Entra tenant" minutes={50}>
+
+You will run a real OAuth flow against your own tenant, inspect the token you get, and then find your own sign-in in the log — the exact trail you would follow during an investigation, done from the defender's chair. Use a free Microsoft Entra tenant (the Microsoft 365 Developer Program or a free Azure sign-up); never a production tenant.
+
+1. In your tenant, register an application. Note its Application (client) ID, and add the delegated Microsoft Graph permission `User.Read`.
+2. Run the OAuth 2.0 device code flow to sign in as yourself and obtain tokens. A few lines of Python with MSAL, or a raw `curl` against the device-code and token endpoints, both work. Complete the interactive step in the browser, MFA and all.
+3. Paste the returned **ID token** into `https://jwt.ms` (or decode it locally) and read the claims. Identify `sub`, `aud`, `iss`, `iat`/`exp`, and the tenant ID. Note that anyone holding this string can read those claims — it is not encrypted, only signed.
+4. Now inspect the **access token** and confirm its short lifetime, then confirm you also received a **refresh token**. Write one sentence on why the refresh token is the credential you would least want stolen.
+5. Switch to the defender's chair: in the Entra admin center open **Monitoring & health > Sign-in logs** and find the sign-in you just performed. Record the sign-in **type** (interactive), the **Authentication requirement**, and the **Conditional Access** result.
+6. Optional: use the refresh token to request a new access token from the token endpoint, then find the resulting **non-interactive** sign-in in the log. Compare its Authentication requirement to the interactive one from step 5.
+
+**Evidence of completion:** a journal entry with (a) the decoded ID-token claims (`sub`, `aud`, `iss`, `exp`) with any tenant-identifying values redacted, (b) a one-line note on the difference between the access and refresh token and which you would least want stolen, and (c) a screenshot or transcription of your own sign-in log entry showing the type and Authentication requirement. That last artifact is the point: you have now read the exact field an analyst uses to tell an MFA-satisfied session from a replayed one.
+
+</Lab>
+
+## Sources
+
+- [RFC 6749 — The OAuth 2.0 Authorization Framework](https://datatracker.ietf.org/doc/html/rfc6749) — the four roles (resource owner, client, authorization server, resource server), and the distinction between the short-lived access token and the optional long-lived refresh token
+- [RFC 6750 — The OAuth 2.0 Authorization Framework: Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750) — that an access token is a bearer credential presented to the resource server
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html) — the ID Token defined as a JWT "that contains Claims about the Authentication of an End-User", and the `sub` subject-identifier claim
+- [Microsoft Learn — Sign-in logs in Microsoft Entra ID](https://learn.microsoft.com/en-us/entra/identity/monitoring-health/concept-sign-ins) — the four sign-in log types (interactive, non-interactive, service principal, managed identity) and the separate audit, provisioning and sign-up logs
+- [Microsoft Learn — Interactive user sign-in logs](https://learn.microsoft.com/en-us/entra/identity/monitoring-health/concept-interactive-sign-ins) — the fields shown (location, Conditional Access applied, cross-tenant access) and how `Not applied` Conditional Access should be read
+- [Microsoft Learn — Audit logs in Microsoft Entra ID](https://learn.microsoft.com/en-us/entra/identity/monitoring-health/concept-audit-logs) — where consent-to-application and credential-addition events are recorded
+- [Microsoft Learn — Investigate risky OAuth apps](https://learn.microsoft.com/en-us/defender-cloud-apps/investigate-risky-oauth) — illicit consent grant investigation and revocation
+- [MITRE ATT&CK T1528 — Steal Application Access Token](https://attack.mitre.org/techniques/T1528/) — OAuth consent phishing and refresh-token theft to obtain new access tokens without prompting the user
+- [MITRE ATT&CK T1550.001 — Use Alternate Authentication Material: Application Access Token](https://attack.mitre.org/techniques/T1550/001/) — replaying a stolen token to bypass authentication
+- [MITRE ATT&CK T1606.002 — Forge Web Credentials: SAML Tokens](https://attack.mitre.org/techniques/T1606/002/) — Golden SAML: forging assertions with a stolen AD FS token-signing certificate, up to global-admin claims
+- [MITRE ATT&CK T1098.001 — Account Manipulation: Additional Cloud Credentials](https://attack.mitre.org/techniques/T1098/001/) — adding a secret or certificate to an app registration or service principal for persistence
+- [MITRE ATT&CK T1621 — Multi-Factor Authentication Request Generation](https://attack.mitre.org/techniques/T1621/) — MFA fatigue / push bombing
+- [MITRE ATT&CK T1078.004 — Valid Accounts: Cloud Accounts](https://attack.mitre.org/techniques/T1078/004/) — operating as a legitimate cloud identity once a token or consent is obtained
+- [Microsoft Learn — Microsoft identity platform and the OAuth 2.0 device code flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code) — the flow used in the lab to obtain tokens
