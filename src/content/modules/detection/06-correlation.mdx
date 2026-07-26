@@ -1,0 +1,181 @@
+---
+title: "Correlation: Turning Alerts Into an Incident"
+course: detection
+order: 6
+summary: "Three low-severity alerts in three products are one intrusion, and the hard part is proving the user in each of them is the same person."
+rung: 3
+minutes: 30
+attack: ["T1078.004", "T1204.002", "T1041"]
+atlas: []
+objectives: []
+tags: ["correlation", "entity-mapping", "sigma", "fusion", "incidents", "sequences", "siem"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 5 ended on a process tree, and that tree was legible because everything in it came from one log source on one host. Real intrusions are not so tidy. They start in a cloud identity, execute on an endpoint, and leave through a proxy — three products, three log formats, three separate low-severity alerts that individually justify nothing.
+
+Correlation is the work of assembling those into one incident. It is also where a SOC's alert volume problem is genuinely solved rather than merely tuned, because fifty alerts about one intrusion becoming one incident about one intrusion is a fifty-fold reduction with no loss of detection.
+
+## Three reasons to correlate
+
+Worth separating, because they need different mechanisms:
+
+- **Weak signals in combination.** A new sign-in country is weak; a large upload is weak; together with execution on the user's endpoint they describe an account takeover. This is the risk-based alerting case from Module 4.
+- **Confidence from crossing tactics.** One alert in Execution is a maybe. An alert in Execution *plus* Credential Access *plus* Exfiltration on the same entity within an hour is qualitatively different — it is the shape of an intrusion rather than the shape of a false positive. Legitimate software rarely produces a full attack chain.
+- **Volume reduction.** Grouping related alerts into one incident is a queue improvement that costs no coverage.
+
+## The hard part: deciding what is the same thing
+
+Here is the problem nobody warns you about. Correlation is trivial once you can join records; **the difficulty is entirely in the join.**
+
+One human being appears in your telemetry as:
+
+| Source | How they appear |
+|---|---|
+| Entra ID sign-in log | `j.hartley@corp.local` (UPN) |
+| Windows Security log | `CORP\jhartley` (SAM account name) |
+| Mail gateway | `james.hartley@corp.com` (external address) |
+| Proxy log | `10.10.9.14` — an IP, with no user at all |
+| EDR | a device GUID and a logged-on-user field |
+
+None of those strings match each other. Correlating on "user" requires a resolution layer that knows they are one identity, and correlating that proxy record requires knowing which host held `10.10.9.14` **at 09:48 on that date** — which is a DHCP lease question, not a security question.
+
+<Callout type="key">
+This is the module's real lesson: **identity and asset resolution is correlation infrastructure, and it is usually the missing piece.** DHCP logs, an asset inventory, and a mapping between account naming conventions are not administrative paperwork — without them, cross-source correlation is guesswork.
+
+It is also why Module 3's normalisation work pays off here rather than there. Schemas like ASIM and OCSF exist so that a source IP is the same field name everywhere; entity resolution is the next layer up, ensuring the *values* refer to the same real-world thing. Get one without the other and you can join fields that do not mean the same thing, which is worse than not joining at all because the result looks authoritative.
+</Callout>
+
+Microsoft Sentinel implements this as **entity mapping**: each analytics rule declares which fields represent which entities, using **identifiers** — attributes sufficient to identify the entity. Microsoft's guidance is that "using multiple strong identifiers will enable greater correlation between data sources", which is the whole principle in one sentence.
+
+The limits are worth knowing because they bite quietly: up to **three identifiers** per entity, up to **ten entity mappings** per rule, and up to **500 entities per alert** divided equally across the mappings defined — so five mappings gives each one a 100-entity ceiling. There is also a hard **64 KB** size limit on the entities area of an alert, beyond which entities are simply **dropped**. An alert on a noisy behaviour can therefore silently lose the very entity you needed to correlate on.
+
+## Sequence, count and order
+
+Once you can join, you specify the pattern. Sigma's correlation types name the four shapes you will actually use:
+
+- **`event_count`** — count events in a window. Brute force: 50 failures in five minutes.
+- **`value_count`** — count *distinct* values of a field. Enumeration: one account requesting 40 distinct service names, which is exactly the Kerberoasting fan-out from the network course.
+- **`temporal`** — several different event types within a window, in any order.
+- **`temporal_ordered`** — the same, but the events must occur in the sequence given.
+
+Each takes a **`group-by`** (the join key — the entity) and a **`timespan`**. That structure is worth internalising because it is platform-independent: every correlation engine is some version of *group by this entity, over this window, require this pattern*.
+
+Choose `temporal_ordered` carefully. Order carries real information — credential theft *after* a suspicious sign-in tells a different story from the reverse — but it makes the rule dependent on timestamp accuracy across sources, and Module 3 already established that timestamps are the least trustworthy field you have. If your sources disagree by minutes, an ordered rule fails silently while the unordered version works.
+
+## Declared rules correlate; undeclared rules do not
+
+There is a consequence of all this that turns Module 1's documentation discipline into an operational requirement.
+
+Sentinel's **Fusion** engine correlates signals across products into multistage-attack incidents, described by Microsoft as "low-volume, high-fidelity, and high-severity", comprising two or more alerts, and mapped to stages of the kill chain. It surfaces them as *incidents* in the `SecurityIncident` table rather than as alerts in `SecurityAlert`.
+
+The requirement is the interesting part: analytics rules "must contain kill-chain (tactics) and entity mapping information in order to be used by Fusion".
+
+Read that again in the context of Module 1's ADS framework. **Categorization** — declaring which ATT&CK tactic a rule addresses — looked like documentation hygiene. It is not. A rule that does not declare its tactic and does not map its entities is invisible to the correlation engine: it can fire, but it cannot contribute to an incident. Undocumented detections do not merely age badly; they are excluded from the mechanism that would have made them valuable.
+
+## Assembling one incident
+
+Rung 3. Three alerts, three products, over 34 minutes. Each was triaged separately and closed. Decide what was missed.
+
+```text
+09:14  Entra ID sign-in    Low       Sign-in from unfamiliar country
+                                     user: j.hartley@corp.local
+                                     result: success, MFA satisfied
+
+09:31  Endpoint (Sysmon)   Medium    Office application spawned PowerShell
+                                     host: WS-4471   user: CORP\jhartley
+
+09:48  Proxy               Low       240 MB upload to file-sharing domain
+                                     src: 10.10.9.14   user: (not logged)
+```
+
+Separately: a travelling user, a noisy macro rule, and someone using Dropbox. Together, across three ATT&CK tactics in 34 minutes on one identity: **T1078.004** valid cloud account, **T1204.002** user execution, **T1041** exfiltration. That is an intrusion, and it was in the queue the whole time as three closed tickets.
+
+Now the honest part, because this is what the module is actually teaching. Joining alert one to alert two requires knowing `j.hartley@corp.local` and `CORP\jhartley` are one person — an identity mapping. Joining alert three requires knowing `WS-4471` held `10.10.9.14` at 09:48 — a DHCP lease lookup, since the proxy logged no user at all. **Neither join is a detection problem. Both are inventory problems.** A team with a resolved identity and asset layer raises one high-severity incident here; a team without it closes three tickets and finds out later.
+
+<Callout type="warn">
+Two failure modes in the other direction, because correlation can be overdone.
+
+**Over-grouping.** Correlate too aggressively — a broad window, a weak join key like a shared NAT address or a service account used estate-wide — and unrelated activity merges into one enormous incident. Analysts then cannot tell which parts belong together, and genuine findings get buried inside a container that is technically one ticket. A NAT egress IP is a particularly bad join key: it groups the whole office.
+
+**Windows that are too narrow.** Real intrusions dwell. Credential theft may follow initial access by days, not minutes. A 15-minute correlation window is cheap to run and will miss any adversary who is not in a hurry, which is most of the competent ones.
+
+There is no correct universal window. What is correct is choosing it deliberately, per pattern, with a stated reason — and revisiting it when it produces either one giant incident or none at all.
+</Callout>
+
+<Quiz mid="detection/06-correlation" title="Correlation: Turning Alerts Into an Incident" questions={[
+  {
+    q: "Why is entity resolution described as the hard part of correlation rather than the pattern logic?",
+    opts: ["Because pattern logic requires machine learning", "Because the same person or asset appears under different identifiers in every source, so joining records requires a resolution layer that knows those values refer to one thing", "Because correlation engines cannot express sequences", "Because entity resolution is only needed for cloud logs"],
+    a: 1,
+    why: "One human is a UPN in Entra, a SAM account in Windows, an external address at the mail gateway and a bare IP in the proxy log. None of those strings match. The pattern -- group by entity, over a window, require a shape -- is straightforward once you can join; the join itself needs identity mapping, asset inventory and DHCP data, which is why those are correlation infrastructure rather than paperwork."
+  },
+  {
+    q: "A proxy log records a 240 MB upload from 10.10.9.14 with no user field. What is required to correlate it with an endpoint alert?",
+    opts: ["A more sensitive proxy rule", "Knowing which host held that IP at that exact time -- a DHCP lease lookup, not a security question", "Re-running the detection with a wider severity threshold", "Nothing; IP addresses are globally unique identifiers"],
+    a: 1,
+    why: "Without a user field the only join key is the address, and addresses are reassigned. Resolving it means knowing the lease held at 09:48 on that date, then mapping that host to its logged-on user. This is why DHCP logs and an asset inventory are prerequisites for cross-source correlation rather than optional hygiene."
+  },
+  {
+    q: "In Sentinel, what happens to a custom analytics rule that has no tactics declared and no entity mapping?",
+    opts: ["It runs normally and participates fully in incident correlation", "It can fire, but it is excluded from the Fusion correlation engine, which requires kill-chain and entity mapping information", "It is automatically disabled", "It only works on Basic table plans"],
+    a: 1,
+    why: "Microsoft states that analytics rules must contain kill-chain (tactics) and entity mapping information to be used by Fusion. This turns Module 1's ADS Categorization section from documentation hygiene into an operational requirement: an undeclared rule can alert, but it cannot contribute to a multistage incident, so its signal never joins anything."
+  },
+  {
+    q: "Which Sigma correlation type would you use to detect one account requesting service tickets for 40 distinct service names in five minutes?",
+    opts: ["event_count", "value_count", "temporal", "temporal_ordered"],
+    a: 1,
+    why: "value_count counts distinct values of a referenced field, which is exactly the enumeration shape -- the Kerberoasting fan-out from the network course, where the signal is the number of different service names rather than the raw event volume. event_count would count tickets regardless of how many distinct services they were for."
+  },
+  {
+    q: "What is the risk of using temporal_ordered rather than temporal?",
+    opts: ["Ordered correlation cannot express windows", "It depends on timestamp accuracy across sources, so clock skew or ingestion-time confusion makes the rule fail silently while the unordered version still works", "It only functions within a single log source", "It always produces more false positives"],
+    a: 1,
+    why: "Order genuinely carries information -- credential theft after a suspicious sign-in reads differently from the reverse -- but it makes the rule dependent on the least trustworthy field you have. Module 3 established that event time and ingestion time differ and that clock skew is common; if sources disagree by minutes, an ordered rule quietly stops matching."
+  },
+  {
+    q: "Your correlation rule groups alerts by source IP, and the office egresses through a single NAT address. What is the likely outcome?",
+    opts: ["Improved fidelity, since all traffic shares one identifier", "Over-grouping -- unrelated activity from the whole office merges into one enormous incident that buries genuine findings", "The rule will fail to run", "Alerts will be deduplicated correctly"],
+    a: 1,
+    why: "A join key shared by hundreds of users is not an entity, it is a container. Everything correlates with everything, producing a single vast incident in which analysts cannot tell which parts belong together. Weak join keys -- NAT addresses, estate-wide service accounts -- cause over-correlation, which hides findings as effectively as missing them."
+  },
+  {
+    q: "Sentinel limits an alert to 500 entities across its mappings and caps the entities field at 64 KB. Why does this matter for correlation?",
+    opts: ["It only affects the cost of the workspace", "Entities beyond the limit are dropped, so a noisy alert can silently lose the very entity you needed to correlate on", "It prevents rules from being saved", "It applies only to rules using ten mappings"],
+    a: 1,
+    why: "The 500-entity ceiling is divided equally across the mappings defined, and the entities area is truncated at 64 KB with excess entities dropped from the alert. An alert firing on a high-volume behaviour can therefore lose entities without error, and a missing entity means a join that silently never happens."
+  }
+]} />
+
+<Lab title="Correlate three sources into one incident" host="Detection lab + your log platform (Sentinel free tier or Elastic)" minutes={70}>
+
+You are going to build the identity resolution layer first, then a correlation rule that depends on it — in that order, because reversing it is the mistake this module exists to prevent.
+
+1. **Inventory your identifiers.** For one test user in your lab, list exactly how they appear in every log source you collect: UPN, SAM account, email address, host name, device ID, current IP. Write the actual strings side by side.
+2. **Build the resolution map.** Produce a small lookup — a watchlist, index, or CSV — that maps those representations to one canonical identity. Do the same for host-to-IP, using your DHCP or lease data.
+3. **Generate a chain.** Across at least two sources, produce a benign version of the worked example: a sign-in from an unusual source, then a distinctive process execution on that user's host, then an outbound transfer. Note the wall-clock time of each.
+4. **Try to correlate naively.** Write a rule that joins the sources on the user field as it appears natively, with no resolution layer. Confirm it does not match, and record why.
+5. **Correlate properly.** Rewrite it using your resolution map as the join key. Confirm it now assembles the chain into one result.
+6. **Test the window.** Run your rule with a 5-minute, 1-hour and 24-hour window. Record which windows catch your chain and which miss it, then state the window you would deploy and justify it against realistic adversary dwell time.
+7. **Break it deliberately.** Change your rule to `temporal_ordered` and then shift one source's clock by ten minutes (or simply correlate on ingestion time instead of event time). Confirm the ordered rule stops matching while the unordered one still works.
+8. **Check the join key quality.** Identify one weak join key in your environment — a NAT address, a shared service account, a generic host name — and state what would happen if you correlated on it.
+
+**Evidence of completion:** a journal entry with (a) your side-by-side identifier table for one user across all sources, (b) the resolution map you built, (c) the naive rule failing and the resolved rule succeeding, with both queries, (d) your window comparison across three durations and the justified choice, and (e) the result of the clock-skew test showing ordered correlation failing. Item (a) is the deliverable most worth keeping: being able to say out loud how one identity appears in five products, and what maps them together, is the difference between describing correlation and having done it.
+
+</Lab>
+
+## Sources
+
+- [SigmaHQ — Correlations](https://sigmahq.io/docs/meta/correlations.html) — the `event_count`, `value_count`, `temporal` and `temporal_ordered` correlation types, with the `group-by`, `timespan` and `condition` fields
+- [Sigma correlation rules specification](https://github.com/SigmaHQ/sigma-specification/blob/main/specification/sigma-correlation-rules-specification.md) — the formal specification behind those types
+- [Microsoft Learn — Map data fields to Microsoft Sentinel entities](https://learn.microsoft.com/en-us/azure/sentinel/map-data-fields-to-entities) — entity mapping and identifiers, that "using multiple strong identifiers will enable greater correlation between data sources", and the operational limits: up to three identifiers per entity, ten mappings per rule, 500 entities per alert divided across mappings, and a 64 KB entities-field cap beyond which entities are dropped
+- [Microsoft Learn — Advanced multistage attack detection (Fusion)](https://learn.microsoft.com/en-us/azure/sentinel/fusion) — Fusion as an ML correlation engine producing incidents that are "low-volume, high-fidelity, and high-severity" from two or more alerts across kill-chain stages, stored in `SecurityIncident` rather than `SecurityAlert`, and the requirement that analytics rules "must contain kill-chain (tactics) and entity mapping information in order to be used by Fusion"
+- [Microsoft Learn — Sentinel entities](https://learn.microsoft.com/en-us/azure/sentinel/entities) — the entity model correlation and investigation are built on
+- [Microsoft Learn — Create custom analytics rules to detect threats](https://learn.microsoft.com/en-us/azure/sentinel/detect-threats-custom) — alert grouping and incident creation settings on scheduled rules
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the Categorization section whose operational necessity this module establishes
+- [MITRE ATT&CK T1078.004 — Valid Accounts: Cloud Accounts](https://attack.mitre.org/techniques/T1078/004/), [T1204.002 — User Execution: Malicious File](https://attack.mitre.org/techniques/T1204/002/) and [T1041 — Exfiltration Over C2 Channel](https://attack.mitre.org/techniques/T1041/) — the three tactics crossed in the worked example
