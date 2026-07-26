@@ -1,0 +1,183 @@
+---
+title: "Tuning Without Going Blind"
+course: detection
+order: 4
+summary: "How to raise a rule's precision from unusable to actionable without quietly deleting the detection, and why every exclusion is a blind spot you now own."
+rung: 3
+minutes: 28
+attack: ["T1003.001"]
+atlas: []
+objectives: []
+tags: ["tuning", "false-positives", "exceptions", "risk-based-alerting", "alert-fatigue", "detection-engineering"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 1 left a rule on the table with 90% recall and 0.9% precision — one real alert in every 112. Tuning is the work that turns that into something a human can act on. It is the least glamorous part of detection engineering and the part that decides whether a SOC functions, so it is worth defining precisely rather than treating as "making the noise stop".
+
+**Tuning is raising precision while protecting recall.** Both halves matter. Anyone can silence a rule; the skill is silencing the noise without silencing the detection.
+
+## Two ways to fail, one of them invisible
+
+An under-tuned rule produces alert fatigue. The queue fills, analysts triage by pattern-matching rather than investigating, and eventually the rule gets acknowledged-and-closed on sight. Note what has happened: the rule still fires, dashboards still show it working, and it has stopped detecting anything. **An ignored alert is functionally a false negative** — the attack passes through a control everyone believes is operating.
+
+An over-tuned rule is worse because it is quieter. Exclusions accumulate, each individually justified, until the rule covers a fraction of the behaviour it names. Nobody notices, because — Module 1 again — silence looks like safety.
+
+Both failures end in a missed attack. Only the first one is visible before it happens, which is why over-tuning is the more dangerous habit and the one that needs deliberate discipline.
+
+## The tuning ladder, best to worst
+
+Not all tuning is equal. Work down this ladder and only move to the next rung when the one above genuinely cannot solve it:
+
+1. **Sharpen the hypothesis.** Often the rule is detecting a category when the malicious version has a distinguishing property. Not "process accessed LSASS" but "process accessed LSASS with a handle requesting memory read, from an image outside the expected set". This raises precision and costs no recall, because you are describing the attack more accurately rather than looking away from part of it.
+2. **Add context.** Enrich with asset criticality, user role, whether the source is signed, whether the destination is rare in the estate. Context turns one undifferentiated stream into a stream you can rank.
+3. **Threshold and aggregate.** One failed logon is nothing; eighty in a minute is something. Aggregation also collapses fifty alerts about one incident into one alert about one incident, which is a queue improvement with no detection loss.
+4. **Scope.** Run the noisy rule only where it is meaningful — domain controllers, servers holding regulated data — and accept reduced coverage elsewhere *as a recorded decision*.
+5. **Exclude.** Last resort. You are explicitly telling the system not to look somewhere.
+
+Most teams start at rung 5 because it is the fastest. That is precisely why their detections decay.
+
+## Exception hygiene, and the logic error that costs you
+
+If you must exclude, the shape of the exclusion decides how much you gave away. Here is the distinction that matters most, and it is genuinely easy to get wrong.
+
+Suppose a backup agent legitimately triggers your LSASS rule. You know three things about it: its full path, that it is signed by a known vendor, and which servers it runs on. Compare two ways of writing the exception:
+
+```text
+BROAD -- each condition excluded independently
+  where SourceImage       != "acmebkp.exe"
+  where SignatureStatus   != "Valid"
+
+  Drops any event matching EITHER condition.
+  You have just excluded every signed process in the estate.
+
+NARROW -- exclude only when the conditions co-occur
+  where not( SourceImage     == "C:\\Program Files\\AcmeBackup\\acmebkp.exe"
+         and SignatureStatus == "Valid"
+         and Signer          == "Acme Corp Ltd" )
+
+  Drops only the specific combination you actually investigated.
+```
+
+Chained exclusion clauses are ANDed together by the query engine, so each one removes events on its own — the union of everything you listed. To exclude a *combination*, the negation has to wrap the whole conjunction. Get this backwards and a single exception can blow a hole through the entire rule while looking, in review, like three careful conditions.
+
+<Callout type="warn">
+This is worth checking rather than trusting, including in vendor documentation — published examples of "fine-grained" exclusions sometimes chain the conditions in a way that is logically identical to the broad form they are contrasting themselves with. If you cannot state in one sentence which events an exclusion removes, do not deploy it.
+
+Test it the direct way: run the rule's query with the exclusion applied *as a select rather than a filter* — show me the events this exception will hide — and read them. If that set contains anything you would want to know about, the exception is wrong.
+</Callout>
+
+## Make exceptions expire
+
+The most under-used control in tuning is time. An exception written during a migration, a pen test, or a noisy software rollout is correct for that week and wrong for the next year — but nobody revisits it, because there is no prompt to.
+
+Microsoft Sentinel's automation-rule exceptions default to expiring after 24 hours, and Microsoft's stated reason is exactly this: a time limit "reduces the chance of false negative errors". Adopt the principle whatever platform you use. **Every exception should carry an owner and an expiry date**, and a permanent exception should be a deliberate decision someone signed, not the default outcome of nobody looking.
+
+There is also a division of labour worth knowing, because it comes up in interviews. Sentinel offers two routes: **automation rules**, which create exceptions without touching the analytics rule, apply across several rules, keep an audit trail of the closure reason, and are typically created by analysts; and **analytics rule modifications**, which support boolean and subnet logic and centralised exception lists via watchlists, are more flexible and complete, and are typically implemented by SOC engineers. The general lesson: analysts should be able to suppress noise safely and reversibly without editing detection logic.
+
+<Callout type="key">
+**Every exclusion is a blind spot you now own.** That is not a reason to avoid them — it is a reason to record them where they will be read. Each one belongs in the ADS **Blind Spots and Assumptions** section from Module 1, with the reason, the owner and the expiry.
+
+Do that consistently and your exception list becomes the honest answer to "what would this rule miss?", which is the question an interviewer asks and the question an incident asks. Skip it and you have a rule whose real coverage lives only in the query, where nobody reads it.
+</Callout>
+
+## When individually weak signals are all you have
+
+Some behaviours are never conclusive alone. A user logging in from a new country is weak. A large download is weak. An MFA method being registered is weak. Alert on each and you drown; ignore each and you miss the account takeover they collectively describe.
+
+**Risk-based alerting** inverts the model: instead of each rule raising an alert, each contributing observation adds a risk score to an entity — a user, a host — and an alert is raised only when accumulated risk crosses a threshold within a window. Detections that could never justify an alert individually become useful contributors, and the alert that eventually fires arrives with its supporting evidence already assembled.
+
+The trade-off is honest: you have added a scoring model that itself needs tuning, and a poorly-weighted one produces confident nonsense. But for the large class of signals that are suspicious only in combination, it is the difference between having a detection and not.
+
+## Judging a tuning request
+
+Rung 3. This lands in your queue. Decide before reading on.
+
+```text
+FALSE POSITIVE REPORT
+  Rule:       Suspicious process access to LSASS  (T1003.001)
+  Volume:     412 alerts / 24h, all triaged as benign
+  Cause:      Backup agent acmebkp.exe reading LSASS during nightly job
+  Affects:    340 file servers
+  Requested:  exclude where SourceImage contains "acmebkp.exe"
+```
+
+The request is understandable and the exclusion is dangerous. `contains "acmebkp.exe"` matches the filename **anywhere in any path**, so an attacker who drops a binary of that name in `%TEMP%`, or names their tool `evil-acmebkp.exe`, is now invisible to your best credential-theft detection. You have handed the adversary a documented allowlist entry, and filename-based exclusions are exactly what an operator looks for.
+
+Work the ladder instead. **Sharpen** first: does the backup agent request a different `GrantedAccess` mask than a credential dumper? If so, the malicious case can be described more precisely and the false positives vanish with no exclusion at all. If not, **add context**: exclude on the full path *and* a valid signature *and* the expected signer, combined so all must hold. Then **scope** it to the 340 servers where the backup agent actually runs, so a workstation triggering it still alerts. Record the residual blind spot: an attacker who compromises the backup vendor's signing key, or who abuses the legitimate agent on those specific servers, is not covered.
+
+That is four minutes of extra thought and the difference between a tuned rule and a deleted one.
+
+<Quiz mid="detection/04-tuning" title="Tuning Without Going Blind" questions={[
+  {
+    q: "Why is an alert that analysts routinely acknowledge and close without investigating functionally a false negative?",
+    opts: ["Because it inflates alert metrics", "Because the attack passes through a control everyone believes is operating -- the rule fires but detects nothing", "Because closing alerts deletes the underlying data", "Because it only happens with low-severity rules"],
+    a: 1,
+    why: "Alert fatigue does not merely waste time; it converts a working rule into a decorative one. The rule fires, dashboards show it healthy, and analysts pattern-match it closed. The organisation believes it is covered while the behaviour passes unexamined, which is exactly the outcome a false negative produces."
+  },
+  {
+    q: "An exception is written as two chained clauses: exclude where SourceImage != X, then exclude where SignatureStatus != Valid. What does this actually do?",
+    opts: ["Excludes only events where both conditions are true together", "Excludes events matching either condition independently -- in this case every signed process in the estate", "Excludes nothing, because the conditions conflict", "Excludes only the first condition; the second is ignored"],
+    a: 1,
+    why: "Chained exclusion clauses are ANDed by the query engine, so each removes events on its own and the result is the union of everything listed. To exclude a combination you must negate the whole conjunction: not(A and B and C). Getting this backwards blows a hole through the rule while looking, in review, like several careful conditions."
+  },
+  {
+    q: "Why should exceptions carry an expiry date by default?",
+    opts: ["To satisfy audit requirements", "Because exceptions written for a migration, pen test or rollout stay correct for that week and wrong for the next year, with nothing to prompt review", "Because platforms cannot store them permanently", "Because expired exceptions improve query performance"],
+    a: 1,
+    why: "Time is the most under-used control in tuning. Sentinel's automation-rule exceptions default to a 24-hour expiry for precisely this reason -- Microsoft states that the limit reduces the chance of false negative errors. A permanent exception should be a signed decision, not the default outcome of nobody revisiting it."
+  },
+  {
+    q: "On the tuning ladder, why is 'sharpen the hypothesis' preferred over 'exclude'?",
+    opts: ["It is faster to implement", "It raises precision at no cost to recall, because you are describing the attack more accurately rather than looking away from part of it", "It requires no documentation", "Exclusions are not supported by most SIEMs"],
+    a: 1,
+    why: "Sharpening means finding the property that distinguishes the malicious case -- a specific access mask, an unexpected parent, an image outside the expected set -- so false positives stop matching while true positives still do. Exclusion instead tells the system not to look somewhere, which always costs recall. Most teams start at exclusion because it is fastest, which is why their detections decay."
+  },
+  {
+    q: "A request asks you to exclude SourceImage contains 'acmebkp.exe' from an LSASS access rule. What is the specific danger?",
+    opts: ["It will slow the query down", "'contains' matches the filename in any path, so an attacker dropping or renaming a binary to that name becomes invisible to the rule", "It will exclude the backup servers entirely", "There is no danger if the backup agent is signed"],
+    a: 1,
+    why: "A substring match on a filename is an allowlist entry an adversary can simply adopt -- drop the binary in %TEMP%, or name a tool evil-acmebkp.exe, and the best credential-theft detection stops seeing it. The safer construction combines full path, valid signature and expected signer so that all must hold, scoped to the hosts where the agent genuinely runs."
+  },
+  {
+    q: "What problem does risk-based alerting solve that per-rule alerting cannot?",
+    opts: ["It removes the need for tuning", "It handles signals that are individually too weak to justify an alert but meaningful in combination, by accumulating risk on an entity until a threshold is crossed", "It eliminates false negatives", "It replaces the need for log normalisation"],
+    a: 1,
+    why: "A new sign-in country, a large download and an MFA method registration are each too weak to alert on and collectively describe an account takeover. Risk-based alerting scores contributions against an entity and fires once accumulated risk crosses a threshold, arriving with its evidence assembled. The trade-off is a scoring model that itself needs tuning."
+  },
+  {
+    q: "Where should a deployed exclusion be recorded, and why does it matter?",
+    opts: ["Only in the query, since that is where it executes", "In the detection's Blind Spots and Assumptions documentation, with reason, owner and expiry -- so the rule's real coverage is readable by someone other than its author", "In the incident ticket that prompted it", "Nowhere; exclusions are self-documenting"],
+    a: 1,
+    why: "An exclusion is a blind spot you now own. Recorded in the ADS Blind Spots section it becomes part of the honest answer to 'what would this rule miss?'. Left only in the query, the rule's true coverage is invisible to everyone who did not write it, which is how a detection quietly ends up covering a fraction of what its name claims."
+  }
+]} />
+
+<Lab title="Tune your Module 1 rule and prove you did not break it" host="Detection lab VM + your log platform" minutes={60}>
+
+You are taking the validated detection you built in Module 1 and putting it through a real tuning cycle, with measurements either side so the improvement is demonstrated rather than asserted.
+
+1. **Baseline.** Run your rule over at least 24 hours of lab activity. Record total alerts, and triage every one as true or false positive. Calculate the observed precision. This is your before figure.
+2. **Categorise the noise.** Group the false positives by root cause rather than listing them. Most rules have two or three causes producing most of the volume.
+3. **Sharpen first.** For the largest cause, find a property that distinguishes the malicious case — an access mask, a parent process, a path, a signature status. Rewrite the rule logic to use it. Do not write any exclusion yet.
+4. **Re-measure.** Run the sharpened rule over the same 24-hour window. Record the new precision and, critically, **re-run your Atomic Red Team test** to confirm the rule still fires on the real behaviour. A precision improvement that breaks detection is not an improvement.
+5. **Now exclude, carefully.** For any remaining cause you cannot sharpen away, write a combined exception where all conditions must co-occur. Before deploying it, run the exception as a *select* — list the events it will hide — and read them.
+6. **Add expiry and ownership.** Give each exception an owner and a review date, recorded wherever your team would actually find it.
+7. **Document the blind spots.** Update the ADS Blind Spots and Assumptions section with every exclusion, in the form: what is hidden, why, who owns it, when it expires, and how an attacker could deliberately land inside it.
+8. **Deliberately over-tune, then undo it.** Add the broad version of one exclusion (a substring match on a filename). Re-run your atomic test and confirm the rule now misses the real attack. Record that result, then revert.
+
+**Evidence of completion:** a journal entry with (a) before and after precision figures over the same window, (b) proof the sharpened rule still fires on the atomic test, (c) the list of events each exception hides, produced before deployment, (d) your updated Blind Spots section with owners and expiry dates, and (e) the result of step 8 showing the over-tuned rule failing its own validation test. Item (e) is the one to keep: being able to demonstrate that you tested whether your tuning broke the detection is the difference between claiming to tune carefully and having evidence of it.
+
+</Lab>
+
+## Sources
+
+- [Microsoft Learn — Handle false positives in Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/false-positives) — the two exception routes (automation rules versus analytics rule modification), their respective characteristics and typical owners, watchlists for centralised exception management, and the 24-hour default expiry on automation-rule exceptions with the stated rationale that it "reduces the chance of false negative errors"
+- [Microsoft Learn — Automate incident handling in Microsoft Sentinel with automation rules](https://learn.microsoft.com/en-us/azure/sentinel/automate-incident-handling-with-automation-rules) — how analyst-created automation rules suppress and close incidents while preserving an audit trail
+- [Microsoft Learn — Create custom analytics rules to detect threats](https://learn.microsoft.com/en-us/azure/sentinel/detect-threats-custom) — scheduled rule construction, thresholds, event grouping and alert aggregation
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the Blind Spots and Assumptions and False Positives sections that every exclusion in this module is written back into
+- [MITRE ATT&CK T1003.001 — OS Credential Dumping: LSASS Memory](https://attack.mitre.org/techniques/T1003/001/) — the technique behind the worked tuning request
+- [Red Canary — Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) — the validation tests used to prove the tuned rule still fires
