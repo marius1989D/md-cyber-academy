@@ -1,0 +1,160 @@
+---
+title: "Traffic Analysis: Finding C2 in Traffic You Cannot Read"
+course: network
+order: 4
+summary: "The capstone: pick beaconing, tunnelling and exfiltration out of encrypted traffic using timing, volume and fingerprints rather than payload."
+rung: 4
+minutes: 32
+attack: ["T1071.001", "T1571", "T1573.002", "T1568.002", "T1041", "T1090"]
+atlas: []
+objectives: ["CEH v13 M08", "CEH v13 M12"]
+tags: ["zeek", "suricata", "beaconing", "ja3", "ja4", "c2", "exfiltration", "pcap"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+This is the capstone for the network course, and it closes a loop you opened in Module 1. There you learned that a connection record is the unit of network evidence and that TLS 1.3 leaves you the 5-tuple, the timing, the volume and usually the SNI. This module is the payoff: **those residuals are enough to find command and control**, and you will practise doing it on traffic whose contents you cannot decrypt.
+
+Set the expectation honestly. You are not going to read the attacker's commands. You are going to prove a channel exists, characterise it well enough to scope the incident, and hand over an answer that survives challenge — which is what the job actually asks.
+
+## Three tiers of evidence, and what each costs
+
+Network evidence comes in tiers, and choosing the right one is half of working efficiently:
+
+| Tier | What it is | Strength | Cost |
+|---|---|---|---|
+| **Full packet capture** | Every byte, `tcpdump`/`tshark` | Total fidelity; replayable | Enormous storage; usually only hours of retention |
+| **Protocol logs** | Zeek `conn.log`, `dns.log`, `ssl.log`, `http.log`, `files.log` | Structured, months of retention, hunting-friendly | No payload |
+| **Alerts** | Suricata/Snort signature hits | Immediate, specific | Only finds what a rule already describes |
+
+The instinct of a new analyst is to reach for the PCAP. The instinct of a good one is to start in the protocol logs, because that is where *patterns over time* live — and beaconing is a pattern over time, invisible in any single packet. Use PCAP to confirm a hypothesis, not to form one.
+
+## Beaconing: the shape that gives C2 away
+
+An implant has to ask its server for instructions. Doing that on a schedule produces the most reliable behavioural signal in network security: **a connection that repeats with machine-like regularity**.
+
+Humans generate bursty, irregular traffic driven by what they are doing. Implants generate connections at an interval, often with a small consistent payload, sustained across hours or days. Three properties do the work:
+
+- **Periodicity.** The interval between connections clusters tightly around a value. Compute the deltas between successive connection start times for a source-destination pair; a low variance across many connections is the signal.
+- **Duration and volume consistency.** Real browsing produces wildly varying byte counts. A check-in that returns "no tasks" is nearly identical every time.
+- **Persistence.** It continues outside working hours, through lunch, overnight. A workstation talking to one external host at 03:00 with the same cadence as at 15:00 is not a person.
+
+Modern implants add **jitter** — randomising the interval by some percentage — specifically to defeat naive periodicity checks. This is worth stating plainly: jitter widens the distribution, it does not make it human. A beacon with 20% jitter still clusters far more tightly than genuine user traffic, and the giveaway remains *consistency of the distribution over a long window*. The counter to jitter is a longer observation period, not a cleverer single-packet rule.
+
+<Callout type="key">
+The load-bearing idea of this module: **you are not looking for bad content, you are looking for non-human behaviour.** Encryption removes content from the table entirely, and that is fine, because the properties that expose C2 — regularity, persistence, volume asymmetry, and a client that does not look like a browser — all survive encryption. An analyst who can only work from payload is blind on most of a modern network. An analyst who reasons about behaviour is not.
+</Callout>
+
+## Fingerprinting the client that cannot be read
+
+There is one more residual, and it is a good one. During the TLS handshake, the ClientHello advertises the client's supported ciphers, extensions and other options — in the clear, as you proved in Module 1's lab. The exact combination and ordering differ between implementations, so hashing them produces a fingerprint of *the software making the connection*.
+
+**JA3** was the original method. Its weakness is that it depends on the order of ciphers and extensions, which attackers learned to randomise ("cipher stunting") to break the fingerprint. **JA4** replaces it and specifically sorts ciphers and extensions rather than trusting their order, which is what makes it resistant to that evasion; it also folds in signature algorithms to preserve uniqueness. JA4 is the TLS client fingerprint in the wider **JA4+** suite, which extends the idea to servers (JA4S), HTTP clients (JA4H), X.509 certificates (JA4X), SSH (JA4SSH) and TCP (JA4T).
+
+Why this matters operationally: a fingerprint tells you a connection to `login.microsoft.com` was made by something that is *not* a browser. You still cannot read the traffic. You no longer need to.
+
+## Reading a real one
+
+Rung 4. Here is a slice of `conn.log` for one internal host, aggregated by hour. Decide what you are looking at before reading on.
+
+```text
+id.orig_h    id.resp_h     id.resp_p  service  conns  mean_interval  stddev  mean_orig_bytes  mean_resp_bytes
+10.10.9.14   93.184.x.x    443        ssl      118    60.4s          3.1s    412              289
+10.10.9.14   142.250.x.x   443        ssl      47     -              -       2841             184052
+10.10.9.14   93.184.x.x    8443       -        1      -              -       1204             98446311
+```
+
+Row one is the beacon: **118 connections at a mean interval of 60.4 seconds with a standard deviation of 3.1** — roughly 5% jitter around a one-minute check-in — carrying a near-identical few hundred bytes each way. No human produces that. Row two is the control: 47 connections at irregular intervals, tiny requests and large responses. That is a browser fetching pages, and it is what normal looks like.
+
+Row three is the reason you scope beyond the beacon. **Same external host, different port (8443), no recognised service, and 98 MB flowing outbound in a single connection.** The beacon on 443 was the control channel; this is the theft. Note the ATT&CK distinction an interviewer will probe: exfiltration over the *existing* C2 channel is **T1041**, whereas this second channel on a non-standard port is **T1571 Non-Standard Port** — and if that 8443 traffic is not really TLS, it is also the port/service mismatch from Module 1.
+
+<Callout type="detect">
+Now the honest part about turning this into a rule, because this is where the class of detection lives or dies.
+
+- **Periodicity alone is not malicious.** Software update checks, telemetry agents, monitoring probes, NTP and mail clients all beacon beautifully. A pure periodicity rule fires overwhelmingly on legitimate software. The durable approach is to score periodicity as one signal, then require corroboration — destination rarity across the estate, a fingerprint that is not a known browser, a domain registered last week, no matching process on the endpoint — and to allowlist the beacons you have identified and understood.
+- **Rarity beats badness.** You will not have a signature for the C2 you are actually hit by. What you do have is the estate: an external destination contacted by exactly one host, seen for the first time yesterday, is far more interesting than one contacted by 400 hosts, regardless of reputation.
+- **Signatures still earn their place.** Suricata rules — `action`, then a header of protocol, addresses, ports and direction, then options — are excellent at catching the known and the noisy, and worthless against a bespoke channel. Run both; do not let either convince you it is sufficient.
+
+Both directions of the trap matter: hunting without signatures is slow, and signatures without hunting means you only ever find what someone already wrote a rule for.
+</Callout>
+
+<Quiz mid="network/04-traffic-analysis" title="Traffic Analysis: Finding C2 in Traffic You Cannot Read" questions={[
+  {
+    q: "An implant adds 20% jitter to its check-in interval. What does this do to periodicity-based detection?",
+    opts: ["It defeats it entirely, since the traffic is now indistinguishable from human activity", "It widens the interval distribution but the traffic still clusters far more tightly than human traffic; the counter is a longer observation window", "It has no effect at all on any statistical measure", "It only works if the implant also uses encryption"],
+    a: 1,
+    why: "Jitter is designed to beat naive fixed-interval checks, and it does. What it cannot do is make machine traffic human: a jittered beacon still has a far tighter interval distribution, sustained across hours, than genuine user activity. The answer is a longer observation period and variance-based scoring, not a cleverer single-packet rule."
+  },
+  {
+    q: "Why is JA4 more resistant to evasion than JA3 for TLS client fingerprinting?",
+    opts: ["JA4 decrypts the TLS session to inspect the payload", "JA4 sorts ciphers and extensions rather than depending on their order, defeating cipher stunting", "JA4 only works on TLS 1.3 traffic", "JA4 uses a longer hash so collisions are less likely"],
+    a: 1,
+    why: "JA3 hashes ciphers and extensions in the order presented, so an attacker who randomises that order changes the fingerprint at will. JA4 sorts them and incorporates signature algorithms, so shuffling no longer breaks the match. Neither method decrypts anything; both work from the plaintext ClientHello."
+  },
+  {
+    q: "An analyst proposes alerting on any external connection whose intervals are highly periodic. What is the most likely result?",
+    opts: ["Reliable C2 detection with minimal noise", "Overwhelming false positives, because update checks, telemetry agents, monitoring probes and NTP all beacon legitimately", "No alerts, because real C2 always uses jitter", "It will only detect DNS tunnelling"],
+    a: 1,
+    why: "Periodicity is a property of automation, not of malice, and legitimate software is full of automation. The rule must combine periodicity with corroborating signals -- destination rarity across the estate, a non-browser fingerprint, domain age, absence of a known parent process -- and allowlist the understood beacons. This is the same trap as alerting on RC4 alone in Module 2."
+  },
+  {
+    q: "You find a beacon on 443 to an external host, and a separate 98 MB outbound transfer to the same host on port 8443. Which ATT&CK technique covers the second channel's use of a non-standard port?",
+    opts: ["T1041 Exfiltration Over C2 Channel", "T1571 Non-Standard Port", "T1568.002 Domain Generation Algorithms", "T1090 Proxy"],
+    a: 1,
+    why: "T1571 Non-Standard Port covers protocol-port pairings that deviate from the standard association, used to bypass filtering. T1041 would apply if the data left over the existing C2 channel itself -- here it is a separate channel, which is precisely the distinction. Note the two also stack: the same traffic can be exfiltration and non-standard port simultaneously."
+  },
+  {
+    q: "Which tier of network evidence should you normally start with when hunting for C2, and why?",
+    opts: ["Full packet capture, because only payload proves intent", "Protocol logs such as Zeek conn.log, because beaconing is a pattern over time that no single packet contains", "IDS alerts, because they are already triaged", "Firewall deny logs, because blocked traffic is the most suspicious"],
+    a: 1,
+    why: "Beaconing exists only across many connections over hours, so it is invisible in any individual packet and absent from alert queues unless a rule already described it. Protocol logs retain the structured connection records for months, which is what pattern analysis needs. Use PCAP to confirm a hypothesis you formed in the logs, not to form one."
+  },
+  {
+    q: "A host makes hundreds of DNS queries for gibberish domains, most returning NXDOMAIN. What is the most likely technique?",
+    opts: ["T1090 Proxy", "T1568.002 Dynamic Resolution: Domain Generation Algorithms", "T1573.002 Encrypted Channel: Asymmetric Cryptography", "T1071.001 Application Layer Protocol: Web Protocols"],
+    a: 1,
+    why: "A DGA generates many candidate domains -- either high-entropy gibberish or concatenated words -- most of which are unregistered, producing a high NXDOMAIN rate as the implant hunts for the one its operator registered. That combination of high-entropy names plus failed lookups from a single host is the documented detection pattern."
+  },
+  {
+    q: "Why does encryption not defeat traffic analysis?",
+    opts: ["Because most C2 traffic is still sent in cleartext", "Because the properties that expose C2 -- regularity, persistence, volume asymmetry and client fingerprint -- all survive encryption", "Because TLS 1.3 exposes the certificate to observers", "Because analysts can always decrypt traffic with the server's private key"],
+    a: 1,
+    why: "Encryption removes content, not behaviour. Timing, direction, volume, duration, destination rarity and the plaintext ClientHello fingerprint all remain observable. TLS 1.3 actually hides the certificate -- an improvement over 1.2 -- yet the behavioural signal is untouched, which is exactly why behaviour rather than payload is the durable basis for detection."
+  }
+]} />
+
+<Lab title="Hunt a beacon in your own capture, then write the detection" host="2018 MBP attack box -- your own lab traffic only" minutes={75}>
+
+You will generate a beacon you control, find it statistically without looking at payload, and produce the detection logic. Everything here targets hosts you own.
+
+1. Build a controlled beacon. A one-line loop is enough: `while true; do curl -s https://<a-host-you-own>/ >/dev/null; sleep $((55 + RANDOM % 10)); done`. That is a 60-second check-in with roughly 8% jitter. Let it run for at least an hour while you work.
+2. Capture alongside it: `sudo tcpdump -i en0 -w hunt.pcap`. Include ordinary browsing in the same window so you have a realistic mix rather than a single obvious flow.
+3. Generate protocol logs from the capture: `zeek -r hunt.pcap`. Confirm you have `conn.log`, `dns.log` and `ssl.log`.
+4. Hunt without looking at payload. Aggregate `conn.log` by source-destination pair; for each pair compute the number of connections, the mean interval between start times, and the standard deviation of that interval. `zeek-cut ts id.orig_h id.resp_h id.resp_p` piped into a short Python or awk script is the intended path. Rank pairs by lowest relative standard deviation with a meaningful connection count.
+5. Confirm your beacon ranks at the top, and — this is the important half — **look at what else ranks highly**. Identify at least one legitimate periodic service (update checker, telemetry, NTP) that your method also flags. Write down what it is.
+6. From `ssl.log`, record the `server_name`, `version` and `cipher` for your beacon's connections, and note what you can and cannot conclude from them.
+7. Write the detection as pseudo-logic with explicit thresholds: minimum connection count, maximum relative standard deviation, and the corroborating conditions you would require (destination rarity across the estate, non-browser fingerprint, domain age). Then write the allowlisting strategy for the legitimate beacon you found in step 5.
+
+**Evidence of completion:** a journal entry with (a) your ranked table of source-destination pairs showing connection count, mean interval and standard deviation, with your planted beacon identified, (b) the name of at least one legitimate periodic service your method also flagged, and (c) your detection pseudo-logic with its thresholds plus the allowlisting strategy. Part (b) is the one that matters most: any analyst can find the beacon they planted. Demonstrating that you know what your rule will do to the SOC queue on Monday morning is the difference between a detection idea and a detection engineer.
+
+</Lab>
+
+## Sources
+
+- [Zeek documentation — conn.log](https://docs.zeek.org/en/master/logs/conn.html) — the connection records and 5-tuple fields the beacon analysis aggregates
+- [Zeek documentation — ssl.log](https://docs.zeek.org/en/master/logs/ssl.html) — the `server_name`, `version`, `cipher`, `subject` and `issuer` fields, and that `ja3`/`ja3s` are appended when those packages are enabled
+- [Zeek documentation — dns.log](https://docs.zeek.org/en/master/logs/dns.html) and [http.log](https://docs.zeek.org/en/master/logs/http.html) — the other protocol logs generated in the lab
+- [Zeek documentation — Notice Framework](https://docs.zeek.org/en/master/frameworks/notice.html) — how Zeek raises notices, the bridge between hunting and alerting
+- [Suricata documentation — Rules Introduction](https://docs.suricata.io/en/latest/rules/intro.html) — the action/header/options rule structure and the valid actions
+- [FoxIO — JA4+ network fingerprinting suite](https://github.com/FoxIO-LLC/ja4) — JA4 as TLS client fingerprinting, that it sorts ciphers and extensions to resist cipher stunting, and the JA4S/JA4H/JA4X/JA4SSH/JA4T family
+- [Salesforce — JA3](https://github.com/salesforce/ja3) — the original TLS fingerprinting method JA4 supersedes
+- [Wireshark — tshark manual page](https://www.wireshark.org/docs/man-pages/tshark.html) — command-line packet analysis used to confirm hypotheses formed in the logs
+- [MITRE ATT&CK T1071.001 — Application Layer Protocol: Web Protocols](https://attack.mitre.org/techniques/T1071/001/) — C2 blending into HTTP/HTTPS traffic
+- [MITRE ATT&CK T1571 — Non-Standard Port](https://attack.mitre.org/techniques/T1571/) — protocol-port pairings that deviate from the standard association, and the detection analytics for mismatch
+- [MITRE ATT&CK T1573.002 — Encrypted Channel: Asymmetric Cryptography](https://attack.mitre.org/techniques/T1573/002/) — why payload inspection fails against a modern C2 channel
+- [MITRE ATT&CK T1568.002 — Dynamic Resolution: Domain Generation Algorithms](https://attack.mitre.org/techniques/T1568/002/) — gibberish and word-concatenation DGAs, and the high-NXDOMAIN detection pattern
+- [MITRE ATT&CK T1041 — Exfiltration Over C2 Channel](https://attack.mitre.org/techniques/T1041/) — exfiltration encoded into the existing C2 channel, the contrast with the separate channel in the worked example
+- [MITRE ATT&CK T1090 — Proxy](https://attack.mitre.org/techniques/T1090/) — intermediaries used to avoid direct connections to C2 infrastructure
