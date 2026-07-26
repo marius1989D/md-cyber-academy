@@ -1,0 +1,178 @@
+---
+title: "Log Pipelines: Where Detections Silently Die"
+course: detection
+order: 3
+summary: "Follow one event from the endpoint to your query, and learn the five places it can vanish without anyone getting an alert about it."
+rung: 3
+minutes: 30
+attack: []
+atlas: []
+objectives: []
+tags: ["log-management", "normalisation", "ocsf", "asim", "ecs", "syslog", "retention", "siem"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 2 ended on the constraint that decides everything: you cannot detect what you do not collect. This module is about the machine that does the collecting, and about a specific professional failure it produces. A detection engineer who does not understand the pipeline writes rules that look correct, pass review, sit in production for a year, and never fire — not because the logic is wrong, but because the data never arrived in the shape the query expected.
+
+Recall Module 1: false negatives are invisible. **The pipeline is where most of them are manufactured.**
+
+## The five stages
+
+Every log platform, whatever the branding, does the same five things:
+
+| Stage | What happens | How it fails |
+|---|---|---|
+| **Collect** | An agent or forwarder picks the event up at the source | The source was never instrumented, or the agent is not running |
+| **Parse** | Raw text becomes structured fields | A format change breaks extraction; fields become empty or missing |
+| **Normalise** | Fields are renamed to a common schema | Your query uses the source's field name, not the schema's |
+| **Enrich** | Context is added — asset, identity, intelligence | Lookup fails silently; enriched field is null |
+| **Store** | Data lands in a tier with a retention period | The tier cannot be queried the way your rule needs, or the data has aged out |
+
+Notice that **none of those failures produce an error you will see.** Each one produces silence, which is indistinguishable from "no attacks today".
+
+## Collection: the part nobody checks twice
+
+Two questions decide whether collection works, and they are worth asking explicitly for every source:
+
+**Is the source producing the event at all?** This is the recurring theme of the whole platform: Sysmon's network connection and process access events are disabled by default, Kerberos service-ticket auditing has to be switched on, Entra non-interactive sign-ins need routing. Default configurations are built for operations, not detection.
+
+**Is it getting to you?** Windows estates typically use **Windows Event Forwarding** with a collector subscribing to events from many machines; Unix and network devices use **syslog**. Syslog is worth knowing precisely because it is everywhere: RFC 5424 (which obsoletes the older BSD-style RFC 3164) defines a message as **HEADER**, optional **STRUCTURED-DATA**, and **MSG**, with the header carrying `PRI`, `VERSION`, `TIMESTAMP`, `HOSTNAME`, `APP-NAME`, `PROCID` and `MSGID`.
+
+The trap in collection is the one nobody schedules: **an agent that stops reporting generates no events, and no events looks exactly like a quiet host.** Monitor the *absence* of expected telemetry. A rule that alerts when a normally-chatty source goes quiet for an hour catches broken collection, and it is one of the highest-value detections most teams never write.
+
+## Normalisation, and why schemas exist
+
+A firewall calls it `src_ip`. A proxy calls it `c-ip`. Sysmon calls it `SourceIp`. Zeek calls it `id.orig_h`. All four mean the same thing, and without normalisation you write and maintain four rules for one behaviour.
+
+A **schema** fixes the field names and value formats so a detection can be written once. The ones you will meet:
+
+- **OCSF** (Open Cybersecurity Schema Framework) — a vendor-neutral open standard for event logging and normalisation, organised into categories, event classes, objects and attributes.
+- **ECS** (Elastic Common Schema) — Elastic's field convention, dominant in the Elastic ecosystem.
+- **ASIM** (Advanced Security Information Model) — Microsoft Sentinel's normalisation layer, with schemas for authentication, process, DNS, network session, file, registry, web and more. It follows the robustness principle, which Microsoft states as **"Be strict in what you send, be flexible in what you accept"**, and aligns with the community **OSSEM** model.
+
+There is a real architectural choice buried here, and it is worth being able to argue both sides. Normalisation can happen at **query time** — a parser presents a view over unmodified raw data — or at **ingest time**, writing into normalised tables.
+
+- *Query-time* keeps the source format intact and is easy to fix: a broken parser can be corrected and the fix applies to data already stored.
+- *Ingest-time* is much faster to query on large data sets, but the transformation happens once, on the way in, so a mistake affects everything written while it was wrong.
+
+Sentinel does both, for exactly those reasons. The security consequence is that **query-time parsing is forgiving of your mistakes and ingest-time parsing is not** — which is why ingest transformations deserve the same review rigour as a detection rule.
+
+<Callout type="warn">
+The single most damaging pipeline bug is time, and it is not obvious. Two timestamps exist for every event: **when it happened** and **when your platform received it**. They are not the same, and confusing them puts your investigation timeline hours out.
+
+Microsoft documents this explicitly for Entra sign-in logs: `TimeGenerated` "is the time the entry was received and published by Log Analytics, not the time the sign-in occurred", while **`CreatedDateTime` shows the time the sign-in occurred**. Reconstruct an incident on the wrong field and you will place the attacker's actions in the wrong order.
+
+Three related traps: **clock skew** on the source host (Kerberos will not tolerate much of it, but log correlation suffers long before authentication breaks), **time zones** (RFC 5424 requires an RFC 3339 timestamp with either a `Z` for UTC or a numeric offset — store everything in UTC and convert only for display), and **ingestion lag** (a scheduled rule running every five minutes over "the last five minutes" of event time will miss everything that arrived late; you need a lookback window wider than your worst-case lag).
+</Callout>
+
+## Storage tiers, and what they cost you in detection
+
+Retention is a budget decision that quietly becomes a detection decision. Azure Monitor and Sentinel expose the trade-off as **table plans**: **Analytics** (the default, full query and alerting), **Basic** (cheaper, with query limitations), and **Auxiliary** (for high-volume, low-value data, and only available on custom tables created through the API — a plan you cannot switch afterwards).
+
+Detection consequence, stated plainly: **a scheduled analytics rule can only run against data in a tier that supports it.** Moving a noisy, high-volume source to a cheap tier to control cost is a perfectly reasonable decision, and it may silently disable every rule built on that source. That is a conversation to have *before* the invoice arrives, not after.
+
+## Diagnosing a rule that stopped firing
+
+Rung 3. A validated detection for PowerShell download cradles fired reliably for months, then went quiet. Nobody noticed for six weeks. Here is what you find:
+
+```text
+Rule:      ProcessCreate where CommandLine contains "DownloadString"
+Last fire: 41 days ago
+
+Checks:
+  Source instrumented?     yes  -- Sysmon running, config includes ProcessCreate
+  Events arriving?         yes  -- 2.1M ProcessCreate events in last 24h
+  Field populated?         NO   -- CommandLine empty in 100% of sampled events
+  Schema/parser changed?   yes  -- agent upgraded 42 days ago
+  Retention?               n/a  -- data present
+```
+
+Walk it. The rule is fine. The source is fine. Events are flowing in volume, which is what makes this so easy to miss — a dashboard showing ingest health is green. The failure is at **parse/normalise**: after the agent upgrade the command line is arriving under a different field name, so `CommandLine` exists in the schema but is empty, and a query filtering on an empty field matches nothing and raises nothing.
+
+The diagnostic order matters and is worth memorising as a checklist: **instrumented -> arriving -> parsed -> normalised -> in a queryable tier**. Work down it and you localise the failure in minutes. Skip it and you rewrite a rule that was never broken.
+
+<Callout type="key">
+The habit this module is really teaching: **detections need health monitoring, not just tuning.** A rule that has not fired in 41 days is either protecting you from a threat that never came, or broken — and from the dashboard those look identical.
+
+Instrument the pipeline itself: alert on expected sources going silent, on sudden drops in event volume per source, on parse-failure rates, and on rules whose fire count drops to zero after a period of regular firing. This is the concrete answer to Module 1's problem that false negatives are invisible. You cannot see the attack you missed, but you *can* see the telemetry that stopped arriving — and that is nearly always the reason.
+</Callout>
+
+<Quiz mid="detection/03-log-pipelines" title="Log Pipelines: Where Detections Silently Die" questions={[
+  {
+    q: "A detection has not fired in 41 days. Ingest dashboards are green and event volume is normal. What is the most efficient diagnostic order?",
+    opts: ["Rewrite the rule logic first, since the data is clearly fine", "Check in order: source instrumented, events arriving, fields parsed, fields normalised, data in a queryable tier", "Restart the SIEM", "Increase the rule's lookback window"],
+    a: 1,
+    why: "Healthy volume proves events are arriving, not that the fields your rule needs are populated. Working down the pipeline -- instrumented, arriving, parsed, normalised, queryable tier -- localises the failure quickly. In the worked example the rule and the source were both fine; an agent upgrade had moved the command line to a different field, so the query matched an empty field and raised nothing."
+  },
+  {
+    q: "Why is 'no alerts today' a dangerous thing to be reassured by?",
+    opts: ["Because attackers work at night", "Because every pipeline failure -- uninstrumented source, dead agent, broken parser, aged-out data -- produces silence, which is indistinguishable from no attacks", "Because alerts are always delayed by ingestion lag", "Because analytics tiers do not support alerting"],
+    a: 1,
+    why: "None of the five pipeline stages fail loudly. Each produces an absence of events, and an absence looks exactly like a quiet day. This is the pipeline-level version of Module 1's point that false negatives are invisible, and it is why monitoring for the absence of expected telemetry is such a high-value detection."
+  },
+  {
+    q: "In Entra sign-in logs, what is the difference between TimeGenerated and CreatedDateTime?",
+    opts: ["They are identical", "TimeGenerated is when Log Analytics received and published the entry; CreatedDateTime is when the sign-in actually occurred", "TimeGenerated is in UTC and CreatedDateTime is local time", "CreatedDateTime is when the account was created"],
+    a: 1,
+    why: "Microsoft documents TimeGenerated as the ingestion time, not the event time, with CreatedDateTime carrying the moment the sign-in occurred. Building an incident timeline on the ingestion timestamp puts the attacker's actions in the wrong order -- a subtle error that survives review because both fields look like plausible timestamps."
+  },
+  {
+    q: "What is the main trade-off between query-time and ingest-time normalisation?",
+    opts: ["Query-time is always faster", "Query-time preserves the raw data and lets a broken parser be fixed retroactively; ingest-time queries far faster but bakes any mistake into everything written while it was wrong", "Ingest-time is only available in open-source platforms", "There is no practical difference"],
+    a: 1,
+    why: "A query-time parser is a view over unmodified data, so fixing it also fixes historical results. Ingest-time normalisation transforms once on the way in, which is much faster to query at scale but means an error is permanent for all data written under it. That asymmetry is why ingest transformations deserve the same review rigour as detection rules."
+  },
+  {
+    q: "Your team moves a high-volume, noisy log source to a cheaper storage tier to control cost. What is the detection consequence?",
+    opts: ["None -- the data is still retained", "Scheduled analytics rules may silently stop working, because cheaper tiers restrict how data can be queried and alerted on", "The data is deleted immediately", "Detections run faster on cheaper tiers"],
+    a: 1,
+    why: "Retention tiering is a cost decision that quietly becomes a detection decision. Analytics is the plan that supports full query and alerting; cheaper plans restrict it, and Auxiliary is limited to custom tables created via API and cannot be switched afterwards. Any rule built on a source being retiered needs reviewing before the change, not after."
+  },
+  {
+    q: "Why do normalisation schemas such as OCSF, ECS and ASIM exist?",
+    opts: ["To compress log data", "Because the same concept has a different field name in every product, so without a common schema you maintain one rule per source for a single behaviour", "To encrypt logs at rest", "Because regulators require them"],
+    a: 1,
+    why: "A source IP is src_ip, c-ip, SourceIp or id.orig_h depending on the product. A schema fixes field names and value formats so a behaviour can be detected once rather than re-implemented per source. ASIM states the design intent as the robustness principle: be strict in what you send, be flexible in what you accept."
+  },
+  {
+    q: "A scheduled rule runs every five minutes over the last five minutes of event time. Why might it miss events entirely?",
+    opts: ["Because the rule needs a higher priority", "Because of ingestion lag -- events that arrive late fall outside the window and are never evaluated", "Because five minutes is below the minimum interval", "Because event time is always ahead of ingestion time"],
+    a: 1,
+    why: "Events are evaluated when they arrive, but the window is defined on event time, so anything delayed in the pipeline lands outside the window the rule already ran. The lookback window must be wider than your worst-case ingestion lag, which means you need to measure that lag rather than assume it."
+  }
+]} />
+
+<Lab title="Trace one event end to end and measure the lag" host="Detection lab VM + your log platform" minutes={55}>
+
+You are going to follow a single event through every stage of your own pipeline and record what happens to it. The artifact is a documented pipeline you can reason about, which is what makes the difference between guessing and diagnosing.
+
+1. Pick one event you can generate on demand — a process creation from a distinctive command, or a failed logon. Note the exact local time you trigger it, from a clock you trust.
+2. **Collect.** Confirm at the source that the event was written (Event Viewer, `journalctl`, or the equivalent). Record the source's own timestamp.
+3. **Arrive.** Find the event in your log platform. Record how long after step 1 it became queryable — this is your **ingestion lag**. Repeat the trigger at least five times and record the spread, not just one figure.
+4. **Parse.** Inspect the stored event and list which fields are populated and which are empty. Specifically check the field your detections would filter on.
+5. **Normalise.** If your platform normalises, find the same event in both raw and normalised form and write down the field-name mapping for at least three fields.
+6. **Timestamps.** Identify every timestamp field on the stored event and determine which is event time and which is ingestion time. State which one you would build an incident timeline on, and why.
+7. **Break it deliberately.** Stop the agent or forwarder for ten minutes, generate the event several times, then restart. Record what happens: were the events buffered and delivered late, or lost entirely? This is the single most useful thing you will learn about your own pipeline.
+8. Write the health monitoring you would deploy: a rule that alerts when this source stops producing events for longer than a threshold you justify from your measured lag.
+
+**Evidence of completion:** a journal entry with (a) your measured ingestion lag across at least five trials, including the spread, (b) the field mapping between raw and normalised forms, (c) which timestamp field is event time versus ingestion time on your platform, (d) the result of the agent-outage test — buffered or lost — and (e) your source-silence detection with the threshold and the justification for it. Item (d) is the one worth having: most people do not know whether their pipeline loses data during an outage until an incident forces them to find out.
+
+</Lab>
+
+## Sources
+
+- [RFC 5424 — The Syslog Protocol](https://datatracker.ietf.org/doc/html/rfc5424) — obsoletes RFC 3164; the HEADER / STRUCTURED-DATA / MSG structure, the header fields (PRI, VERSION, TIMESTAMP, HOSTNAME, APP-NAME, PROCID, MSGID), and the RFC 3339 timestamp requirement with `Z` or a numeric offset
+- [RFC 3164 — The BSD syslog Protocol](https://datatracker.ietf.org/doc/html/rfc3164) — the older format still emitted by much network equipment
+- [NIST SP 800-92 — Guide to Computer Security Log Management](https://csrc.nist.gov/pubs/sp/800/92/final) — the standing reference for log generation, storage, retention and analysis as a programme
+- [OCSF — Open Cybersecurity Schema Framework](https://github.com/ocsf/ocsf-schema) — "an open standard for cybersecurity event logging and data normalization", vendor neutral, organised into categories, event classes, objects and attributes
+- [Elastic Common Schema (ECS)](https://www.elastic.co/docs/reference/ecs) — the field convention used across the Elastic ecosystem
+- [Microsoft Learn — Normalization and the Advanced Security Information Model (ASIM)](https://learn.microsoft.com/en-us/azure/sentinel/normalization) — the ASIM schemas, the robustness principle ("Be strict in what you send, be flexible in what you accept"), OSSEM alignment, and the query-time versus ingest-time parsing trade-off
+- [OSSEM — Open Source Security Events Metadata](https://ossemproject.com/intro.html) — the community common information model ASIM aligns with
+- [Microsoft Learn — Interactive user sign-in logs](https://learn.microsoft.com/en-us/entra/identity/monitoring-health/concept-interactive-sign-ins) — that `TimeGenerated` is the time Log Analytics received the entry while `CreatedDateTime` is when the sign-in occurred
+- [Microsoft Learn — Select a table plan](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-table-plans) — the Analytics, Basic and Auxiliary plans, and that Auxiliary is limited to custom tables created via the API and cannot be switched afterwards
+- [Microsoft Learn — Windows Event Collector](https://learn.microsoft.com/en-us/windows/win32/wec/windows-event-collector) — the subscription model behind Windows Event Forwarding
+- [Microsoft Learn — Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon) — the event types requiring explicit configuration, the recurring instrumentation gap
