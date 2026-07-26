@@ -1,0 +1,209 @@
+---
+title: "Protocols, Ports and the Shape of Normal Traffic"
+course: network
+order: 1
+summary: "Learn to read a connection the way a SOC analyst does: what each layer contributes, which field carries the evidence, and what a port scan looks like before anyone calls it an incident."
+rung: 2
+minutes: 28
+attack: ["T1046", "T1071.004", "T1557.002", "T1048.003"]
+atlas: []
+objectives: ["CEH v13 M03", "CEH v13 M08"]
+tags: ["tcp", "udp", "dns", "tls", "arp", "ports", "zeek", "sysmon"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+This is the on-ramp module, so it assumes nothing. But it is written for the job you are going for, not for an exam: in a SOC you will spend far more time reading *connection records* than individual packets, and almost every alert you triage will resolve into a question about one of a handful of protocol fields. So the goal here is not to memorise the OSI model. It is to know, for any line of network telemetry, which field is load-bearing and what it can and cannot prove.
+
+## The five values everything hangs off
+
+Start with the unit of network evidence: the **5-tuple**.
+
+```text
+source IP    source port    destination IP    destination port    protocol
+10.10.4.61   51402          10.10.4.20        445                 tcp
+```
+
+Those five values identify one conversation. Every firewall log, NetFlow record, Zeek `conn.log` line and Sysmon network event is a 5-tuple plus extras. When a colleague says "pivot on the connection", this is what they mean.
+
+Note straight away what it does *not* tell you: which user, which process, or whether anything bad happened. That is why network telemetry alone rarely closes a case, and why the endpoint events later in this module matter — they attach a process name to a 5-tuple.
+
+## The layers, and what each one hands you
+
+Each layer wraps the layer above it in its own header, a process called **encapsulation**. Reading that wrapping backwards is exactly what a packet analyser does for you.
+
+| Layer | Header adds | The field you actually pivot on |
+|---|---|---|
+| Application (HTTP, DNS, SMB) | The request itself | Hostname, URI, DNS query name |
+| Transport (TCP, UDP) | Ports, sequence numbers, flags | Destination port; TCP flags |
+| Internet (IP) | Source and destination IP | The IP addresses, and TTL |
+| Link (Ethernet, Wi-Fi) | MAC addresses | MAC, for local-segment questions only |
+
+The practical consequence of layering is a scoping rule worth internalising early: **MAC addresses do not survive a router hop.** A MAC address in your evidence tells you about one broadcast segment; an IP address travels end to end. Analysts who confuse the two chase the wrong device — usually the gateway's MAC, which appears as the "source" of half the traffic in the building.
+
+## Ports are a convention, not a guarantee
+
+IANA maintains the registry that assigns service names to port numbers. These are the ones you will see daily:
+
+| Port | Registered name | What you will actually see it carry |
+|---|---|---|
+| 22/tcp | `ssh` | Remote shell; interactive administration, and a favourite for tunnelling |
+| 53/udp, 53/tcp | `domain` | DNS. UDP for ordinary queries, TCP for large responses and zone transfers |
+| 67/udp, 68/udp | `bootps`, `bootpc` | DHCP; the record that ties an IP to a MAC at a point in time |
+| 80/tcp | `http` | Cleartext web |
+| 88/tcp | `kerberos` | Domain authentication (Module 2's subject) |
+| 389/tcp | `ldap` | Directory queries — heavily used in AD reconnaissance |
+| 443/tcp | `https` | HTTP over TLS, and a great deal that is not HTTP at all |
+| 445/tcp | `microsoft-ds` | SMB: file shares, and the lateral-movement path you will see most often |
+| 3389/tcp | `ms-wbt-server` | RDP |
+
+<Callout type="warn">
+Name the trap: **the registry is a convention, and nothing enforces it.** A port number is a label a listening process chose, not a protocol identity. C2 traffic on 443 that never negotiates TLS is common precisely because 443 is the port nobody questions. This is why tools like Zeek populate a separate `service` field, derived from *analysing the bytes*, alongside the port. When `id.resp_p` says 443 and `service` says `ssh`, the port lied and the analyser caught it. That mismatch is one of the highest-value low-noise detections you can build.
+</Callout>
+
+## TCP: the handshake, and why a scan looks different
+
+TCP (specified in RFC 9293, which obsoletes the original RFC 793) is connection-oriented: it establishes state on both ends before carrying data. It does that with the **three-way handshake**.
+
+```text
+client  --- SYN --------->  server     "I want to talk, my sequence number is X"
+client  <-- SYN, ACK -----  server     "Accepted, mine is Y, I acknowledge X"
+client  --- ACK --------->  server     "I acknowledge Y" -- connection established
+```
+
+RFC 9293 defines eight control bits. Four carry almost all the diagnostic weight for an analyst:
+
+- **SYN** — synchronise sequence numbers; opens a connection.
+- **ACK** — the acknowledgment field is significant; set on nearly everything after the first packet.
+- **FIN** — no more data from the sender; a polite close.
+- **RST** — reset the connection; an abrupt refusal or abort.
+
+Now the useful part. A port scan is not a mysterious event you need a signature for; it is a *handshake that never finishes*. Nmap's default `-sS` scan (the reason it is called **half-open** scanning) sends a SYN and reads the reply without ever sending the final ACK:
+
+- **SYN-ACK back** means something is listening: the port is open.
+- **RST back** means nothing is listening: the port is closed.
+- **Nothing back** means a firewall swallowed it: the port is filtered.
+
+One SYN with no follow-through is unremarkable. Several hundred of them from one source across sequential ports, none completing, is MITRE ATT&CK **T1046 Network Service Discovery** — and ATT&CK's own detection guidance points at exactly this shape: correlating connection attempts across many destinations within a time window, rather than looking for a magic packet.
+
+## Reading it in the telemetry
+
+Here is a Zeek `conn.log` excerpt (a subset of the fields, for readability). Two of these rows are a scanner and one is a real user.
+
+```text
+id.orig_h    id.resp_h    id.resp_p  proto  service  duration  conn_state  history
+10.10.4.61   10.10.4.20   135        tcp    -        -         S0          S
+10.10.4.61   10.10.4.20   3389       tcp    -        -         REJ         Sr
+10.10.9.14   10.10.4.20   445        tcp    smb       184.203   SF          ShADad...
+```
+
+The `conn_state` field is doing the work, and Zeek's definitions are precise:
+
+- **S0** — "Connection attempt seen, no reply." The SYN went out and nothing came back: filtered. The `history` string is a lone `S`, one SYN from the originator.
+- **REJ** — "Connection attempt rejected." History `Sr`: the originator sent a SYN (uppercase `S`) and the responder sent a RST (lowercase `r`). Port closed.
+- **SF** — "Normal establishment and termination." History opens `Sh`: SYN from the originator, then `h`, a SYN+ACK from the responder. There is a duration, byte counts, and a `service` of `smb`. This is somebody using a file share.
+
+The case in `history` is the detail people miss and it is genuinely useful: **uppercase letters came from the originator, lowercase from the responder.** That single convention lets you tell "my host was scanned" from "my host was scanning" without looking at anything else.
+
+<Callout type="detect">
+On the endpoint, the equivalent evidence lives in two events, and both need enabling. **Sysmon Event ID 3 (Network connection)** logs TCP and UDP connections with source and destination addresses, ports, and hostnames, and — critically — links each one to a process via `ProcessId` and `ProcessGuid`. That is the join that turns a 5-tuple into "which binary did this". It is **disabled by default**, which is the single most common gap in a fresh Sysmon deployment. **Windows Security Event 5156** ("The Windows Filtering Platform has permitted a connection", from the Audit Filtering Platform Connection subcategory) gives you application path, direction, addresses, ports and protocol number (1 ICMP, 6 TCP, 17 UDP). Microsoft rates its volume as High, so collect it with filters and intent, not by flipping it on estate-wide.
+</Callout>
+
+## UDP and DNS: the richest log you have
+
+UDP has no handshake and no state — it just sends. That makes it right for short exchanges where a retry is cheaper than a connection, which is why DNS and DHCP use it.
+
+DNS (RFC 1035) runs on port 53 over both UDP and TCP, and a DNS message has five sections: Header, Question, Answer, Authority, Additional. Two specifics from the RFC earn their keep in an interview. First, DNS messages over UDP are limited to 512 bytes; a longer answer is truncated and the **TC bit** is set in the header, which is the signal to retry over TCP. Second, zone transfers do not use UDP at all.
+
+DNS is the most valuable network log most organisations have, because nearly every action resolves a name first. It is an excellent covert channel for the same reason. Encoding data into the labels of queries for an attacker-controlled domain gives command and control (**T1071.004 Application Layer Protocol: DNS**) or exfiltration (**T1048.003 Exfiltration Over Unencrypted Non-C2 Protocol**). The tells are structural, not signature-based: abnormally long query names, many unique subdomains under one parent domain, unusual record types carrying payload. Zeek's `dns.log` gives you `query`, `qtype_name`, `rcode_name` and `answers`; Sysmon **Event ID 22 (DNS query)** gives you the same query plus the process that made it, logged whether the lookup succeeded, failed, or came from cache.
+
+## TLS: what encryption does not hide
+
+New analysts often assume encrypted traffic leaves nothing to work with. In TLS 1.3 (RFC 8446) everything after the ServerHello is encrypted, which is a real improvement over 1.2 and does hide the server certificate. But the **ClientHello is still plaintext**, and it carries the `server_name` extension: the SNI, the hostname the client asked for. So without decrypting anything you keep the 5-tuple, the timing and volume of the conversation, and usually the site name — Zeek records it in `ssl.log`. Detection on encrypted traffic leans on those residuals: SNI against an allowlist, and the shape of the flow. A beacon calling home every 60 seconds with a 200-byte payload looks nothing like a person browsing, whatever it is wrapped in.
+
+## ARP: the protocol with no security at all
+
+ARP (RFC 826) maps an IP address to a MAC address on the local segment, and it is both **stateless and unauthenticated**: a host will generally accept an ARP reply it never asked for and update its cache. An attacker on that segment can therefore claim to be the gateway, and traffic starts flowing through them — **T1557.002 Adversary-in-the-Middle: ARP Cache Poisoning**. The tell is a MAC that suddenly maps to a second IP, or an IP whose MAC changes with no matching DHCP event. Hold on to this, because it is why segmentation is a control and not just tidiness.
+
+<Quiz mid="network/01-protocols" title="Protocols, Ports and the Shape of Normal Traffic" questions={[
+  {
+    q: "A Zeek conn.log row shows id.resp_p = 443 but service = ssh. What have you most likely found?",
+    opts: ["A corrupted log entry, since 443 is always HTTPS", "Something tunnelling a different protocol over the port nobody questions", "A TLS 1.3 connection, which Zeek labels ssh", "Normal HTTPS traffic with an unusual cipher"],
+    a: 1,
+    why: "Port numbers are an IANA convention that nothing enforces — a port is just the number a listening process chose. Zeek derives the service field by analysing the actual bytes, so a port/service mismatch means the port label is lying. That is exactly why 443 is a favoured hiding place, and why the mismatch is a high-value, low-noise detection."
+  },
+  {
+    q: "Zeek records a connection with conn_state S0 and history S. What happened?",
+    opts: ["The connection completed and closed gracefully", "A SYN was sent and nothing came back, so the port is filtered", "The responder sent a RST, so the port is closed", "The connection was established but never terminated"],
+    a: 1,
+    why: "S0 is defined as 'connection attempt seen, no reply', and a history of a single S is one SYN from the originator with nothing in return — the signature of a filtered port. A closed port would answer with a RST, giving conn_state REJ and history Sr. SF is the graceful establish-and-terminate case."
+  },
+  {
+    q: "In a Zeek history string, what distinguishes 'S' from 's'?",
+    opts: ["Uppercase means the packet came from the originator, lowercase from the responder", "Uppercase means the packet was retransmitted", "Uppercase means TCP, lowercase means UDP", "Uppercase means the flag was set, lowercase means it was cleared"],
+    a: 0,
+    why: "Zeek uses case to encode direction: uppercase letters are events from the originator, lowercase from the responder. This is what lets you tell 'my host was scanned' from 'my host was scanning' from the history field alone, without inspecting addresses."
+  },
+  {
+    q: "Why does an nmap -sS scan get called half-open scanning?",
+    opts: ["It only scans half the port range at a time", "It sends a SYN and reads the reply without ever sending the final ACK, so the handshake never completes", "It uses half the normal packet size to evade detection", "It only works against half-duplex network links"],
+    a: 1,
+    why: "The three-way handshake is SYN, SYN-ACK, ACK. A SYN scan stops after the reply: a SYN-ACK means open, a RST means closed, and silence means filtered — but the final ACK never goes out, so no connection is established. That incomplete handshake is the shape detections for T1046 Network Service Discovery look for, correlated across many destinations."
+  },
+  {
+    q: "A DNS response is too large for a 512-byte UDP message. According to RFC 1035, what happens?",
+    opts: ["The response is silently dropped", "The response is truncated and the TC bit is set in the header, signalling a retry over TCP", "The response is split across multiple UDP datagrams", "DNS automatically switches to port 5353"],
+    a: 1,
+    why: "RFC 1035 restricts UDP-carried messages to 512 bytes, and states that longer messages are truncated with the TC (truncated) bit set in the header. That bit is the resolver's cue to retry the query over TCP on the same port 53. Zone transfers, being large, do not use UDP at all."
+  },
+  {
+    q: "You have TLS 1.3 traffic you cannot decrypt. What is still available to you?",
+    opts: ["Nothing useful — TLS 1.3 encrypts the entire handshake", "The 5-tuple, flow timing and volume, and the SNI hostname from the plaintext ClientHello", "The full HTTP request, since TLS only protects the response", "The server certificate, which TLS 1.3 sends in the clear"],
+    a: 1,
+    why: "RFC 8446 encrypts everything after the ServerHello — which is why the certificate is no longer visible, unlike in TLS 1.2. But the ClientHello precedes that and is plaintext, including the server_name (SNI) extension. You keep the 5-tuple, the shape of the flow, and usually the requested hostname, which is enough to build reputation and beaconing detections."
+  },
+  {
+    q: "Which single field makes Sysmon Event ID 3 more useful than a firewall log of the same connection?",
+    opts: ["The destination port", "The process identity (ProcessId and ProcessGuid) that owns the connection", "The connection duration", "The IPv6 status flag"],
+    a: 1,
+    why: "A firewall log gives you the 5-tuple; a 5-tuple cannot tell you which program acted. Sysmon Event ID 3 links each TCP or UDP connection to its originating process via ProcessId and ProcessGuid, which is the join that turns network activity into an answerable question about a binary. Note that this event is disabled by default — the most common gap in a fresh Sysmon deployment."
+  }
+]} />
+
+<Lab title="Capture your own traffic and make a scan look obvious" host="2018 MBP attack box" minutes={45}>
+
+You are going to generate the three connection outcomes deliberately, then find them in your own capture. Everything here targets hosts you own — a second VM, or the loopback and your own machine.
+
+1. Start a capture on your active interface: `sudo tcpdump -i en0 -w baseline.pcap`. Browse to one HTTPS site, then stop the capture.
+2. Open `baseline.pcap` in Wireshark. Apply the display filter `tls.handshake.type == 1` to isolate the ClientHello, and find the `server_name` extension. Confirm you can read the hostname you visited without decrypting anything.
+3. Apply `tcp.flags.syn == 1 && tcp.flags.ack == 0` to list every connection attempt, then `tcp.flags.syn == 1 && tcp.flags.ack == 1` for the replies. A healthy capture pairs them up almost one to one.
+4. Now break that symmetry. With a capture running, scan a host you own: `sudo nmap -sS <your-own-target-ip>`. Stop the capture and re-apply the two filters from step 3. Record the ratio of SYNs sent to SYN-ACKs received, and note how many destination ports appear from a single source.
+5. Identify one open, one closed and one filtered port in your scan capture, and write down the specific packet evidence for each — SYN-ACK, RST, and silence respectively.
+6. Optional, if you have Zeek available: run `zeek -r scan.pcap` and read `conn.log`. Record the `conn_state` and `history` values Zeek assigns to your open, closed and filtered ports, and check them against the definitions in this module.
+
+**Evidence of completion:** a journal entry containing (a) the SNI hostname you read out of a plaintext ClientHello, (b) your SYN-to-SYN-ACK ratio for the baseline capture versus the scan capture, and (c) the three-line table naming the packet evidence that distinguishes an open, closed and filtered port. That ratio is the artifact to keep — it is the concrete answer to "how would you spot a scan?", and it is far better than describing one.
+
+</Lab>
+
+## Sources
+
+- [RFC 9293 — Transmission Control Protocol (TCP)](https://datatracker.ietf.org/doc/html/rfc9293) — the current TCP specification, which obsoletes RFC 793; the three-way handshake and the eight control bits (CWR, ECE, URG, ACK, PSH, RST, SYN, FIN)
+- [RFC 768 — User Datagram Protocol](https://datatracker.ietf.org/doc/html/rfc768) — UDP's connectionless, stateless design
+- [RFC 1035 — Domain names: implementation and specification](https://datatracker.ietf.org/doc/html/rfc1035) — the five DNS message sections, port 53 over both UDP and TCP, and the 512-byte UDP limit with the TC bit on truncation
+- [RFC 8446 — The Transport Layer Security (TLS) Protocol Version 1.3](https://datatracker.ietf.org/doc/html/rfc8446) — that all handshake messages after the ServerHello are encrypted, leaving the ClientHello (and its `server_name` extension) in plaintext
+- [RFC 6066 — TLS Extensions: Extension Definitions](https://datatracker.ietf.org/doc/html/rfc6066) — the `server_name` (SNI) extension itself
+- [RFC 826 — An Ethernet Address Resolution Protocol](https://datatracker.ietf.org/doc/html/rfc826) — ARP's stateless, unauthenticated address mapping
+- [RFC 2131 — Dynamic Host Configuration Protocol](https://datatracker.ietf.org/doc/html/rfc2131) — DHCP, the source of the IP-to-MAC binding records referenced above
+- [IANA Service Name and Transport Protocol Port Number Registry](https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml) — every port number and registered service name in the ports table, including `microsoft-ds` for 445 and `ms-wbt-server` for 3389
+- [MITRE ATT&CK T1046 — Network Service Discovery](https://attack.mitre.org/techniques/T1046/) — the Discovery technique, and detection guidance based on correlating sequential probing within a time window rather than on signatures
+- [MITRE ATT&CK T1071.004 — Application Layer Protocol: DNS](https://attack.mitre.org/techniques/T1071/004/) — DNS as a command-and-control channel
+- [MITRE ATT&CK T1048.003 — Exfiltration Over Unencrypted Non-C2 Protocol](https://attack.mitre.org/techniques/T1048/003/) — exfiltration over protocols such as DNS, separate from the C2 channel
+- [MITRE ATT&CK T1557.002 — Adversary-in-the-Middle: ARP Cache Poisoning](https://attack.mitre.org/techniques/T1557/002/) — spoofed ARP replies used to intercept traffic, under the Credential Access and Collection tactics
+- [Nmap Network Scanning — TCP SYN (Stealth) Scan](https://nmap.org/book/synscan.html) — `-sS` behaviour and the open/closed/filtered interpretation of SYN-ACK, RST and no response
+- [Zeek documentation — conn.log](https://docs.zeek.org/en/master/logs/conn.html) and [`Conn::Info`](https://docs.zeek.org/en/master/scripts/base/protocols/conn/main.zeek.html) — the 5-tuple and `service` fields, the verbatim `conn_state` definitions (S0, REJ, SF), and the `history` letter codes with their uppercase-originator convention
+- [Zeek documentation — dns.log](https://docs.zeek.org/en/master/logs/dns.html) — the `query`, `qtype_name`, `rcode_name` and `answers` fields
+- [Microsoft Learn — Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon) — Event ID 3 (Network connection), its process linkage via `ProcessId`/`ProcessGuid`, the fact that it is disabled by default, and Event ID 22 (DNS query) logging cached and failed lookups
+- [Microsoft Learn — 5156(S) The Windows Filtering Platform has permitted a connection](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-5156) — the Audit Filtering Platform Connection subcategory, the event's fields, the protocol numbers (1 ICMP, 6 TCP, 17 UDP), and its High volume rating

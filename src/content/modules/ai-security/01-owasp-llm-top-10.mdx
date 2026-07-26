@@ -8,7 +8,7 @@ minutes: 22
 atlas: ["AML.T0051", "AML.T0057"]
 objectives: ["CY0-001 2.6", "OWASP LLM01–LLM10"]
 tags: ["owasp", "llm", "threat-model", "prompt-injection", "rag"]
-updated: 2026-07-20
+updated: 2026-07-26
 ---
 
 import Quiz from '../../../components/Quiz.astro';
@@ -119,3 +119,13 @@ Prove to yourself that the model cannot separate data from instructions. You are
 **Evidence of completion:** a short markdown note in your range journal recording (a) at least one payload that succeeded against the naive summariser, and (b) whether delimiter-wrapping stopped it. It won't fully — and understanding *why* it doesn't is the entire point. That failure is the setup for Module 2.
 
 </Lab>
+
+## Sources
+
+- [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/) — the ten entry names and numbering used in the table
+- [OWASP LLM01:2025 Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) — the direct/indirect split, and OWASP's own position that "it is unclear if there are fool-proof methods of prevention"
+- [OWASP LLM06:2025 Excessive Agency](https://genai.owasp.org/llmrisk/llm062025-excessive-agency/) — minimum-necessary extensions and permissions, human-in-the-loop on high-impact actions
+- [OWASP LLM07:2025 System Prompt Leakage](https://genai.owasp.org/llmrisk/llm072025-system-prompt-leakage/) — "the system prompt should not be considered a secret, nor should it be used as a security control", and that authorisation checks must not be delegated to the LLM
+- [OWASP LLM10:2025 Unbounded Consumption](https://genai.owasp.org/llmrisk/llm102025-unbounded-consumption/) — denial of wallet, service degradation, and replicating a shadow model from crafted API queries
+- [MITRE ATLAS AML.T0051 — LLM Prompt Injection](https://atlas.mitre.org/techniques/AML.T0051) — the technique the worked example maps to
+- [MITRE ATLAS AML.T0057 — LLM Data Leakage](https://atlas.mitre.org/techniques/AML.T0057) — the disclosure half of the worked example

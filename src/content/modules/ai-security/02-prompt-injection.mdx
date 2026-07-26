@@ -8,7 +8,7 @@ minutes: 20
 atlas: ["AML.T0051.000", "AML.T0051.001"]
 objectives: ["CY0-001 2.6", "OWASP LLM01"]
 tags: ["prompt-injection", "indirect", "jailbreak", "defence"]
-updated: 2026-07-21
+updated: 2026-07-26
 ---
 
 import Quiz from '../../../components/Quiz.astro';
@@ -63,7 +63,7 @@ No single control is sufficient; defence is layered probability reduction plus b
 - **Human-in-the-loop on irreversible actions.** A confirmation step on money, deletion, and external communication converts a silent compromise into a caught one.
 - **Dual-LLM / quarantine patterns.** A privileged model that never sees untrusted content orchestrates; a quarantined model processes hostile data and returns only structured, validated results the privileged model can trust.
 - **Input and output filtering.** Classifiers that flag injection-shaped input and credential-shaped output. Bypassable, but they raise cost and catch the unsophisticated.
-- **Spotlighting / delimiting.** Marking untrusted content (encoding, delimiters, per-segment provenance) measurably lowers success rates. It does not zero them — as your Module 1 lab showed.
+- **Spotlighting / delimiting.** Marking untrusted content (encoding, delimiters, per-segment provenance) measurably lowers success rates. Microsoft's spotlighting evaluation drove attack success from above 50% to below 2% on GPT-family models — a large reduction, and still not zero. Note what "below 2%" means for a system processing thousands of documents a day: it does not zero them, as your Module 1 lab showed.
 
 <Quiz mid="ai-security/02-prompt-injection" title="Prompt Injection in Depth" questions={[
   {
@@ -110,3 +110,12 @@ Carry Module 1's summariser forward and prove the two-part thesis of this module
 **Evidence of completion:** a journal note showing (a) at least one delimiter escape, and (b) the gated tool refusing to fire without confirmation — the same human-in-the-loop control that separates a silent compromise from a caught one.
 
 </Lab>
+
+## Sources
+
+- [MITRE ATLAS AML.T0051.000 — Direct](https://atlas.mitre.org/techniques/AML.T0051.000) and [AML.T0051.001 — Indirect](https://atlas.mitre.org/techniques/AML.T0051.001) — the direct/indirect classification used here. ATLAS also now carries [AML.T0051.002 — Triggered](https://atlas.mitre.org/techniques/AML.T0051.002) for payloads that fire on a user action or system event, which is the closest published label for the stored case
+- [OWASP LLM01:2025 Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) — backs the central claim: "it is unclear if there are fool-proof methods of prevention for prompt injection", with mitigations framed as impact reduction
+- [Hines et al., *Defending Against Indirect Prompt Injection Attacks With Spotlighting*](https://arxiv.org/abs/2403.14720) — the spotlighting technique and the reported drop in attack success from above 50% to below 2%
+- [Simon Willison — The Dual LLM pattern for building AI assistants that can resist prompt injection](https://simonwillison.net/2023/Apr/25/dual-llm-pattern/) — the privileged/quarantined split, including the author's own caveat that it is not a 100% reliable solution
+- [OWASP LLM06:2025 Excessive Agency](https://genai.owasp.org/llmrisk/llm062025-excessive-agency/) — least agency and human-in-the-loop approval as the blast-radius controls
+- [NIST AI 100-2e2025 — Adversarial Machine Learning: A Taxonomy and Terminology of Attacks and Mitigations](https://csrc.nist.gov/pubs/ai/100/2/e2025/final) — places direct and indirect prompt injection within the wider generative-AI attack taxonomy

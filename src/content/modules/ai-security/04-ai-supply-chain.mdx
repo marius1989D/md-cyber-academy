@@ -5,10 +5,10 @@ order: 4
 summary: "The rarest differentiator in the field: what a model file actually is, why loading one runs code, and how to defend the pipeline."
 rung: 4
 minutes: 26
-atlas: ["AML.T0010", "AML.T0058", "AML.T0011"]
+atlas: ["AML.T0010", "AML.T0010.003", "AML.T0058", "AML.T0018.002", "AML.T0011.000"]
 objectives: ["CY0-001 3.1", "CY0-001 3.3"]
 tags: ["supply-chain", "pickle", "model-hub", "sbom", "provenance"]
-updated: 2026-07-24
+updated: 2026-07-26
 ---
 
 import Quiz from '../../../components/Quiz.astro';
@@ -37,7 +37,15 @@ class Payload:
 ```
 
 <Callout type="warn">
-`torch.load()` on a `.pt`/`.pth` file uses pickle by default. `joblib.load`, and many scikit-learn `.pkl` artifacts, use pickle. A `.bin` "PyTorch model" from a random repo is a pickle. Loading any of these from an untrusted source is running a stranger's code as your user. This is AML.T0058 — the model file *is* the malware.
+`torch.save()` and `torch.load()` use Python's pickle by default, so a `.pt`, `.pth` or `.bin` "PyTorch model" from a random repo is a pickle. **The default hardened in PyTorch 2.6: `torch.load` now passes `weights_only=True` unless you supply your own `pickle_module`.** That restricts the unpickler to tensors and a few primitive types and forbids dynamic imports during load — PyTorch's own wording is that it "narrows the surface of remote code execution attacks", not that it closes it, and it explicitly does not defend against denial of service.
+
+Know exactly where the hole still is, because this is what separates a current answer from a two-year-old one:
+
+- **`weights_only=False`.** PyTorch's own error text says re-running with it "can result in arbitrary code execution". Plenty of code and plenty of tutorials still set it, because it is the fastest way to make a load error go away.
+- **Anything not PyTorch.** `joblib.load` and most scikit-learn `.pkl` artifacts are plain, unrestricted pickle. No `weights_only` exists to save you.
+- **Old runtimes.** Pre-2.6 PyTorch defaults to the unrestricted unpickler.
+
+The load-time execution itself is **AML.T0018.002 Embed Malware**; the victim opening the artifact is **AML.T0011.000 Unsafe AI Artifacts**. Publishing the poisoned model to a hub in the first place is **AML.T0058**. Name the right one — an interviewer who knows ATLAS will notice.
 </Callout>
 
 ## The attack surface, laid out
@@ -121,3 +129,18 @@ Do this in a throwaway VM with networking off. You are proving the mechanism to 
 **Evidence of completion:** a journal entry with (a) the proof that `pickle.load` executed your payload, (b) picklescan's flagged output, and (c) the `strace` line showing the `execve` at load time. You now have a demonstrable, defensible account of the single most differentiating risk in AI security — worth its own slide in any interview.
 
 </Lab>
+
+## Sources
+
+- [Python documentation — `pickle`](https://docs.python.org/3/library/pickle.html) — "The `pickle` module **is not secure**. Only unpickle data you trust", and the worked `pickle.loads` example that executes `os.system`
+- [PyTorch — `torch.load`](https://docs.pytorch.org/docs/stable/generated/torch.load.html) — the current signature showing `weights_only=True`, and the standing warning never to load data from an untrusted source
+- [PyTorch — Serialization semantics](https://docs.pytorch.org/docs/stable/notes/serialization.html) — that `torch.save`/`torch.load` use pickle by default, that the `weights_only=True` default arrived in version 2.6, what the restricted unpickler allows, and that `weights_only=False` "can result in arbitrary code execution"
+- [Hugging Face — safetensors](https://huggingface.co/docs/safetensors/index) — "a new simple format for storing tensors safely (as opposed to pickle) and that is still fast (zero-copy)"
+- [picklescan](https://github.com/mmaitre314/picklescan) — static detection of pickle files performing suspicious actions, reporting dangerous globals without executing them
+- [fickling](https://github.com/trailofbits/fickling) — Trail of Bits' pickle decompiler and static analyser, the second tool named in the lab
+- [MITRE ATLAS AML.T0010 — AI Supply Chain Compromise](https://atlas.mitre.org/techniques/AML.T0010) and [AML.T0010.003 — Model](https://atlas.mitre.org/techniques/AML.T0010.003) — the pipeline-level technique and its model-specific sub-technique
+- [MITRE ATLAS AML.T0058 — Publish Poisoned Models](https://atlas.mitre.org/techniques/AML.T0058) — publishing a poisoned model to a registry or repository
+- [MITRE ATLAS AML.T0018.002 — Embed Malware](https://atlas.mitre.org/techniques/AML.T0018.002) — malicious code embedded in model files, naming pickle's unsafe deserialisation directly and noting such models "may still operate as expected"
+- [MITRE ATLAS AML.T0011.000 — Unsafe AI Artifacts](https://atlas.mitre.org/techniques/AML.T0011.000) — the victim-execution half of the chain
+- [OWASP LLM03:2025 Supply Chain](https://genai.owasp.org/llmrisk/llm032025-supply-chain/) — the risk-register framing used in Module 1
+- [CycloneDX — Machine Learning Bill of Materials (ML-BOM)](https://cyclonedx.org/capabilities/mlbom/) — the standard behind the ML-BOM recommendation

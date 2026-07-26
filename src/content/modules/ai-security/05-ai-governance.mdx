@@ -7,7 +7,7 @@ rung: 2
 minutes: 20
 objectives: ["CY0-001 4.2", "NIST AI RMF", "EU AI Act"]
 tags: ["governance", "nist-ai-rmf", "eu-ai-act", "risk", "compliance"]
-updated: 2026-07-24
+updated: 2026-07-26
 ---
 
 import Quiz from '../../../components/Quiz.astro';
@@ -36,9 +36,9 @@ The RMF frames trustworthy AI around properties you can hold a system against: v
 
 Where the NIST RMF is voluntary and risk-based, the EU AI Act is **law**, and it regulates by tiering systems on the risk they pose to people:
 
-- **Unacceptable risk** — banned outright (e.g. government social scoring, certain manipulative or exploitative systems).
-- **High risk** — permitted but heavily obligated (systems in areas like medical devices, critical infrastructure, employment, and law enforcement). This tier carries the real compliance weight: risk management, data governance, logging, human oversight, and documented accuracy and robustness.
-- **Limited risk** — transparency duties, chiefly disclosure (a person must be told they are dealing with an AI, and certain synthetic content must be labelled).
+- **Unacceptable risk** — banned outright by **Article 5**: subliminal or purposefully manipulative and deceptive techniques that materially distort behaviour and cause significant harm (5(1)(a)); exploiting vulnerabilities of age, disability, or a specific social or economic situation (5(1)(b)); and social scoring (5(1)(c)). Name the trap in that last one: the prohibition is written actor-neutrally, so it is not limited to governments — recital 31 spells out "public or private actors". "It's a private company, so the ban doesn't apply" is a wrong answer people reach for confidently.
+- **High risk** — permitted but heavily obligated. The categories are enumerated in **Annex III**, and it is worth knowing the eight headings rather than gesturing at them: (1) biometrics, (2) critical infrastructure, (3) education and vocational training, (4) employment, workers' management and access to self-employment, (5) access to and enjoyment of essential private and public services and benefits, (6) law enforcement, (7) migration, asylum and border control management, (8) administration of justice and democratic processes. This tier carries the real compliance weight: risk management, data governance, logging, human oversight, and documented accuracy and robustness.
+- **Limited risk** — transparency duties under **Article 50**. Two distinct obligations, and they are easy to blur: a system that interacts directly with a person must be designed so the person is informed they are dealing with an AI (unless that is obvious to a reasonably observant person), *and* providers of systems generating synthetic audio, image, video or text must mark the outputs "in a machine-readable format and detectable as artificially generated or manipulated". The first is about disclosure to a human; the second is about machine-readable provenance in the artifact.
 - **Minimal risk** — the majority; largely unregulated.
 
 <Callout type="warn">
@@ -69,7 +69,7 @@ CY0-001 weights governance, risk and compliance heavily precisely because it is 
     q: "Under the EU AI Act, an AI system used to screen job applicants falls into which tier?",
     opts: ["Minimal risk", "Limited risk", "High risk", "Unacceptable risk"],
     a: 2,
-    why: "Employment and worker-management systems are named high-risk. That tier carries the substantive obligations — risk management, data governance, logging, human oversight, and documented accuracy and robustness — which is where most of the Act's compliance weight sits."
+    why: "Annex III point 4 names 'Employment, workers' management and access to self-employment', and lists systems used to analyse and filter job applications and evaluate candidates explicitly. That tier carries the substantive obligations — risk management, data governance, logging, human oversight, and documented accuracy and robustness — which is where most of the Act's compliance weight sits."
   },
   {
     q: "What is the key legal distinction between the NIST AI RMF and the EU AI Act?",
@@ -81,7 +81,7 @@ CY0-001 weights governance, risk and compliance heavily precisely because it is 
     q: "Why does the EU AI Act affect a US-only company with no EU offices?",
     opts: ["It does not — it is strictly territorial", "Because the Act is extraterritorial and reaches systems used in the EU regardless of provider location", "Only if the company uses EU-hosted servers", "Only after it opens an EU subsidiary"],
     a: 1,
-    why: "Like the GDPR, the Act is extraterritorial: if your system is placed on the market or used within the EU, the obligations attach regardless of where you are based. Location of the provider is not the trigger — use in the EU is."
+    why: "Like the GDPR, the Act is extraterritorial. Article 2(1)(a) reaches providers placing systems on the Union market 'irrespective of whether those providers are established or located within the Union or in a third country', and Article 2(1)(c) reaches third-country providers and deployers 'where the output produced by the AI system is used in the Union'. Location of the provider is not the trigger — placement on the EU market or use of the output in the EU is."
   },
   {
     q: "Which standard is the certifiable AI management-system analogue of ISO 27001?",
@@ -94,3 +94,12 @@ CY0-001 weights governance, risk and compliance heavily precisely because it is 
 <Callout type="detect">
 There is no lab for this module — governance is assessed on evidence, not exploitation. The rung-4 equivalent is a paper exercise worth doing for real: take one system from your MD AI Cyber Range, place it in an EU AI Act tier, walk it through the four NIST RMF functions, and write the one-page risk note that would result. Producing that artifact is how you prove you can operate the framework, not just recite it.
 </Callout>
+
+## Sources
+
+- [NIST AI 100-1 — Artificial Intelligence Risk Management Framework (AI RMF 1.0)](https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf) — the framework itself
+- [NIST AI RMF Knowledge Base — AI RMF Core](https://airc.nist.gov/AI_RMF_Knowledge_Base/AI_RMF) — confirms the Core is "operationalized through four functions: Govern, Map, Measure, and Manage"
+- [NIST AI RMF Knowledge Base — Characteristics of trustworthy AI systems](https://airc.nist.gov/AI_RMF_Knowledge_Base/AI_RMF/Foundational_Information/3-sec-characteristics) — the seven characteristics listed in this module, in NIST's own order
+- [Regulation (EU) 2024/1689 (the AI Act)](https://eur-lex.europa.eu/eli/reg/2024/1689/oj) — Article 2(1) for extraterritorial scope, Article 5(1) for the prohibited practices, Annex III for the eight high-risk categories, and Article 50 for the transparency duties including machine-readable marking of synthetic content
+- [Microsoft Learn — ISO/IEC 42001:2023 Artificial Intelligence Management System Standards](https://learn.microsoft.com/en-us/compliance/regulatory/offering-iso-42001) — that ISO/IEC 42001 specifies requirements for an AI management system (AIMS); the standard itself is [available from ISO](https://www.iso.org/standard/81230.html) for purchase
+- [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/) — the technical checklist sitting under the governance layer, as covered in Module 1

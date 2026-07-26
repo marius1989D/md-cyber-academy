@@ -5,10 +5,10 @@ order: 3
 summary: "Evasion, poisoning, extraction and inference — the attack surface of every classifier in your stack, not just the headline LLM."
 rung: 3
 minutes: 24
-atlas: ["AML.T0043", "AML.T0020", "AML.T0024", "AML.T0018"]
+atlas: ["AML.T0043", "AML.T0020", "AML.T0018.000", "AML.T0024.002", "AML.T0024.000", "AML.T0024.001"]
 objectives: ["CY0-001 2.2", "CY0-001 2.4"]
 tags: ["adversarial-ml", "evasion", "poisoning", "model-extraction", "membership-inference"]
-updated: 2026-07-24
+updated: 2026-07-26
 ---
 
 import Quiz from '../../../components/Quiz.astro';
@@ -27,14 +27,16 @@ They divide on two axes: *when* the attack happens (training time vs inference t
 
 | Category | When | Attacker's goal | ATLAS |
 |----------|------|-----------------|-------|
-| **Evasion** | Inference | Craft an input the model misclassifies | AML.T0043 |
-| **Poisoning** | Training | Corrupt the model via tainted training data | AML.T0020 |
-| **Extraction** | Inference | Steal a functional copy of the model | AML.T0024 |
-| **Inference** | Inference | Recover facts about the training data | AML.T0018 |
+| **Evasion** | Inference | Craft an input the model misclassifies | AML.T0043 Craft Adversarial Data |
+| **Poisoning** | Training | Corrupt the model via tainted training data | AML.T0020 Poison Training Data; AML.T0018.000 Poison AI Model |
+| **Extraction** | Inference | Steal a functional copy of the model | AML.T0024.002 Extract AI Model |
+| **Inference** | Inference | Recover facts about the training data | AML.T0024.000 Infer Training Data Membership; AML.T0024.001 Invert AI Model |
+
+Note the ATLAS structure there, because it is a trap in both directions. Extraction and both inference attacks are sub-techniques of the *same* parent, **AML.T0024 Exfiltration via AI Inference API** — ATLAS groups them by the channel they abuse (the inference API) rather than by what they steal. Poisoning splits the other way: tainting the data is AML.T0020, tampering with the model object itself is AML.T0018. Getting this mapping right is the difference between a coverage claim that survives review and one that doesn't.
 
 ## Evasion — the test-time attack
 
-Evasion crafts an input that a human reads one way and the model reads another. The canonical example is the image perturbed by a few pixels — imperceptible to you — that flips a classifier from "panda" to "gibbon" with high confidence. The security-relevant version is not pandas: it is the malware sample modified so a classifier calls it benign, the phishing page tuned to pass a content filter, or the prompt reworded until a guardrail model waves it through.
+Evasion crafts an input that a human reads one way and the model reads another. The canonical example is Goodfellow's panda: GoogLeNet labels the original image "panda" at 57.7% confidence, and after adding a perturbation of epsilon 0.007 — the magnitude of the smallest step in an 8-bit pixel value, so genuinely invisible — the same network labels it "gibbon" at 99.3%. Read those two numbers together, because the second one is the real lesson: the model did not become uncertain, it became *more* confident while being wrong. Confidence is not evidence of correctness under attack. The security-relevant version is not pandas: it is the malware sample modified so a classifier calls it benign, the phishing page tuned to pass a content filter, or the prompt reworded until a guardrail model waves it through.
 
 Evasion needs no access to training. It attacks the deployed model as it stands, probing the decision boundary until it finds a point on the wrong side of it. In a **white-box** setting the attacker has the model's gradients and can compute the perturbation directly (FGSM, PGD). In the far more common **black-box** setting they only have query access — but attacks transfer: an adversarial example built against a substitute model often fools the target too, because models trained on similar data learn similar boundaries.
 
@@ -133,3 +135,12 @@ Build the intuition by defeating a model you trained yourself, so the boundary i
 **Evidence of completion:** a journal entry with the before/after image pair, the confidence on each, the epsilon that flipped the label, and a one-line note on whether the attack transferred to the second model — the property that makes black-box evasion practical.
 
 </Lab>
+
+## Sources
+
+- [Goodfellow, Shlens & Szegedy, *Explaining and Harnessing Adversarial Examples*](https://arxiv.org/abs/1412.6572) — introduces the fast gradient sign method and Figure 1's panda at 57.7% becoming a gibbon at 99.3% under epsilon 0.007
+- [NIST AI 100-2e2025 — Adversarial Machine Learning: A Taxonomy and Terminology of Attacks and Mitigations](https://csrc.nist.gov/pubs/ai/100/2/e2025/final) — the authoritative taxonomy behind the four-category split, covering evasion, poisoning and privacy attacks for predictive AI
+- [MITRE ATLAS AML.T0043 — Craft Adversarial Data](https://atlas.mitre.org/techniques/AML.T0043) — the evasion technique
+- [MITRE ATLAS AML.T0020 — Poison Training Data](https://atlas.mitre.org/techniques/AML.T0020) and [AML.T0018.000 — Poison AI Model](https://atlas.mitre.org/techniques/AML.T0018.000) — the two halves of the poisoning surface
+- [MITRE ATLAS AML.T0024 — Exfiltration via AI Inference API](https://atlas.mitre.org/techniques/AML.T0024) — the shared parent for [AML.T0024.002 Extract AI Model](https://atlas.mitre.org/techniques/AML.T0024.002), [AML.T0024.000 Infer Training Data Membership](https://atlas.mitre.org/techniques/AML.T0024.000) and [AML.T0024.001 Invert AI Model](https://atlas.mitre.org/techniques/AML.T0024.001)
+- [OWASP LLM04:2025 Data and Model Poisoning](https://genai.owasp.org/llmrisk/llm042025-data-and-model-poisoning/) — the LLM-facing framing of poisoning this module links back to
