@@ -1,0 +1,204 @@
+---
+title: "Threat Hunting: Asking Questions Your Rules Cannot"
+course: detection
+order: 8
+summary: "A hunt is a falsifiable hypothesis tested against data, and a hunt that finds nothing is still a result you can show someone."
+rung: 4
+minutes: 32
+attack: ["T1218", "T1053.005"]
+atlas: []
+objectives: []
+tags: ["threat-hunting", "peak", "hunting-maturity-model", "hypothesis", "sentinel", "stack-counting"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Every module so far has been about standing questions — rules that ask the same thing forever and tell you when the answer changes. Hunting is what you do about the questions nobody has asked yet.
+
+The need for it follows directly from work you have already done. Module 2 produced a coverage map with honest gaps. Module 4 produced an exclusion list, each entry a documented blind spot. Module 3 produced a list of telemetry you collect but do not alert on. **Hunting is the activity that goes looking in exactly those places** — and that framing matters, because it means hunting is not a vague aspiration for teams with spare time. It has a defined input: your own documented weaknesses.
+
+## What hunting is, and three things it is not
+
+Hunting is **the human-led, hypothesis-driven search for activity your automated detections would not have caught.** Three common activities get called hunting and are not:
+
+- **Running your detections manually.** If a rule already covers it, executing the query by hand is verification, not hunting.
+- **Triaging the alert queue.** That is detection working as designed. Hunting starts where the queue ends.
+- **Searching for indicators from a threat report.** Useful, and worth doing — but pasting hashes and domains into a search bar is *matching*, not hunting. It only finds what someone else already found.
+
+That last distinction is graded explicitly in David Bianco's **Hunting Maturity Model** — the same author as Module 1's Pyramid of Pain:
+
+| Level | Name | What characterises it |
+|---|---|---|
+| HMM0 | Initial | Relies on automated alerting; no hunting capability |
+| HMM1 | Minimal | Collects data and searches historical data for indicators from new reports |
+| HMM2 | Procedural | Applies hunting procedures developed by others, with minor changes; the most common level |
+| HMM3 | Innovative | Creates original procedures, and is usually the one publishing them |
+| HMM4 | Leading | Successful hunts are operationalised into automated detection |
+
+<Callout type="key">
+HMM4 is the sentence to take away: **"any successful hunting process will be operationalized and turned into automated detection."**
+
+That closes the loop of this entire course. Hunting is not an alternative to detection engineering — it is the *research function* that feeds it. A hunt that finds something and does not become a rule has to be re-run manually forever, which means it will not be re-run. The deliverable of a good hunt is usually a detection, and the measure of a hunting programme is how many of its findings became standing coverage.
+</Callout>
+
+## A framework and three hunt types
+
+**PEAK** — "Prepare, Execute, and Act with Knowledge" — is the current working framework, from SURGe by Splunk, with David Bianco and Ryan Fetterman as primary collaborators. Its three phases are what they sound like: **Prepare** (choose the topic, research, plan), **Execute** (analyse the data), **Act** (document, automate, communicate), with knowledge feeding in throughout.
+
+It names three hunt types, and knowing which one you are running keeps a hunt from drifting:
+
+- **Hypothesis-driven** — form a suspicion, then use data to confirm or deny it.
+- **Baseline** (also called Exploratory Data Analysis) — establish what normal looks like, then search for deviations. This is Module 5's stack counting, promoted to a method.
+- **Model-Assisted Threat Hunting (M-ATH)** — use machine learning to model known-good or known-bad behaviour and find what deviates from or matches the model.
+
+Most of your hunts will be the first two, and the second is more productive than beginners expect: you cannot recognise abnormal until you have looked hard at normal.
+
+## Writing a hypothesis that can fail
+
+This is the skill that separates a hunt from an afternoon of poking at logs. A usable hypothesis is **falsifiable**, **scoped to telemetry you actually have**, and **specific about what you expect to see.**
+
+Compare:
+
+```text
+UNUSABLE
+  "Are we compromised?"
+  "Is there malware on the network?"
+  "Look for suspicious PowerShell."
+
+  No end state. Nothing could disprove them. No defined data source.
+  These produce four hours of browsing and no conclusion.
+
+USABLE
+  "An adversary proxying execution through signed binaries (T1218) would
+   run rundll32.exe with a parent process that is not explorer.exe or
+   services.exe.
+
+   Data:      DeviceProcessEvents, last 30 days
+   Expect:    a small number of hosts with rare parent/child pairs
+   Falsified: if every rundll32 execution has an expected parent and
+              appears estate-wide with high frequency
+   Timebox:   one day"
+```
+
+The usable version names the technique, the telemetry, the observable, the condition that would disprove it, and a time limit. It can end. **A hypothesis that cannot be disproved cannot be completed**, which is why so many hunts quietly fizzle rather than concluding.
+
+## Every hunt produces something
+
+The most damaging myth about hunting is that a hunt which finds no adversary was a waste. There are four legitimate outcomes, and only one of them involves finding an intruder:
+
+1. **A detection.** You found a repeatable signal; operationalise it as a rule. This is HMM4.
+2. **A tuning change.** You found that an existing rule was noisier, narrower or more broken than believed.
+3. **A telemetry gap.** You could not test the hypothesis because the data was not collected. That is a finding with a cost attached and an owner — arguably the most valuable output, because it fixes future hunts too.
+4. **A documented negative.** You tested it properly and the behaviour is not present. Write it down, with the query, the window and the date.
+
+Outcome four is the one teams fail to record, and its value is real: it is the difference between "we do not think we have that exposure" and "we tested for it on the 14th over 90 days of data, here is the query." The second sentence is what an auditor, a board and an interviewer all actually want.
+
+Sentinel supports this directly, which is a useful signal that it is normal professional practice rather than pedantry. A hunt has a **hypothesis state** you set to validated or invalidated, bookmarks that preserve "the specific row results, KQL query, and time range that generated the result", and programme metrics that count **validated hypotheses**, new incidents, and new analytics rules created. An invalidated hypothesis is tracked as an outcome, not an embarrassment.
+
+## Refining a hunt in flight
+
+Rung 4. You start the rundll32 hypothesis above. Here is what the first query returns, aggregated:
+
+```text
+InitiatingProcessFileName   FileName        hosts   executions
+explorer.exe                rundll32.exe    2,140   88,402
+services.exe                rundll32.exe    2,138   14,203
+msiexec.exe                 rundll32.exe    1,904   9,881
+winword.exe                 rundll32.exe        1        1
+cmd.exe                     rundll32.exe        3        7
+```
+
+The top three are the estate being an estate — `msiexec` spawning `rundll32` is ordinary installer behaviour, and you have just learned that, which is baseline knowledge you did not have an hour ago. The bottom two rows are the hunt.
+
+`winword.exe` spawning `rundll32.exe` **once, on one host**, is Module 5's ancestry signal at its sharpest. Note that the original hypothesis would have missed it: it said "not `explorer.exe` or `services.exe`", which would have flagged `msiexec` across 1,904 hosts and buried the single interesting row. **The hypothesis needed refining the moment you saw the data** — from "unexpected parent" to "parent that is rare for this child across the estate", which is a rarity question rather than an allowlist question.
+
+That refinement is the hunt working correctly, not a mistake. What you must not do is refine until something looks suspicious and then declare victory — that is fishing. The discipline is to write the refined hypothesis down, state why, and re-test it as a question that could still come back empty.
+
+<Callout type="warn">
+Three failure modes worth recognising in yourself.
+
+**Fishing.** Browsing data until something looks odd, then constructing a story around it. Everything looks odd in enough data. Without a hypothesis stated in advance, you have no way to distinguish a finding from a coincidence.
+
+**No timebox.** Hunts expand indefinitely because there is always another query. Decide the duration in the Prepare phase and stop when it is spent, recording where you got to.
+
+**Not writing it up.** An undocumented hunt cannot be repeated, handed over, or counted — and it teaches the organisation nothing. If the write-up feels like the boring part, remember it is the only part that survives you.
+</Callout>
+
+<Quiz mid="detection/08-threat-hunting" title="Threat Hunting: Asking Questions Your Rules Cannot" questions={[
+  {
+    q: "Searching your historical data for hashes and domains from a new threat report is which activity?",
+    opts: ["Hypothesis-driven hunting at HMM3", "Indicator matching -- useful, but it only finds what someone else already found, and sits at HMM1 in the maturity model", "Baseline hunting", "Alert triage"],
+    a: 1,
+    why: "HMM1 (Minimal) is characterised precisely by extracting key indicators from new reports and searching historical data. It is worth doing, but it is matching rather than hunting: it can only find threats already discovered and published by someone else. Hunting proper begins with a hypothesis you formed about behaviour."
+  },
+  {
+    q: "What does HMM4 (Leading) identify as the defining characteristic of a mature hunting programme?",
+    opts: ["Hunting full-time with a dedicated team", "Successful hunting processes are operationalised and turned into automated detection", "Using machine learning for every hunt", "Publishing research externally"],
+    a: 1,
+    why: "At HMM4 any successful hunting process gets automated into a standing detection, which frees analysts to work on new questions. This makes hunting the research function that feeds detection engineering rather than an alternative to it -- and a finding that never becomes a rule must be re-hunted manually forever, which means it will not be."
+  },
+  {
+    q: "Why is 'Look for suspicious PowerShell' an unusable hunting hypothesis?",
+    opts: ["PowerShell is too common to investigate", "It is not falsifiable and names no data source, expected observable or end condition, so the hunt cannot conclude", "It should specify a threat actor by name", "PowerShell hunting requires machine learning"],
+    a: 1,
+    why: "A usable hypothesis states the technique, the telemetry, what you expect to see, what would disprove it, and a timebox. Without a falsification condition there is no way to finish -- which is why vague hunts fizzle rather than concluding. 'Suspicious' is a judgement, not a testable claim."
+  },
+  {
+    q: "A hunt tests its hypothesis properly and finds no malicious activity. What is the correct outcome?",
+    opts: ["The hunt failed and should not be recorded", "A documented negative -- record the query, time window and date, since 'we tested for it over 90 days, here is the query' is materially different from 'we think we are fine'", "Re-run the hunt with broader queries until something is found", "Escalate to incident response anyway"],
+    a: 1,
+    why: "A documented negative is one of four legitimate outcomes alongside a new detection, a tuning change and a telemetry gap. Its value is evidential: it converts an assumption into a tested claim with a date and a method attached. Sentinel tracks hypothesis state as validated or invalidated precisely because an invalidated hypothesis is a result."
+  },
+  {
+    q: "A hunt cannot be completed because the required telemetry was never collected. Is this a wasted hunt?",
+    opts: ["Yes -- no conclusion was reached", "No -- a telemetry gap is a finding with a cost and an owner, and fixing it improves every future hunt as well", "Yes, unless the data can be recovered retroactively", "No, because the absence of data proves the absence of the behaviour"],
+    a: 1,
+    why: "An untestable hypothesis identifies a visibility gap, which is arguably the most valuable output because it unblocks future work rather than answering one question. Note the trap in the last option: missing telemetry proves nothing about the behaviour, which is exactly the false-negative blindness from Module 1."
+  },
+  {
+    q: "Your hypothesis excluded explorer.exe and services.exe as rundll32 parents, but the results show msiexec.exe spawning rundll32 on 1,904 hosts. What should you do?",
+    opts: ["Alert on all msiexec activity", "Refine the hypothesis from 'unexpected parent' to 'parent that is rare for this child across the estate', write down the refinement and why, then re-test", "Abandon the hunt as invalidated", "Add msiexec to a permanent exclusion and move on"],
+    a: 1,
+    why: "Refining in response to data is the hunt working correctly -- you learned that installer behaviour is normal, which is baseline knowledge you lacked. Converting an allowlist question into a rarity question surfaces the single-host outlier that the original framing would have buried. What makes it discipline rather than fishing is recording the refined hypothesis and re-testing it as something that could still come back empty."
+  },
+  {
+    q: "In the PEAK framework, what is a baseline hunt?",
+    opts: ["Re-running last quarter's hunts to compare results", "Exploratory data analysis -- establishing what normal looks like, then searching for deviations from it", "Testing detections against a baseline of known attacks", "A hunt performed before any detections are deployed"],
+    a: 1,
+    why: "PEAK names three hunt types: hypothesis-driven, baseline (exploratory data analysis) and model-assisted (M-ATH). Baseline hunting establishes normal behaviour patterns and looks for deviations -- Module 5's stack counting promoted to a method. It is more productive than beginners expect, because you cannot recognise abnormal until you have looked hard at normal."
+  }
+]} />
+
+<Lab title="Run one hunt end to end and produce all four outcomes" host="Detection lab + Sentinel or Elastic" minutes={90}>
+
+You are going to run a complete hunt with a written hypothesis, a timebox, and a documented conclusion — and deliberately produce every one of the four outcome types, because each teaches a different thing.
+
+1. **Prepare: choose the topic from your own gaps.** Open the coverage map from Module 2 and the exclusion list from Module 4. Pick one technique graded "telemetry only", or one behaviour you excluded. Do not pick a technique you already have a validated detection for.
+2. **Write the hypothesis** in the usable form above: technique, data source, expected observable, falsification condition, timebox. Timebox it to 90 minutes and hold yourself to that.
+3. **Execute: baseline first.** Before looking for anything bad, aggregate the relevant field across your lab and read the common values. Write down two things you learned about normal that you did not know.
+4. **Now look at the tail.** Rank by rarity and examine the least common values. Record your reasoning for each of the rarest five.
+5. **Produce outcome 1 (detection).** Whatever the hunt found, write one query that would have caught the most interesting thing automatically. Express it as a candidate detection with an ADS-style hypothesis and response.
+6. **Produce outcome 2 (tuning change).** Compare what you saw against one existing rule or exclusion. Record one specific change you would make to it based on what the data showed.
+7. **Produce outcome 3 (telemetry gap).** Identify at least one thing you wanted to check and could not, because the data was absent or incomplete. Write it as a request: what to enable, on what, and what it would let you detect.
+8. **Produce outcome 4 (documented negative).** Write the negative result properly: the hypothesis, the exact query, the time window, the date, and the conclusion — in a form a colleague could re-run in six months.
+9. **Act: close it out.** Write a one-page hunt report with all four outcomes, and state whether the hypothesis was validated or invalidated.
+
+**Evidence of completion:** a journal entry containing the one-page hunt report with (a) the written hypothesis including its falsification condition and timebox, (b) the two things you learned about normal during baselining, (c) your candidate detection query, (d) the tuning change, (e) the telemetry gap written as an actionable request, and (f) the documented negative in re-runnable form. This report is the single most portfolio-valuable artifact in the course: it demonstrates that you can scope a question, test it honestly, and produce output whether or not you found an adversary — which is what a hunting role actually consists of.
+
+</Lab>
+
+## Sources
+
+- [David Bianco — A Simple Hunting Maturity Model](https://detect-respond.blogspot.com/2015/10/a-simple-hunting-maturity-model.html) — the HMM0 to HMM4 levels, HMM1 as extracting indicators from reports and searching historical data, HMM2 as applying others' procedures, and HMM4 where "any successful hunting process will be operationalized and turned into automated detection"
+- [Splunk — The PEAK Threat Hunting Framework](https://www.splunk.com/en_us/blog/security/peak-threat-hunting-framework.html) — "Prepare, Execute, and Act with Knowledge", authored by SURGe by Splunk with David Bianco and Ryan Fetterman, and the three hunt types: hypothesis-driven, baseline (exploratory data analysis) and Model-Assisted Threat Hunting
+- [PEAK Threat Hunting Framework repository](https://github.com/splunk/PEAK) — the published framework materials
+- [Microsoft Learn — Conduct end-to-end threat hunting with Hunts](https://learn.microsoft.com/en-us/azure/sentinel/hunts) — the hypothesis field and its validated/invalidated state, the three common hypothesis categories including detection gaps identified from the ATT&CK map, creating an analytics rule directly from a hunting query, and programme metrics counting validated hypotheses, new incidents and new analytics rules
+- [Microsoft Learn — Use hunting bookmarks for data investigations](https://learn.microsoft.com/en-us/azure/sentinel/bookmarks) — bookmarks preserving the specific row results, KQL query and time range, with entity and MITRE mapping
+- [Microsoft Learn — Hunt in near-real-time with Livestream](https://learn.microsoft.com/en-us/azure/sentinel/livestream) — testing a hunting query against incoming data before committing it to a rule
+- [Microsoft Learn — Jupyter notebooks in Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/notebooks) — the analysis environment for hunts that exceed what a query can express
+- [MITRE ATT&CK T1218 — System Binary Proxy Execution](https://attack.mitre.org/techniques/T1218/) — the technique behind the worked hypothesis
+- [MITRE ATT&CK T1053.005 — Scheduled Task](https://attack.mitre.org/techniques/T1053/005/) — a second candidate hypothesis for the lab
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the format the lab's candidate detection is written in
