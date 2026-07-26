@@ -1,0 +1,176 @@
+---
+title: "Mapping Detections to ATT&CK"
+course: detection
+order: 2
+summary: "How to turn a pile of rules into a coverage picture you can defend in a review, and why a green heatmap is the easiest lie in security."
+rung: 2
+minutes: 26
+attack: ["T1685", "T1003.001", "T1059.001"]
+atlas: []
+objectives: []
+tags: ["mitre-attack", "coverage", "navigator", "dettect", "threat-informed", "detection-engineering"]
+updated: 2026-07-26
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 1 ended on the ADS framework's **Categorization** section — the requirement that every detection declares which adversary behaviour it addresses. This module is about what that declaration buys you: the ability to answer "what are we covered for?" with evidence instead of a feeling. It is also about the trap that question sets, because the standard way of answering it produces confident, well-presented nonsense.
+
+## The structure, stated precisely
+
+ATT&CK is a hierarchy, and using the words loosely is the fastest way to look junior in a review:
+
+- A **tactic** is the adversary's *goal* — the why. Credential Access. Each has an ID like `TA0006`.
+- A **technique** is *how* they achieve it. OS Credential Dumping, `T1003`.
+- A **sub-technique** is a more specific means. LSASS Memory, `T1003.001`.
+- A **procedure** is a *specific observed implementation* — this actor, using this tool, with these flags.
+
+That last distinction carries the weight of the whole module. A technique is a category; a procedure is a real thing that happened. There are many procedures per technique, and your rule almost certainly detects some of them rather than the technique.
+
+At the top level, Enterprise ATT&CK currently defines **15 tactics**, in a rough operational order from `TA0043` Reconnaissance through to `TA0040` Impact.
+
+<Callout type="warn">
+Check that number against whatever else you read, because most training material, blog posts and course slides still say **14 tactics with "Defense Evasion" as TA0005**. As of ATT&CK content **v19.1**, that is out of date. Defense Evasion has been split in two:
+
+- **`TA0005` Stealth** — "techniques that reduce the likelihood of detection by blending in with legitimate activity", *without* modifying security controls.
+- **`TA0112` Defense Impairment** — techniques that "degrade, disable, or undermine the effectiveness and trustworthiness of security controls and monitoring mechanisms" through direct interference.
+
+Technique IDs move too. The old `T1562` Impair Defenses now resolves to **`T1685` Disable or Modify Tools** under the new Defense Impairment tactic. The lesson generalises well beyond this one change: **ATT&CK is versioned, and your mappings rot.** Pin the version your coverage map was built against, and re-check IDs against the live site rather than from memory or an old cheat sheet — this exact class of error is why.
+</Callout>
+
+## Why coverage heatmaps lie
+
+The ATT&CK Navigator lets you colour techniques you have detections for. Green looks like progress. It is also the easiest metric in security to fool yourself with, for three compounding reasons.
+
+**One rule does not cover a technique.** `T1059.001` PowerShell has an enormous procedure space: encoded commands, downloaded cradles, `.NET` reflection, living-off-the-land variants, alternative interpreters. A rule matching `powershell.exe -enc` colours the box green and catches a fraction of it. The box is binary; reality is not.
+
+**Green does not mean working.** A technique is coloured because a rule exists, not because the rule fires. From Module 1: false negatives are invisible, so an untested rule and a broken rule look identical on a heatmap.
+
+**Coverage is not the same as relevant coverage.** Colouring in techniques your adversaries never use is effort spent on the wrong axis. Nobody faces all 15 tactics equally.
+
+<Callout type="key">
+The fix is to change what the colour *means*. Instead of binary have-a-rule, grade each technique honestly:
+
+- **None** — no telemetry, no rule.
+- **Telemetry only** — the logs exist and would let you investigate, but nothing alerts.
+- **Detection, unvalidated** — a rule exists; nobody has fired it.
+- **Detection, validated** — the rule has been proven to fire on a real execution of the behaviour.
+
+That scale turns a heatmap from a marketing artefact into a work queue, and it makes the honest answer sayable: *"we have telemetry for this and no alert"* is a perfectly professional statement. **"We are covered" rarely is.** The graded version is also the one that survives a question from someone who knows the framework.
+</Callout>
+
+## Prioritising with threat intelligence
+
+If you cannot cover everything, cover what is actually used against organisations like yours. That is what **threat-informed defence** means in practice, and it is a mapping exercise:
+
+1. Take your threat intelligence — the ATT&CK **Groups** and **Software** pages list techniques per actor and per tool, and published industry reporting such as Red Canary's annual Threat Detection Report ranks techniques by observed prevalence.
+2. Build the list of techniques those sources actually name.
+3. Grade *those* first, using the scale above.
+
+The output is a defensible prioritisation: not "we cover 62% of ATT&CK", but "of the 30 techniques most reported against our sector, we have validated detections for 18, telemetry-only for 7, and nothing for 5 — and here is the plan for those 5". That is an answer that survives a board meeting and an interview equally.
+
+## Telemetry is the real constraint
+
+There is a reason the grading scale starts with telemetry rather than rules: you cannot detect what you do not log. ATT&CK models this explicitly through **data sources** and **data components**, which say what kind of observation a technique is visible in — process creation, command execution, network traffic flow, and so on.
+
+Mapping backwards from that is the highest-value exercise in this module. Rather than asking "which techniques do we have rules for", ask **"which data sources do we actually collect, and what does that make possible?"** Tooling exists for this — the open-source **DeTT&CT** project scores data source quality and produces Navigator layers from it — but the reasoning matters more than the tool. Module 1's most common failure was a perfect rule over a log source nobody collected; at programme scale, that failure becomes a heatmap full of green squares built on telemetry that was never onboarded.
+
+## Mapping one alert properly
+
+Rung 2. Here is an alert. Map it, and note where the honest answer is uncomfortable:
+
+```text
+ALERT: Suspicious process access to LSASS
+  Source:   Sysmon Event ID 10 (ProcessAccess)
+  Details:  TargetImage: C:\Windows\System32\lsass.exe
+            SourceImage: C:\Users\public\svc-update.exe
+            GrantedAccess: 0x1410
+```
+
+The mapping is `T1003.001` OS Credential Dumping: LSASS Memory, under `TA0006` Credential Access. So far so good, and this is where most people stop.
+
+Now the parts that make it a real mapping. **What does this rule not cover?** `T1003` has other sub-techniques — the SAM database, NTDS, cached domain credentials — none of which touch LSASS memory and none of which this rule sees. Colouring `T1003` green because of this alert would be a straightforward overstatement; only `T1003.001` has any claim to colour. And **within** `T1003.001`, procedures that read LSASS by other means — a signed driver, a kernel technique, a handle inherited from another process — evade a rule keyed on direct `ProcessAccess`. That belongs in the ADS Blind Spots section, and repeated across a programme it is the difference between a heatmap and an inventory of assumptions.
+
+<Callout type="detect">
+Two habits that keep a coverage map honest:
+
+- **Map at the sub-technique level, and only colour what you tested.** Rolling a sub-technique detection up to its parent is the single most common way coverage gets overstated. If you have `T1003.001` validated, say `T1003.001`.
+- **Version and date the map.** A coverage layer is a claim about a moment. Record which ATT&CK version it was built against — mine says v19.1 — and re-validate when the framework updates, because as the Stealth and Defense Impairment split shows, techniques get renamed, renumbered and re-parented under you.
+</Callout>
+
+<Quiz mid="detection/02-attack-mapping" title="Mapping Detections to ATT&CK" questions={[
+  {
+    q: "What is the difference between a technique and a procedure in ATT&CK?",
+    opts: ["They are synonyms; ATT&CK uses both for the same concept", "A technique is a category of how a goal is achieved; a procedure is a specific observed implementation by an actor or tool", "A procedure is broader than a technique", "A technique applies to Windows, a procedure to Linux"],
+    a: 1,
+    why: "A technique is a category (OS Credential Dumping) and a procedure is a specific real implementation -- this actor, this tool, these flags. The gap matters because there are many procedures per technique, so a rule almost always detects some procedures rather than the whole technique. Treating the two as equivalent is what makes coverage claims overstated."
+  },
+  {
+    q: "Your Navigator layer shows T1059.001 PowerShell in green because you have a rule matching 'powershell.exe -enc'. What is wrong with this?",
+    opts: ["Nothing -- a rule exists, so the technique is covered", "The technique has a large procedure space that one encoded-command rule barely touches; the box is binary but reality is not", "T1059.001 cannot be detected with process telemetry", "Green should only be used for validated sub-techniques of T1003"],
+    a: 1,
+    why: "Encoded commands are one procedure among many -- download cradles, .NET reflection, living-off-the-land variants and alternative interpreters all fall under the same sub-technique. Colouring the box green implies coverage the rule does not provide. The fix is to grade honestly rather than binary-colour, and to record which procedures were actually tested."
+  },
+  {
+    q: "On a graded coverage scale, what distinguishes 'detection, validated' from 'detection, unvalidated'?",
+    opts: ["Validated rules are written in Sigma", "Validated means the rule has been proven to fire on a real execution of the behaviour", "Validated means the rule has run for 30 days without a false positive", "Validated means a second engineer reviewed the query"],
+    a: 1,
+    why: "Validation is execution: run the behaviour, confirm the alert fires, record it. This grade exists because false negatives are invisible -- an untested rule and a broken rule look identical on a heatmap, so 'a rule exists' is not evidence that anything would be caught."
+  },
+  {
+    q: "As of ATT&CK content v19.1, what happened to the Defense Evasion tactic?",
+    opts: ["It was removed entirely", "It was split into TA0005 Stealth (blending in) and TA0112 Defense Impairment (directly interfering with security controls)", "It was renamed to Impact", "It was merged into Persistence"],
+    a: 1,
+    why: "Enterprise ATT&CK now has 15 tactics. TA0005 became Stealth, covering techniques that reduce detection likelihood by blending in with legitimate activity, while the new TA0112 Defense Impairment covers direct interference that degrades or disables security controls. Technique IDs moved too -- the old T1562 Impair Defenses now resolves to T1685. Most published material still says 14 tactics and Defense Evasion, which is why mappings must be checked against the live framework and pinned to a version."
+  },
+  {
+    q: "You have a validated detection for T1003.001 LSASS Memory. Should you colour T1003 OS Credential Dumping as covered?",
+    opts: ["Yes, the sub-technique rolls up to the parent", "No -- T1003 has other sub-techniques such as the SAM database and NTDS that this rule cannot see", "Yes, provided the rule has no false positives", "Only if the rule uses Sysmon Event ID 10"],
+    a: 1,
+    why: "Rolling a sub-technique up to its parent is the most common way coverage gets overstated. A rule watching LSASS process access says nothing about credentials pulled from the SAM hive, NTDS.dit or cached domain credentials. Map and colour at the level you actually tested."
+  },
+  {
+    q: "Why does a mature coverage exercise start from data sources rather than from techniques?",
+    opts: ["Because ATT&CK requires it", "Because you cannot detect what you do not log -- telemetry is the real constraint, and rules over uncollected log sources produce green squares that detect nothing", "Because data sources are easier to count", "Because techniques change too often to be useful"],
+    a: 1,
+    why: "Coverage built on telemetry you never onboarded is the programme-scale version of Module 1's most common failure: a perfect rule over a log source nobody collects. Working backwards from the data sources and components you genuinely collect tells you what detection is even possible, which is why tooling like DeTT&CT scores data source quality first."
+  },
+  {
+    q: "Which coverage statement is the more professional answer in a review?",
+    opts: ["'We cover 62% of ATT&CK'", "'Of the 30 techniques most reported against our sector, 18 are validated, 7 are telemetry-only, and 5 have nothing -- here is the plan for those 5'", "'We are fully covered for Credential Access'", "'Our Navigator layer is mostly green'"],
+    a: 1,
+    why: "A percentage of the whole framework is close to meaningless, because nobody faces all techniques equally and the denominator includes irrelevant ones. Threat-informed prioritisation scopes to what is actually used against your sector, grades honestly, and names the gaps with a plan. 'We have telemetry and no alert' is a perfectly professional statement; 'we are covered' rarely is."
+  }
+]} />
+
+<Lab title="Build a graded, threat-informed coverage map" host="Any workstation + ATT&CK Navigator (browser)" minutes={60}>
+
+You are producing a coverage layer you could show an interviewer, built on the graded scale rather than binary colouring. Use your own detection lab from Module 1; if you have only the one detection you wrote there, that is a fine starting point — the method is the deliverable.
+
+1. Open the [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) and create a new Enterprise layer. Record the ATT&CK version the layer is built against.
+2. Scope it. Pick a threat profile relevant to you — one actor from the ATT&CK Groups pages, or the top techniques from a published industry report — and list the techniques it names. Aim for 15 to 30, not the whole matrix.
+3. Set up four colour bands for the graded scale: none, telemetry only, detection unvalidated, detection validated.
+4. Grade each technique in your list honestly. Be strict: anything you have not fired yourself is at best "unvalidated". Most of your map should not be green, and that is the correct outcome.
+5. For every technique you graded "telemetry only" or better, record *which log source* provides it. If you cannot name the source, downgrade it to none — this step is where imagined coverage gets removed.
+6. Take one technique you graded "detection, validated" and write down its blind spots: name at least two procedures under that technique your rule would miss.
+7. Export the layer as JSON and write a short summary in the form used above: of N techniques in the profile, X validated, Y telemetry-only, Z nothing, with the top three gaps and what each would need.
+
+**Evidence of completion:** a journal entry with (a) the exported Navigator layer JSON and the ATT&CK version it was built against, (b) your log-source mapping for every technique graded above "none", (c) the blind-spot list for one validated technique, and (d) the one-paragraph coverage summary naming the top three gaps. Part (d) is the artifact — it is the answer to "what are you covered for?" that an interviewer is actually testing, and the honest gaps in it are what make the rest credible.
+
+</Lab>
+
+## Sources
+
+- [MITRE ATT&CK — Enterprise Tactics](https://attack.mitre.org/tactics/enterprise/) — the current 15 enterprise tactics and their IDs, from TA0043 Reconnaissance to TA0040 Impact
+- [MITRE ATT&CK — TA0005 Stealth](https://attack.mitre.org/tactics/TA0005/) — the renamed tactic, "techniques that reduce the likelihood of detection by blending in with legitimate activity", without modifying security controls
+- [MITRE ATT&CK — TA0112 Defense Impairment](https://attack.mitre.org/tactics/TA0112/) — the new tactic covering techniques that "degrade, disable, or undermine the effectiveness and trustworthiness of security controls and monitoring mechanisms"
+- [MITRE ATT&CK — T1685 Disable or Modify Tools](https://attack.mitre.org/techniques/T1685/) — where the former T1562 Impair Defenses now resolves, under Defense Impairment; the worked case of a renumbered technique. Version checked: ATT&CK content v19.1
+- [MITRE ATT&CK — T1003.001 OS Credential Dumping: LSASS Memory](https://attack.mitre.org/techniques/T1003/001/) and [T1059.001 Command and Scripting Interpreter: PowerShell](https://attack.mitre.org/techniques/T1059/001/) — the techniques used in the worked example and the procedure-space argument
+- [MITRE ATT&CK — Data Sources](https://attack.mitre.org/datasources/) — the data source and data component model behind the telemetry-first argument
+- [MITRE ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) — the layer tool used in the lab
+- [MITRE ATT&CK — FAQ](https://attack.mitre.org/resources/faq/) — framework structure and versioning guidance
+- [DeTT&CT](https://github.com/rabobank-cdc/DeTTECT) — open-source scoring of data source quality and visibility, producing Navigator layers
+- [Red Canary — Threat Detection Report](https://redcanary.com/threat-detection-report/) — published ranking of techniques by observed prevalence, used for threat-informed prioritisation
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the Categorization and Blind Spots sections this module builds on from module 1
