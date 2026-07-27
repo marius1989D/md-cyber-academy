@@ -1,0 +1,187 @@
+---
+title: "Adversary Emulation: Testing What You Claim to Detect"
+course: detection
+order: 10
+summary: "Every coverage claim you have made so far is a hypothesis until you execute the behaviour yourself and watch what your telemetry does."
+rung: 4
+minutes: 30
+attack: ["T1059.001", "T1003.001", "T1053.005"]
+atlas: []
+objectives: []
+tags: ["adversary-emulation", "purple-team", "atomic-red-team", "caldera", "validation", "coverage"]
+updated: 2026-07-27
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 2 asked you to grade coverage, and reserved the top grade — "detection, validated" — for rules you had personally fired. Module 9 required a measured precision figure before a rule could act. Module 8 said a hunt that finds nothing is only meaningful if you tested properly.
+
+All three depend on one capability: **being able to produce the adversary behaviour on demand, safely, in an environment you control.** That is adversary emulation, and without it every coverage claim in your programme is an assumption wearing a percentage sign.
+
+<Callout type="warn">
+Before anything else: everything in this module happens **only in a lab you own or an engagement you have written authorisation for.** Emulation tooling executes real adversary techniques — that is the point of it — and running it against systems you do not own, or production systems without documented approval, is at best a career-ending mistake and at worst a criminal one.
+
+The professional standard is boring and non-negotiable: written scope, named authoriser, defined time window, agreed rules of engagement, and a rollback plan. Build the habit now in your own lab, where the stakes are zero, so it is automatic later when they are not.
+</Callout>
+
+## Five things that are not the same
+
+These terms are used interchangeably in job adverts and are genuinely distinct:
+
+| Activity | Goal | Adversary chosen |
+|---|---|---|
+| **Penetration test** | Find and prove exploitable vulnerabilities | Not modelled; the tester picks any path |
+| **Red team** | Test detection and response against a goal, covertly | Tester's own tradecraft |
+| **Adversary emulation** | Reproduce a *specific* actor's known TTPs | Modelled on threat intelligence |
+| **Purple team** | Attacker and defender working together, in the open | Usually emulated |
+| **Breach and attack simulation** | Automated, continuous, repeatable testing | Vendor's library |
+
+For detection engineering, **purple teaming is the highest-value mode** and it is worth being clear why. A red team that beats you tells you that you failed; a purple team tells you *at which step, in which log source, and what the telemetry looked like.* The first is a score, the second is a work queue. If you can influence how testing is run where you work, argue for the collaborative form — it produces far more detections per pound spent.
+
+## Two altitudes of testing
+
+**Atomic testing** executes one technique in isolation. Red Canary's **Atomic Red Team** is the standard here: "a library of tests mapped to the MITRE ATT&CK framework", small and portable, runnable from the command line or through Invoke-Atomic. This is what Module 1's lab used, and it answers a narrow question precisely — *does my rule for T1053.005 fire when a scheduled task is created?*
+
+**Full-chain emulation** runs a realistic sequence, because real intrusions are chains and detections that work in isolation often fail in context. Two resources matter:
+
+- **MITRE CALDERA** — an Apache-2.0 platform "designed to easily automate adversary emulation, assist manual red-teams, and automate incident response", built on ATT&CK, using agents (such as Sandcat) and technique collections (Stockpile) driven by an operations model.
+- The **Adversary Emulation Library** from MITRE's Center for Threat-Informed Defense — full emulation plans for named actors including APT29, Carbanak, FIN6, FIN7, OilRig, Sandworm, Turla and Wizard Spider, plus *micro* emulation plans covering compound behaviours such as Active Directory enumeration or process injection. Each plan carries an intelligence summary and step-by-step procedures in human and machine-readable form.
+
+Start atomic and move to chains. Atomics tell you whether a rule works; chains tell you whether your *programme* works, which is a different and harder question.
+
+## The result that is not pass or fail
+
+The instinct is to record "detected" or "missed". That throws away most of the information. Grade each executed technique on the scale from Module 2, because it maps directly onto what you must do next:
+
+| Result | What it means | Action |
+|---|---|---|
+| **Prevented** | Blocked before execution | Note it; confirm the block was logged |
+| **Alerted** | A rule fired | Validate the alert is actionable and timely |
+| **Telemetry only** | The evidence exists in logs; nothing alerted | **Write a detection** — the highest-value outcome |
+| **No telemetry** | Nothing recorded at all | Instrumentation gap; fix the pipeline first |
+
+<Callout type="key">
+**"Telemetry only" is the result you are actually hunting for**, and teams that grade pass/fail never see it.
+
+It means the data was there and nobody was watching — the cheapest possible detection to build, because the hard part (collection, parsing, retention) is already done. Every one of these is a rule you can write this week with no new engineering.
+
+"No telemetry" is the expensive result, and it is expensive in a specific way: it cannot be fixed with a detection at all. It is a Module 3 pipeline problem, and writing a rule against absent data produces a green square on a coverage map and detects nothing. This is precisely the failure Module 2 warned about, now caught by measurement instead of assumption.
+</Callout>
+
+Record **time to detect** as well as whether you detected. An alert that fires 40 minutes after ransomware begins encrypting is technically a detection and operationally a post-mortem.
+
+## Reading an emulation result
+
+Rung 4. You run a five-step chain in your lab. Here is the result table. Decide what to do first.
+
+```text
+Step  Technique   Behaviour                          Result           Time to alert
+1     T1566.001   Phishing attachment opened         no telemetry     --
+2     T1204.002   Macro spawns PowerShell            alerted          38s
+3     T1059.001   Encoded PowerShell downloads file  telemetry only   --
+4     T1053.005   Scheduled task persistence         telemetry only   --
+5     T1041       200 MB upload to external host     alerted          6m 20s
+```
+
+Read it as a work queue, in priority order.
+
+**Step 1 is first, and it is not a detection task.** No telemetry means no evidence the initial access ever happened. Whatever you do about steps 3 and 4, an intrusion starting this way leaves you unable to answer "how did they get in" during the post-incident review. That is a mail-telemetry onboarding request, and it belongs to the pipeline work of Module 3.
+
+**Steps 3 and 4 are the quick wins.** The data is already flowing; these are two rules you can write immediately using Module 5's behavioural patterns, and they sit at the most useful point in the chain — after the foothold, before the theft.
+
+**Step 2 is your best control and worth protecting.** It fired in 38 seconds at the earliest meaningful point, which is Module 5's lesson confirmed by measurement. When someone later proposes an exclusion that touches this rule, this result is your argument against it.
+
+**Step 5 alerted, but read the time.** Six minutes for exfiltration is a detection that arrives after the data has gone. It is not worthless — it scopes the incident — but do not let the green tick hide that this is a *notification*, not an intervention.
+
+Notice that the chain also shows something no atomic test could: steps 3 and 4 were individually unremarkable and jointly conclusive. That is Module 6's correlation case, now with evidence attached.
+
+## Feeding results back
+
+An emulation exercise that ends in a report nobody actions is theatre. The loop that makes it worth the day:
+
+1. **Execute** the technique, with the defender watching in real time.
+2. **Observe** what appeared, in which source, and how long it took.
+3. **Grade** it on the four-point scale.
+4. **Write** the detection for every "telemetry only" result.
+5. **Re-run the same technique** to confirm the new rule fires — Module 1's validation, closing the loop.
+6. **Update the coverage map** with the graded, dated result and the ATT&CK version it was tested against.
+
+Step 5 is the one people skip and it is the one that converts an exercise into coverage. A detection written after an emulation and never re-tested is exactly the unvalidated rule Module 2 refused to colour green.
+
+<Quiz mid="detection/10-adversary-emulation" title="Adversary Emulation: Testing What You Claim to Detect" questions={[
+  {
+    q: "In an emulation result, which outcome represents the highest-value, lowest-cost work for a detection engineer?",
+    opts: ["Prevented -- confirm the control works", "Telemetry only -- the evidence exists but nothing alerted, so a rule can be written immediately with no new engineering", "No telemetry -- the most urgent gap", "Alerted -- validate the alert is actionable"],
+    a: 1,
+    why: "Telemetry only means collection, parsing and retention are already solved and nobody was watching. Each one is a detection you can write this week. Teams that grade results as pass or fail never surface this category, which is why the four-point scale matters. No telemetry is more urgent in some cases but far more expensive, because it cannot be fixed with a rule at all."
+  },
+  {
+    q: "An emulated technique produces no telemetry whatsoever. Why can this not be fixed by writing a detection?",
+    opts: ["Detections cannot be written for initial access techniques", "There is no data to detect on -- it is a pipeline and instrumentation problem, and a rule over absent data produces a green coverage square that detects nothing", "The technique must be prevented instead", "It can be fixed; the query simply needs to be broader"],
+    a: 1,
+    why: "This is Module 3's failure caught by measurement rather than assumption. A rule requires evidence to match against; with no telemetry there is nothing to query, and deploying the rule anyway creates exactly the false coverage Module 2 warned about. The fix is onboarding the log source, which is engineering work with a cost and an owner."
+  },
+  {
+    q: "What distinguishes adversary emulation from a red team engagement?",
+    opts: ["Emulation is automated and red teaming is manual", "Emulation reproduces a specific named actor's known TTPs based on threat intelligence, whereas a red team uses its own tradecraft to achieve a goal", "Red teams are internal and emulation is external", "They are the same activity under different names"],
+    a: 1,
+    why: "The defining difference is whose behaviour is being reproduced. Emulation models a specific adversary from intelligence -- which is why libraries of plans for APT29, FIN7, Sandworm and others exist -- while a red team is free to take any path to the objective. Both are valuable; only emulation lets you claim coverage against a named threat."
+  },
+  {
+    q: "Why is purple teaming argued to be the highest-value mode for detection engineering specifically?",
+    opts: ["It is cheaper than a red team", "A red team tells you that you failed; a purple team tells you at which step, in which log source, and what the telemetry looked like -- a work queue rather than a score", "It requires no authorisation", "It tests more techniques per day"],
+    a: 1,
+    why: "The collaborative form has the defender watching in real time, so each executed technique yields a graded observation rather than a pass or fail at the end. That converts the exercise output from a verdict into a prioritised list of detections to write, which is what makes it produce more coverage per pound spent."
+  },
+  {
+    q: "A step in your emulation alerts, but 6 minutes after a 200 MB exfiltration begins. How should this be recorded?",
+    opts: ["As a successful detection -- it fired", "As detected, but with the time to alert recorded, because a detection that arrives after the data has gone is a notification rather than an intervention", "As a failure, since the data left", "As telemetry only"],
+    a: 1,
+    why: "Recording only whether you detected throws away the operationally decisive information. The alert has real value for scoping the incident, but it did not prevent the loss. Capturing time to detect alongside the result stops a green tick from hiding the fact that the control arrived too late to change the outcome."
+  },
+  {
+    q: "After writing detections for the gaps an emulation exposed, what step do teams most commonly skip?",
+    opts: ["Updating the incident response plan", "Re-running the same technique to confirm the new rule actually fires", "Reporting results to management", "Archiving the emulation logs"],
+    a: 1,
+    why: "Without re-execution the new rule is exactly the unvalidated detection Module 2 refuses to grade as covered -- it exists, and nobody knows whether it works. Re-running closes the loop and is what converts an exercise into genuine coverage rather than a document describing intentions."
+  },
+  {
+    q: "What must be in place before running emulation tooling anywhere other than your own lab?",
+    opts: ["A vulnerability scan of the target", "Written scope, a named authoriser, a defined time window, agreed rules of engagement and a rollback plan", "Approval from the SOC manager verbally", "Nothing, provided the techniques are non-destructive"],
+    a: 1,
+    why: "Emulation tooling executes real adversary techniques by design. Running it against systems you do not own, or against production without documented approval, is a serious professional and potentially legal failure regardless of how benign the payload is. The documented authorisation standard is non-negotiable, and building the habit in a lab makes it automatic when it matters."
+  }
+]} />
+
+<Lab title="Run a five-step chain and turn the gaps into detections" host="Isolated detection lab -- your own VMs only, never production" minutes={90}>
+
+You will emulate a short attack chain against your own lab, grade every step, and close at least one gap properly. Confirm before you start that every system in scope is one you own and that the lab has no route to anything else.
+
+1. **Write the authorisation note**, even though it is your own lab. One paragraph: scope (which hosts), window, techniques, who authorised it (you), and how you will roll back. This takes two minutes and builds the habit that keeps you employable.
+2. **Choose the chain.** Pick five techniques forming a plausible sequence — for example initial execution, an interpreter, credential access, persistence, and exfiltration. Use Atomic Red Team tests where they exist, or a micro emulation plan from the Adversary Emulation Library.
+3. **Set up to observe.** Have your log platform open and your detections running before you execute anything. Note the exact clock time of each step as you run it.
+4. **Execute the chain**, one step at a time, pausing between steps to record what you see.
+5. **Grade every step** as prevented, alerted, telemetry only, or no telemetry — and record time to detect for anything that alerted.
+6. **Write detections for every "telemetry only" result.** These are your quick wins. Use the ADS format from Module 1, including blind spots.
+7. **Re-run those specific techniques** and confirm the new rules fire. Record the timestamps of both the execution and the alert.
+8. **Escalate the "no telemetry" results properly.** For each, write the onboarding request: what source, what it would let you detect, and roughly what it costs in ingest volume.
+9. **Update your coverage map** from Module 2 with the graded results, the date, and the ATT&CK version you tested against.
+
+**Evidence of completion:** a journal entry with (a) the authorisation note, (b) the graded result table for all five steps with times to detect, (c) at least one new detection written from a "telemetry only" result, (d) proof that new detection fired on re-execution, with both timestamps, (e) the onboarding request for any "no telemetry" gap, and (f) the updated coverage map. Item (d) is the one that matters: it is the complete loop from gap to validated coverage, evidenced end to end, and it is the single most convincing thing you can put in front of an interviewer who asks how you know your detections work.
+
+</Lab>
+
+## Sources
+
+- [Red Canary — Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) — "a library of tests mapped to the MITRE ATT&CK framework", small portable tests runnable from the command line, MIT licensed
+- [Invoke-AtomicRedTeam](https://github.com/redcanaryco/invoke-atomicredteam) — the PowerShell execution framework for running atomic tests at scale
+- [MITRE CALDERA](https://github.com/mitre/caldera) — an Apache-2.0 platform "designed to easily automate adversary emulation, assist manual red-teams, and automate incident response", built on ATT&CK, with agents such as Sandcat and the Stockpile technique collection
+- [CALDERA project site](https://caldera.mitre.org/) — documentation and plugin reference
+- [Center for Threat-Informed Defense — Adversary Emulation Library](https://github.com/center-for-threat-informed-defense/adversary_emulation_library) — full emulation plans for named actors including APT29, Carbanak, FIN6, FIN7, OilRig, Sandworm, Turla and Wizard Spider, plus micro emulation plans for compound behaviours such as Active Directory enumeration and process injection, each with an intelligence summary and machine-readable procedures, Apache-2.0 licensed
+- [MITRE ATT&CK — Adversary Emulation Plans](https://attack.mitre.org/resources/adversary-emulation-plans/) — the framework's own emulation plan resources
+- [MITRE Center for Threat-Informed Defense](https://ctid.mitre.org/) — the research organisation maintaining the emulation library
+- [Stratus Red Team](https://github.com/DataDog/stratus-red-team) — cloud-focused atomic emulation, the counterpart for the techniques in the network course's cloud identity module
+- [MITRE ATT&CK T1059.001 — PowerShell](https://attack.mitre.org/techniques/T1059/001/), [T1003.001 — LSASS Memory](https://attack.mitre.org/techniques/T1003/001/) and [T1053.005 — Scheduled Task](https://attack.mitre.org/techniques/T1053/005/) — techniques used in the worked chain
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the format for detections written from emulation gaps
