@@ -1,0 +1,188 @@
+---
+title: "XDR: When the Platform Acts Without You"
+course: detection
+order: 9
+summary: "Automated containment needs a precision bar far above anything you have built so far, and knowing where that line sits is the whole skill."
+rung: 3
+minutes: 28
+attack: ["T1078.004", "T1486"]
+atlas: []
+objectives: []
+tags: ["xdr", "defender", "automated-response", "attack-disruption", "custom-detections", "precision"]
+updated: 2026-07-27
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Every module so far has assumed a human reads the alert. That assumption is what made Module 1's arithmetic survivable: a rule at 0.9% precision wastes analyst time, which is bad but recoverable. This module removes the human from the loop, and the moment you do that, **the cost of a false positive changes from wasted time to disabled accounts and isolated machines.**
+
+Extended detection and response is the product category that does this. Understanding where it genuinely helps — and where the marketing outruns the engineering — is the point here.
+
+## XDR next to SIEM, honestly
+
+Both correlate. The difference is what they own.
+
+| | SIEM (Sentinel) | XDR (Defender) |
+|---|---|---|
+| **Data** | Anything you can ship it | Deep telemetry from that vendor's own products |
+| **Correlation** | Rules and models you configure over normalised data | Native, because it owns the entity graph across its workloads |
+| **Custom logic** | Unlimited | Constrained to its schema and query surface |
+| **Response** | Via playbooks you build | Built in, and able to act on its own estate directly |
+| **Blind spot** | Whatever you did not onboard | Anything outside the vendor's ecosystem |
+
+The honest summary: **XDR buys depth and native action inside one ecosystem; SIEM buys breadth and arbitrary logic across everything else.** Most real SOCs run both, which is why Microsoft is consolidating Sentinel into the Defender portal (Module 7's 2027 date). Treat "XDR replaces SIEM" as a sales position rather than an architecture.
+
+What XDR genuinely does better is Module 6's hard problem. Entity resolution across endpoint, identity, email and cloud app is difficult for you and trivial for the vendor, because it already knows that this device, this mailbox and this Entra account belong to one person. You are not doing clever correlation there — you are inheriting a join key you would otherwise have to build.
+
+## Custom detections: your rules, their response
+
+Defender's **custom detections** are the bridge between everything you have learned and the platform's response capability. You write an advanced hunting KQL query — Module 7's skill, unchanged — set it to run at intervals, and it generates alerts *and takes automatic response actions* on matches.
+
+Two details worth carrying:
+
+- You can create one directly from the advanced hunting query editor, which makes Module 8's HMM4 loop — hunt, then operationalise — a two-click transition rather than a project.
+- Custom detections can be **managed as code** in GitHub or Azure DevOps (currently preview, via the Microsoft Security BICEP extension). That is Module 11's subject arriving early, and it is the difference between rules that are reviewable and rules that live in a portal nobody audits.
+
+## The precision bar for automated action
+
+Here is the number that should anchor your thinking. For automatic containment actions, Microsoft states it maintains a **confidence level of 99% or higher**, based on real production data, where confidence means detector precision measured as signal-to-noise ratio.
+
+Put that next to Module 1. A rule at 90% recall and 0.9% precision was a reasonable *alerting* candidate after tuning. It would be catastrophic as an *action* trigger: 1,000 false positives a day, each one now disabling an account or isolating a laptop. The service desk would be overwhelmed by lunchtime and the capability would be switched off by Friday — permanently, because trust does not come back.
+
+<Callout type="key">
+**The precision required to alert and the precision required to act are different by orders of magnitude, and this is the judgement the role actually tests.**
+
+A useful way to hold it: alerting spends *analyst time*, and you can afford to be wrong often because the cost of each error is minutes. Acting spends *business availability*, and the cost of each error is somebody unable to work, or a domain admin locked out mid-incident. So the question for any rule is not "is this good enough to fire" but "is this good enough that I would let it act unsupervised at 3am on a Sunday with nobody watching".
+
+For almost everything you write, the answer is no — and that is the correct answer, not a failure. Automated response belongs on the small set of detections where the behaviour is unambiguous and the containment is cheap to undo.
+</Callout>
+
+## What automatic disruption actually does
+
+Microsoft's **automatic attack disruption** is worth knowing concretely, because it is the reference implementation of this idea. It operates at the **incident** level rather than on a single indicator — a distinction the documentation draws explicitly against blocking based on one IOC — and its available actions include:
+
+- **Contain device** and **isolate device** — policy applied across onboarded endpoints so they refuse communication with the compromised machine.
+- **Contain IP** — the same, for a device that is not onboarded and therefore cannot be isolated directly.
+- **Disable user** in Active Directory or Entra ID, **suspend user**, and **revoke user session** to cut active tokens — note that last one, which is the direct answer to Module 3's stolen-refresh-token problem.
+- **Contain user** — blocking that identity's communication at the endpoint layer across all onboarded devices.
+
+Three design properties matter more than the action list, and they are what make automation defensible:
+
+1. **Every automatic action can be undone** by the security team.
+2. **Exclusions** can be configured for critical users, devices and IP addresses that must never be contained automatically.
+3. **Detectors are validated in audit mode** before broad release, and deployed gradually.
+
+Those three are the template for any automation you build yourself. If your own automated response is not reversible, not excludable, and not run in audit mode first, you have built something more dangerous than the threat.
+
+## Deciding what may act
+
+Rung 3. Three rules are proposed for automatic response. Decide each before reading on.
+
+```text
+RULE A  Known ransomware file-encryption behaviour on an endpoint
+        Precision (measured, 90d):  99.4%
+        Proposed action:            isolate device
+        Reversible:                 yes, from the portal
+
+RULE B  Impossible travel sign-in
+        Precision (measured, 90d):  31%
+        Proposed action:            disable user account
+        Reversible:                 yes
+
+RULE C  LSASS memory access from an unsigned binary
+        Precision (measured, 90d):  88%
+        Proposed action:            isolate device
+        Reversible:                 yes
+```
+
+**Rule A: yes.** Precision is at the bar, the behaviour is unambiguous, and the counterfactual is decisive — the cost of *not* isolating during live encryption dwarfs the cost of wrongly isolating one machine. This is exactly the case automation exists for.
+
+**Rule B: no, and it is the trap.** 31% precision means two of every three actions disable an innocent user, and impossible travel is notoriously noisy — VPNs, mobile roaming, and a phone syncing mail through a different egress all produce it. Worse, the *blast radius is misjudged*: disabling an account can lock someone out of everything mid-shift, and if it fires on a domain admin during an incident you have removed your own responder. Alert on it; do not act on it.
+
+**Rule C: not yet, and the reason is the useful one.** 88% is good — this is a strong rule — but roughly one in eight isolations would be wrong, which is a helpdesk ticket and a lost afternoon each time. The right move is not to discard it but to **raise its precision first**, using Module 4's ladder: sharpen the hypothesis, add signature and path context, scope to server groups. Then re-measure. Automation is the reward for a detection that has earned it, not a substitute for tuning one.
+
+Note what all three judgements had in common: **a measured precision figure over a real window.** Without that number the conversation is opinion, and no responsible person will let your rule touch production.
+
+<Callout type="warn">
+Two failures specific to this territory.
+
+**Automation as a tuning substitute.** A noisy rule does not become acceptable because the response is automatic; it becomes more expensive. If you find yourself hoping automation will make an alert-fatigue problem go away, you have the causality backwards.
+
+**Losing the analyst's judgement.** When containment happens before anyone looks, the investigation still has to happen — and now it starts from a changed environment, with the adversary aware they have been detected. Automatic disruption buys time; it does not close the incident. Someone still has to determine scope, and the disruption tagging on the incident is the starting point for that work, not the end of it.
+</Callout>
+
+<Quiz mid="detection/09-xdr" title="XDR: When the Platform Acts Without You" questions={[
+  {
+    q: "Why is the precision bar for automated response far higher than for alerting?",
+    opts: ["Automated systems process more data", "Alerting spends analyst time, where each error costs minutes; acting spends business availability, where each error means somebody cannot work", "Regulators require 99% precision for automation", "Automated actions cannot be reversed"],
+    a: 1,
+    why: "The unit of cost changes. A rule at 0.9% precision wastes time and is recoverable through tuning; the same rule wired to disable accounts produces a thousand outages a day and gets switched off permanently. Microsoft maintains 99% or higher confidence for containment actions precisely because the consequence of being wrong is operational rather than merely annoying."
+  },
+  {
+    q: "A rule detecting impossible-travel sign-ins measures 31% precision. It is proposed for automatic account disabling. What is your assessment?",
+    opts: ["Approve -- the action is reversible so errors are cheap", "Reject -- two in three actions would disable an innocent user, and disabling an account has a large, poorly-bounded blast radius", "Approve, but only outside business hours", "Approve if the precision improves to 50%"],
+    a: 1,
+    why: "Impossible travel is notoriously noisy: VPNs, mobile roaming and mail syncing through a different egress all produce it. At 31% precision most actions are wrong, and disabling an account can lock someone out of everything mid-shift -- or remove your own responder if it fires on an admin during an incident. Reversibility reduces the cost of an error but does not license one."
+  },
+  {
+    q: "A strong detection measures 88% precision and is proposed for automatic device isolation. What is the right response?",
+    opts: ["Deploy it -- 88% is close enough", "Do not automate yet; raise precision first using the tuning ladder, then re-measure, since automation is the reward for a detection that has earned it", "Discard the rule as unreliable", "Automate it but only on servers"],
+    a: 1,
+    why: "88% is a good rule, but roughly one in eight isolations would be wrong -- a helpdesk ticket and a lost afternoon each time. The move is to sharpen the hypothesis, add context such as signature and path, and scope it, then re-measure. Automation should follow tuning rather than substitute for it."
+  },
+  {
+    q: "What genuinely differentiates XDR from SIEM for correlation?",
+    opts: ["XDR uses machine learning and SIEM does not", "XDR owns the entity graph across its own workloads, so it already knows a device, mailbox and account belong to one person -- the join key you would otherwise have to build", "SIEM cannot correlate across products", "XDR retains data for longer"],
+    a: 1,
+    why: "Module 6 established that entity resolution is the hard part of correlation. Inside one vendor's ecosystem that problem is already solved, so you inherit the join rather than constructing it from identity mappings and DHCP leases. The trade-off is that XDR's depth stops at the ecosystem boundary, which is why most SOCs run both."
+  },
+  {
+    q: "Which three design properties make Microsoft's automatic attack disruption defensible, and worth copying in your own automation?",
+    opts: ["Speed, machine learning, and cloud scale", "Actions are reversible, critical assets can be excluded, and detectors are validated in audit mode before broad release", "It only runs during business hours, requires approval, and logs everything", "It acts on single indicators, alerts the analyst, and retries on failure"],
+    a: 1,
+    why: "Those three properties are the template: undoable actions, configurable exclusions for assets that must never be auto-contained, and audit-mode validation before enforcement. Automation lacking all three is more dangerous than the threat it addresses, because it introduces an outage source with no brake and no test phase."
+  },
+  {
+    q: "Automatic attack disruption is described as acting at the incident level rather than on a single indicator of compromise. Why does that matter?",
+    opts: ["It reduces licensing costs", "Acting on correlated, cross-source evidence supports far higher confidence than any single IOC match, which is what justifies taking an automatic action at all", "Incident-level actions are faster to execute", "It allows the action to be applied to more devices"],
+    a: 1,
+    why: "A single indicator is a weak basis for an irreversible-feeling action. Correlating signals across endpoints, identities, email and apps into one high-confidence incident is what gets the precision to a level where automatic containment is defensible -- the same argument Module 6 made for correlation, now with consequences attached."
+  },
+  {
+    q: "After automatic disruption contains a device, what remains for the analyst?",
+    opts: ["Nothing -- the incident is closed by containment", "The full investigation: containment buys time but does not determine scope, and the environment has now changed with the adversary aware they were detected", "Only paperwork for the audit trail", "Re-running the detection to confirm it fired"],
+    a: 1,
+    why: "Disruption limits damage while the team investigates; it does not answer what else was touched, how entry was gained, or whether other footholds exist. It also starts the investigation from an altered environment with an adversary who now knows they have been seen. The disruption tag on the incident is where the work begins."
+  }
+]} />
+
+<Lab title="Measure precision, then decide what may act" host="Defender XDR trial or Microsoft 365 Developer tenant" minutes={60}>
+
+You are going to build a custom detection from a hunting query, measure its precision honestly, and produce a written decision about whether it may take automatic action. The decision document is the deliverable — it is exactly the artifact a senior engineer would ask you for.
+
+1. **Set up.** Use a Defender XDR trial or Developer tenant with at least one onboarded test device. Never a production tenant.
+2. **Start from a hunt.** Take a query from Module 8's hunt, or write one in advanced hunting against `DeviceProcessEvents`. Confirm it returns results on behaviour you can generate.
+3. **Create a custom detection** from the advanced hunting editor. Set the frequency, map entities, and set the alert title and severity. Do **not** attach a response action yet.
+4. **Measure precision properly.** Run it for as long as you practically can — at minimum several days of lab activity, ideally with the test device used normally. Triage every alert as true or false positive and calculate precision. Record the observation window and total alert count alongside the figure; a percentage without a denominator is not a measurement.
+5. **Write the automation decision.** For your rule, document: measured precision with window and sample size, the proposed action, the blast radius if wrong (who is affected and for how long), whether the action is reversible and how, what exclusions you would configure, and your verdict — automate, alert only, or tune first.
+6. **If your verdict is "tune first", do it.** Apply one improvement from Module 4's ladder, re-measure, and record whether precision moved.
+7. **Test a response action safely.** On a device you own, attach a low-impact response action (or manually perform the isolate action and then undo it) and record how long isolation took to apply, how the device behaved, and exactly how you reversed it. Knowing the undo path *before* you need it is the point.
+8. **Write the exclusion list.** Name the assets and accounts in your environment that must never be automatically contained, and justify each in one line.
+
+**Evidence of completion:** a journal entry with (a) the custom detection query and configuration, (b) your measured precision with the observation window and total alert count, (c) the one-page automation decision covering blast radius, reversibility, exclusions and verdict, (d) evidence of the response action being applied and successfully reversed with timings, and (e) your exclusion list with justifications. Item (c) is the portfolio artifact: being able to argue in writing why a rule may or may not act unsupervised is a more senior skill than writing the rule was.
+
+</Lab>
+
+## Sources
+
+- [Microsoft Learn — Automatic attack disruption in Microsoft Defender](https://learn.microsoft.com/en-us/defender-xdr/automatic-attack-disruption) — that it acts at the incident level rather than on a single indicator, that Defender "maintains a confidence level of 99% or higher based on real production data" for containment actions with confidence defined as detector precision measured by signal-to-noise ratio, the action list (contain device, contain IP, isolate device, disable user, contain user, revoke user session, suspend user), that all automatic actions can be undone, that exclusions are configurable, and that detectors are validated in audit mode before broad release
+- [Microsoft Learn — Overview of custom detections in Microsoft Defender XDR](https://learn.microsoft.com/en-us/defender-xdr/custom-detections-overview) — custom detections built from advanced hunting queries, running at intervals to generate alerts and take automatic response actions, creatable from the query editor, and manageable as code in GitHub or Azure DevOps via the Microsoft Security BICEP extension
+- [Microsoft Learn — Advanced hunting overview](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-overview) — the query surface custom detections are written against
+- [Microsoft Learn — Advanced hunting schema tables](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-schema-tables) — the tables available, including `DeviceProcessEvents` used in the lab
+- [Microsoft Learn — Microsoft Defender XDR](https://learn.microsoft.com/en-us/defender-xdr/microsoft-365-defender) — the unified incident model across endpoint, identity, email and cloud apps
+- [Microsoft Learn — Incident queue](https://learn.microsoft.com/en-us/defender-xdr/incident-queue) — where the Attack Disruption tag appears
+- [Microsoft Learn — Take response actions on a device](https://learn.microsoft.com/en-us/defender-endpoint/respond-machine-alerts) — device isolation and containment, and how to reverse them
+- [Microsoft Learn — Automated investigation and response](https://learn.microsoft.com/en-us/defender-xdr/m365d-autoir) — the investigation automation layer alongside disruption
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the Response section, which for an automated rule becomes the automation decision written in the lab
