@@ -1,0 +1,187 @@
+---
+title: "Detection as Code and the Rule Lifecycle"
+course: detection
+order: 11
+summary: "Two hundred rules and three engineers is a software problem, and the discipline nobody practises is deleting the rules that no longer earn their place."
+rung: 3
+minutes: 30
+attack: []
+atlas: []
+objectives: []
+tags: ["detection-as-code", "ci-cd", "lifecycle", "code-review", "rule-health", "retirement"]
+updated: 2026-07-27
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Everything so far has been about a rule. This module is about a *portfolio* of them, which is a different problem. One engineer with ten detections can hold the whole thing in their head. Three engineers with two hundred cannot, and at that point the failures stop being analytical and start being organisational: two people write the same rule, an exclusion gets added with no record of why, a rule breaks and nobody notices for a year, and the person who understood the tricky one leaves.
+
+Those are software engineering problems. They have software engineering answers, and the practice of applying them is **detection as code**.
+
+## The lifecycle, including the part nobody does
+
+A detection has a life:
+
+**Idea -> Research -> Develop -> Test -> Deploy -> Monitor -> Tune -> Retire.**
+
+Modules 1 to 10 covered the first seven. **Retire** is the one almost nobody practises, and its absence is why mature SIEMs accumulate hundreds of rules that nobody can account for.
+
+A rule should be retired when the software it detects is gone from the estate, when the technique has been made impossible by a control, when it has been superseded by a better rule, or when it has fired zero true positives in a year and the behaviour it describes is genuinely no longer relevant. That last one needs care — Module 3 taught that a silent rule may be broken rather than quiet, so *investigate before deleting*. But the alternative, keeping everything forever, has a real cost: every rule is a maintenance burden, a false positive source, and a line item in the review nobody has time to do properly.
+
+**Deleting a rule you can justify deleting is a professional act, not a failure.**
+
+## Why version control changes the work
+
+Putting detections in a repository buys five things that are hard to get any other way:
+
+- **Review before production.** Module 1's ADS framework asked for peer review; a pull request is the mechanism that makes it happen rather than aspire to happen.
+- **History.** `git blame` answers "why does this rule exclude that path?" — the question that otherwise gets answered with a shrug.
+- **Rollback.** A tuning change that breaks a detection is one revert away.
+- **Testing.** Rules can be validated automatically before they ever reach the platform.
+- **Reproducibility.** The workspace can be rebuilt from the repository, which matters more than it sounds when someone deletes something.
+
+Elastic's public [detection-rules](https://github.com/elastic/detection-rules) repository is the reference implementation and worth reading as a model: it is the central repo for "developing, maintaining, testing, validating, and releasing rules", with unit tests in Python, CI validation through GitHub Actions, and schema checks exposed as `validate-rule` and `validate-all` commands. That is a detection portfolio treated exactly like a codebase, in public, by people who do this at scale.
+
+## What CI should check before a rule ships
+
+Automated checks are cheap and catch the errors that peer review misses because they are boring:
+
+- **Syntax and schema.** Does the query parse? Does the rule file have every required field?
+- **Required metadata.** Tactics and entity mapping present — because Module 6 established that a rule without them cannot participate in correlation, and this is exactly the omission a human reviewer skims past.
+- **Uniqueness.** No duplicate rule IDs, no near-duplicate logic already deployed by someone else.
+- **Naming and documentation.** A description that says what it detects, and a Response section that is not empty.
+- **Query cost.** Reject the obvious performance failures from Module 7 — a lookback wildly larger than the schedule, an unbounded query, `contains` where `has` would do.
+- **Test data.** The strongest form: a sample event that must match, and a sample that must not. If a change breaks either, CI fails.
+
+## Deploying from a repository
+
+Sentinel supports this natively through **Repositories**, connecting a GitHub or Azure DevOps repo to a workspace. It can deploy analytics rules, automation rules, custom detection rules (preview), hunting queries, parsers, playbooks and workbooks, and it creates a workflow or pipeline in your repo that deploys on commit — by default only content modified since the last deployment.
+
+<Callout type="warn">
+Two behaviours here will bite you, and both are documented rather than surprising — which means getting caught by them is a process failure rather than bad luck.
+
+**Portal edits create drift that gets silently overwritten.** Microsoft's guidance is explicit: edit content in a connected repository *only in the repository*, not in Sentinel. If someone hotfixes a rule in the portal during an incident and does not export it back, the next deployment reverts their change. The fix is a rule the team actually keeps: **the repo is the source of truth, and an emergency portal edit is not finished until it is committed.**
+
+**Deleting from the repository does not delete from the workspace.** Removing a rule file leaves the deployed rule running. So "retirement" performed by deleting a file achieves nothing except removing your own visibility of a rule that is still firing — the worst of both. Retirement must be done in both places, deliberately.
+</Callout>
+
+## Monitoring the portfolio, not the rule
+
+Module 3 established that a detection can die silently. At portfolio scale that becomes a programme metric rather than an anecdote. The dashboard worth building tracks:
+
+- **Rules that have not fired in N days** — investigate each; broken or genuinely quiet.
+- **Precision per rule** over a rolling window, which is what Module 9 requires before anything may act.
+- **Validation freshness** — when was each rule last proven to fire by emulation? Anything over a year is an assumption again.
+- **Coverage**, graded, from Module 2, with its ATT&CK version recorded.
+- **Exception inventory** — every exclusion with its owner and expiry, from Module 4.
+
+Those five answer the question a manager or an interviewer actually asks: *how do you know your detections work?* "We have 200 rules" is not an answer. "Of 200 rules, 186 fired in the last 90 days, 11 are under investigation as possibly broken, 3 are pending retirement, median precision is 61%, and every rule has been validated by emulation within 12 months" is.
+
+## Reviewing a detection pull request
+
+Rung 3. This lands in your review queue. It is a real-shaped PR: nothing in it is absurd, and it should not be merged as-is.
+
+```text
+PR #248  "Detect suspicious service creation"
+
++ name:        Suspicious service creation
++ query:       SecurityEvent | where EventID == 7045
++ frequency:   5m
++ lookback:    24h
++ severity:    High
++ tactics:     (none)
++ entities:    (none)
++ description: Detects suspicious service creation
++ response:    Investigate
+```
+
+Six objections, roughly in order of importance:
+
+1. **No tactics or entity mapping.** Module 6: this rule can never contribute to a correlated incident. Blocking.
+2. **Lookback of 24h on a 5-minute schedule.** It will re-alert on the same events 288 times a day. Blocking, and it is a cost issue as well as a noise one.
+3. **The query has no notion of "suspicious".** It matches *every* service creation, which on a Windows estate is constant and mostly legitimate. The name promises filtering the logic does not do. This is Module 5's work — an unusual path, an unsigned binary, a service installed by an unexpected parent.
+4. **Severity High with no filtering** guarantees the queue is trained to ignore it, which as Module 4 argued makes it a false negative in practice.
+5. **"Investigate" is not a response.** Module 1: if you cannot say what the analyst should do, the alert is not ready.
+6. **No validation evidence.** Has anyone created a service and watched this fire? Module 10 exists for this, and without it the rule is unvalidated by definition.
+
+The constructive version of this review is not "rejected". It is: keep `EventID 7045` as the data source, add the behavioural discriminator, fix the lookback to match the schedule, complete the metadata, write a real response, and attach the emulation evidence. That is a good detection three hours of work away — and a reviewer who says only "add tactics" has let the other five through.
+
+<Callout type="key">
+Notice what that review actually was: **every module in this course, applied as a checklist to one artifact.** Hypothesis quality from Module 1, ATT&CK mapping from 2, telemetry from 3, tuning from 4, behaviour from 5, correlation metadata from 6, query cost from 7, validation from 10.
+
+That is the deliverable of this course. Not a rule library — a repeatable process for judging whether a detection is finished, which is the thing a senior engineer is actually paid for and the thing an interview probes for when it asks you to critique a rule.
+</Callout>
+
+<Quiz mid="detection/11-detection-engineering" title="Detection as Code and the Rule Lifecycle" questions={[
+  {
+    q: "Which stage of the detection lifecycle is most commonly skipped, and what does skipping it cost?",
+    opts: ["Testing -- rules ship unvalidated", "Retire -- SIEMs accumulate rules nobody can account for, each a maintenance burden and false positive source", "Deploy -- rules stay in development", "Research -- rules are based on assumptions"],
+    a: 1,
+    why: "Retirement is the discipline almost nobody practises, which is why mature deployments carry hundreds of unaccountable rules. A rule should go when its software has left the estate, a control has made the technique impossible, a better rule supersedes it, or it has produced no true positives in a year -- with the caveat that a silent rule may be broken rather than quiet, so investigate before deleting."
+  },
+  {
+    q: "You remove a rule file from a repository connected to Sentinel. What happens to the deployed rule?",
+    opts: ["It is removed from the workspace automatically", "It keeps running -- deleting from the repository does not delete from the workspace, so retirement must be done in both places", "It is disabled but retained", "The whole deployment fails"],
+    a: 1,
+    why: "Microsoft documents this explicitly. Deleting the file removes your visibility of the rule while leaving it firing in production -- the worst of both outcomes. Retirement is a deliberate two-step action: remove it from the repository and delete it from the workspace."
+  },
+  {
+    q: "An analyst hotfixes an analytics rule in the Sentinel portal during an incident. The rule is managed in a connected repository. What is the risk?",
+    opts: ["The portal edit is rejected immediately", "The next repository deployment silently reverts the change, because the repository is the source of truth", "The rule is duplicated in the workspace", "The connection is disabled"],
+    a: 1,
+    why: "Microsoft recommends editing connected content only in the repository. A portal edit that is not exported back is overwritten on the next deployment, which is particularly dangerous because the fix appeared to work at the time. The team rule that prevents it is that an emergency portal edit is not finished until it is committed."
+  },
+  {
+    q: "Why is checking for tactics and entity mapping a good candidate for automated CI rather than human review?",
+    opts: ["Humans cannot read metadata fields", "It is exactly the boring omission a reviewer skims past, yet a rule without them can never contribute to a correlated incident", "CI can infer the correct tactics automatically", "Entity mapping is optional in most platforms"],
+    a: 1,
+    why: "Automated checks are best at the errors that are consequential but unexciting. Module 6 established that a rule lacking kill-chain and entity information is excluded from the correlation engine, so the omission is serious -- and precisely the kind of thing a reviewer focused on query logic will nod past."
+  },
+  {
+    q: "A PR proposes a rule matching every Windows service creation event, named 'Suspicious service creation', at High severity. What is the most important objection?",
+    opts: ["The severity should be Medium", "The query contains no notion of 'suspicious' -- it matches all service creation, so the name promises filtering the logic does not perform", "EventID 7045 is the wrong event", "The rule should use Sysmon instead"],
+    a: 1,
+    why: "Service creation is constant and mostly legitimate on a Windows estate, so the rule as written is an unfiltered firehose at High severity -- which trains the queue to ignore it and makes it a false negative in practice. The data source is fine; the behavioural discriminator from Module 5 is what is missing: unusual path, unsigned binary, unexpected parent."
+  },
+  {
+    q: "Which set of metrics actually answers 'how do you know your detections work?'",
+    opts: ["Total rule count and alert volume", "Rules not fired in N days, precision per rule, validation freshness, graded coverage, and the exception inventory with owners and expiries", "Mean time to respond and analyst headcount", "Number of incidents closed per week"],
+    a: 1,
+    why: "Rule count measures effort, not effectiveness. The five portfolio metrics each close a specific blind spot from earlier modules: silent rules, unmeasured precision, stale validation, overstated coverage, and undocumented exclusions. Together they turn 'we have 200 rules' into a defensible statement about what works."
+  },
+  {
+    q: "What is the strongest form of automated test for a detection rule in CI?",
+    opts: ["Checking the query parses without error", "A sample event that must match and a sample that must not, so any change breaking either fails the build", "Measuring how long the query takes to run", "Confirming the rule has a unique ID"],
+    a: 1,
+    why: "Syntax, schema and uniqueness checks catch malformed rules, but only positive and negative test data catches a change that quietly alters what the rule detects. It is the automated equivalent of Module 10's re-execution requirement, applied on every commit rather than once a year."
+  }
+]} />
+
+<Lab title="Put your detections in a repository with CI" host="GitHub account + your detection lab" minutes={75}>
+
+You are going to turn the rules you have written across this course into a version-controlled detection repository with automated checks. This is the most directly employable artifact in the course — a public repo of reviewed, tested detections is portfolio evidence that survives any interview question about process.
+
+1. **Create the repository** with a clear structure: `rules/` for detections, `tests/` for test data, `docs/` for the ADS documents, and a `README` explaining the layout and how to contribute.
+2. **Move at least three detections in**, one file each, in a consistent format (YAML or the platform's export format). Include the full ADS metadata: goal, categorization with ATT&CK tactics and techniques, technical context, blind spots, false positives, validation, priority, response.
+3. **Write a CONTRIBUTING file** that states your review checklist — use the six objections from the worked example as the starting point, and add anything from Modules 1 to 10 you would want checked.
+4. **Add a validation script.** Even a short Python script counts: parse each rule file, and fail if any required field is missing, if tactics are absent, or if entity mapping is absent. Exit non-zero on failure.
+5. **Wire it to CI.** A GitHub Actions workflow that runs the script on every push and pull request. Confirm it fails by deliberately committing a rule with no tactics, then fix it and watch it pass.
+6. **Add test data for one rule.** Two sample events: one that must match, one that must not. Extend your script to assert both. This is the check that catches a tuning change quietly breaking a detection.
+7. **Open a pull request against yourself.** Propose a change to one rule, then review it using your own checklist, writing the review comments properly. Merge it only once it passes.
+8. **Write the retirement policy** in `docs/`: the criteria under which a rule is retired, the requirement to investigate silence before deleting, and the two-step process of removing it from both the repository and the platform.
+
+**Evidence of completion:** a link to the repository containing (a) at least three fully documented detections, (b) the CONTRIBUTING review checklist, (c) a passing CI run and a screenshot or log of the deliberate failure from step 5, (d) positive and negative test data for at least one rule, (e) the self-reviewed pull request with real review comments, and (f) the written retirement policy. Item (c) is the one that proves the point: showing that your CI catches a bad rule is far more convincing than showing that it passes on good ones.
+
+</Lab>
+
+## Sources
+
+- [Elastic — detection-rules repository](https://github.com/elastic/detection-rules) — the reference implementation of a detection portfolio managed as code: the central repo for "developing, maintaining, testing, validating, and releasing rules", with Python unit tests, GitHub Actions CI, and `validate-rule` / `validate-all` schema checks
+- [Microsoft Learn — Deploy custom content from your repository](https://learn.microsoft.com/en-us/azure/sentinel/ci-cd) — Sentinel Repositories connecting GitHub and Azure DevOps, the deployable content types (analytics rules, automation rules, custom detection rules in preview, hunting queries, parsers, playbooks, workbooks), smart deployments limited to content modified since the last deployment, the recommendation to edit connected content only in the repository, and that deleting content from the repository does not delete it from the workspace
+- [Microsoft Learn — Update custom content with repository connections](https://learn.microsoft.com/en-us/azure/sentinel/ci-cd-custom-content) — repository content planning and deploying custom detection rules as code
+- [Microsoft Learn — Monitor the health and integrity of analytics rules](https://learn.microsoft.com/en-us/azure/sentinel/monitor-analytics-rule-integrity) — platform support for the rule-health monitoring this module argues for
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the nine sections used as the rule file format and the basis of the review checklist
+- [SigmaHQ — sigma-cli](https://github.com/SigmaHQ/sigma-cli) and [pySigma](https://github.com/SigmaHQ/pySigma) — validation and conversion tooling for a platform-neutral rule repository, the subject of Module 12
+- [Red Canary — Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) — the validation evidence a reviewed detection should carry, from Module 10
