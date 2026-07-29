@@ -1,0 +1,213 @@
+---
+title: "Sigma: Write Once, Deploy Anywhere (Almost)"
+course: detection
+order: 12
+summary: "The portable rule format that lets a detection outlive your SIEM, and an honest account of where the abstraction leaks."
+rung: 3
+minutes: 28
+attack: ["T1059.001", "T1218"]
+atlas: []
+objectives: []
+tags: ["sigma", "sigma-cli", "detection-as-code", "portability", "yaml", "backends"]
+updated: 2026-07-29
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 11 put your detections in a repository. This module asks an awkward follow-up: what are they written *in*? If the answer is KQL, then your entire portfolio is a bet on one vendor. Change SIEM and you rewrite everything — which is why teams stay on platforms they have outgrown, and why community detection sharing was nearly impossible before a common format existed.
+
+**Sigma** is that format: "a generic, open, and structured detection format" in YAML, written once and converted to whichever backend you run. It is the closest thing detection engineering has to a lingua franca, and it is worth learning even if you never leave Microsoft's ecosystem, because reading Sigma is how you consume the community's published detections.
+
+## Anatomy of a rule
+
+Only three fields are required — `title`, `logsource` and `detection` — but a rule fit for the repository from Module 11 carries most of the optional set:
+
+```yaml
+title: Encoded PowerShell Launched From Office Application
+id: 8a3f1e2c-9d4b-4c7a-b1e6-2f5a7c9d0e13
+status: experimental
+description: >
+  Detects an Office application spawning PowerShell with an encoded command,
+  the execution step of a macro-based intrusion chain.
+references:
+  - https://attack.mitre.org/techniques/T1204/002/
+author: M Dumitru
+date: 2026-07-29
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.t1204.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|endswith:
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+  selection_child:
+    Image|endswith: '\powershell.exe'
+  selection_encoded:
+    CommandLine|contains:
+      - ' -enc '
+      - ' -EncodedCommand '
+  filter_known_good:
+    CommandLine|contains: 'C:\Program Files\Contoso\AddIn\'
+  condition: selection_parent and selection_child and selection_encoded and not filter_known_good
+falsepositives:
+  - Office add-ins that legitimately invoke PowerShell
+level: high
+```
+
+Three parts do the real work.
+
+**`logsource`** tells the converter which data to target, through `category` (a group of products — `process_creation`, `dns`, `proxy`, `firewall`), `product` (`windows`, `linux`, `aws`, `azure`) and `service` (a subset of a product's logs — `sysmon`, `security`, `sshd`). The specification maintains a standard taxonomy so that a rule written against `category: process_creation` lands correctly whether the target reads Sysmon, Windows 4688 or an EDR table.
+
+**`detection`** holds named **search identifiers** — `selection_parent`, `filter_known_good`, whatever you call them — each a set of field matches. **`condition`** then combines them with `and`, `or`, `not`, brackets, and the aggregate forms `1 of ...` and `all of ...`.
+
+**Value modifiers** are appended with a pipe and are where Sigma gets expressive:
+
+| Modifier | Effect |
+|---|---|
+| `contains` | Wildcards both sides: `*needle*` |
+| `startswith` / `endswith` | Wildcard on one side |
+| `all` | Changes a list from OR to AND — every value must be present |
+| `re` | Regular expression, with `i` and `m` sub-modifiers |
+| `base64offset` | Matches a value base64-encoded at any of the three possible offsets |
+| `windash` | Expands `-` to the dash variants Windows accepts, including `/` |
+| `cidr` | Matches an IP against a subnet |
+
+<Callout type="key">
+`windash` and `base64offset` deserve a moment, because they encode real tradecraft rather than convenience.
+
+Windows command-line parsers accept several dash characters interchangeably, so an operator writing `/enc` instead of `-enc` defeats a naive string match. `windash` expands all the variants for you. Similarly, `base64offset` exists because a base64-encoded string appears differently depending on its byte alignment — three possible encodings for the same plaintext — so matching only one of them misses two thirds of the cases.
+
+Both are the Module 4 lesson in miniature: **the gap between what you meant and what your matcher does is where evasion lives.** Sigma has these modifiers because enough people got caught by that gap to standardise the fix.
+</Callout>
+
+## Conversion, and where it leaks
+
+`sigma-cli` (built on `pySigma`) converts a rule to a target query language. A **backend** generates the syntax; a **pipeline** handles field mapping, translating Sigma's taxonomy into the target's actual schema — `Image` becoming `NewProcessName` for Windows 4688, or `FolderPath` for a Defender table.
+
+Now the honest part, because Sigma is often oversold as write-once-run-anywhere:
+
+- **Conversion is not validation.** A rule can convert cleanly into a query that returns nothing, because the field it references does not exist in your data. Module 3's parse-and-normalise failures apply in full, and the converter cannot see them.
+- **Backends differ in capability.** Not every backend supports every modifier or correlation type. Something expressible in Sigma may be unsupported, or silently approximated, on your target.
+- **Pipelines are where the truth lives.** If your field mapping is wrong, your rule is wrong in a way that looks entirely healthy. The mapping deserves the same review as the logic.
+- **The abstraction cannot invent telemetry.** A rule against `category: process_creation` needs process creation events. Sigma does not fix a collection gap; it just fails quietly on top of one.
+
+So the accurate claim is that Sigma makes detection logic **portable and reviewable**, not that it makes it universal. That is still a large win — it means a rule survives a platform migration, and it means the SigmaHQ repository is a library you can actually use.
+
+## Reviewing a Sigma rule
+
+Rung 3. Here is a community rule you are considering deploying. Judge it before reading on.
+
+```yaml
+title: Suspicious Certutil Usage
+logsource:
+  product: windows
+detection:
+  selection:
+    CommandLine|contains: 'certutil'
+  condition: selection
+level: critical
+```
+
+It is valid Sigma and it should not go to production.
+
+**No `category` in the logsource.** With only `product: windows`, the converter has no idea which log to target. This is the single most common defect in hastily written rules.
+
+**`CommandLine|contains: 'certutil'`** matches the *string*, anywhere. It fires on a documentation path, a log line quoting a command, a script comment, and a filename containing the word. It also misses nothing and means nothing — the Module 7 lesson that `contains` is looser than you intend, in a new format.
+
+**No discrimination between benign and malicious use.** `certutil` is a legitimate certificate tool; the interesting behaviour is specific arguments (`-urlcache`, `-decode`) or an unusual parent. As written, this is the Module 11 review problem: the title promises "suspicious" and the logic does not deliver it.
+
+**`level: critical` with no filtering** guarantees the queue learns to ignore it.
+
+**No `id`, `date`, `tags` or `falsepositives`.** No ATT&CK tags means no coverage mapping (Module 2) and, once converted to a platform rule, no correlation participation (Module 6).
+
+The fixed version keeps the idea and adds precision: `category: process_creation`, `Image|endswith: '\certutil.exe'` to match the binary rather than the string, a `selection_args` block with `windash` on the dangerous flags, ATT&CK tags for T1218, a realistic `level`, and documented false positives.
+
+<Callout type="warn">
+When you pull rules from the SigmaHQ repository — which you should, it is an excellent starting library — treat them as **drafts scoped to somebody else's environment**, not as finished detections.
+
+Check the `status` field: `experimental` and `test` mean what they say, and `deprecated` or `unsupported` mean do not deploy. Then check the `falsepositives` list against your estate, because the author's noise sources are not yours. Then convert, deploy, measure precision over a real window (Module 9), and tune (Module 4).
+
+A community rule gets you to a working first draft in minutes rather than hours. It does not get you to a validated detection, and the coverage map should not claim one until you have run the behaviour yourself.
+</Callout>
+
+<Quiz mid="detection/12-sigma" title="Sigma: Write Once, Deploy Anywhere (Almost)" questions={[
+  {
+    q: "Which three fields are required in a Sigma rule?",
+    opts: ["title, id and level", "title, logsource and detection", "detection, condition and falsepositives", "id, tags and logsource"],
+    a: 1,
+    why: "Only title, logsource and detection are required by the specification. Everything else -- id, status, description, author, date, references, tags, falsepositives and level -- is optional, though a rule fit for a reviewed repository carries most of them. In particular, omitting tags costs you ATT&CK coverage mapping and, after conversion, correlation participation."
+  },
+  {
+    q: "What is the purpose of the base64offset modifier?",
+    opts: ["It compresses the rule for faster matching", "A plaintext string base64-encodes differently depending on byte alignment, producing three possible encodings -- base64offset matches all of them rather than one", "It decodes base64 in the log before matching", "It converts the field name to base64"],
+    a: 1,
+    why: "Because base64 encodes in three-byte groups, the same substring appears as up to three different encoded strings depending on its offset within the input. Matching a single encoding misses roughly two thirds of cases. The modifier exists because enough people were caught by that gap for the fix to be standardised."
+  },
+  {
+    q: "Why does the windash modifier exist?",
+    opts: ["To handle line breaks in command lines", "Windows command parsers accept several dash characters interchangeably, so an operator using /enc rather than -enc defeats a naive string match", "To escape backslashes in Windows paths", "To normalise Windows and Linux path separators"],
+    a: 1,
+    why: "Windows accepts multiple dash variants including the forward slash, so a rule matching only the hyphen form is trivially evaded. windash expands the variants automatically. Like base64offset, it encodes real tradecraft rather than convenience -- the gap between what you meant and what your matcher does is where evasion lives."
+  },
+  {
+    q: "A Sigma rule converts to a valid platform query without error, but never returns results. What is the most likely cause?",
+    opts: ["The backend is out of date", "The field it references does not exist or is not populated in your data -- conversion is not validation, and the converter cannot see your schema", "The rule needs a higher level value", "The condition is malformed"],
+    a: 1,
+    why: "Conversion checks syntax, not the presence of data. A pipeline can map Sigma's taxonomy onto a field your source never populates, producing a healthy-looking query that matches nothing -- exactly the Module 3 parse and normalise failure. The field mapping in the pipeline deserves the same review as the detection logic."
+  },
+  {
+    q: "A community Sigma rule specifies only 'product: windows' with no category. What is the problem?",
+    opts: ["Nothing -- product alone is sufficient", "The converter has no idea which log type to target, making it the most common defect in hastily written rules", "It will only work on Sysmon", "The rule cannot be assigned a level"],
+    a: 1,
+    why: "Category selects the group of logs to search, such as process_creation, dns or proxy, and without it the conversion has no target. Product identifies the platform and service narrows to a specific log within it; all three work together to place the rule precisely."
+  },
+  {
+    q: "How should a rule taken from the SigmaHQ repository be treated?",
+    opts: ["As a validated detection ready for production", "As a draft scoped to someone else's environment -- check status, review falsepositives against your estate, then convert, measure precision and tune", "As a reference only, never deployed", "As a replacement for writing your own rules"],
+    a: 1,
+    why: "The repository is an excellent starting library that saves hours, but the author's false positive sources are not yours, and status values of experimental, test, deprecated or unsupported mean what they say. It gets you to a working first draft, not to coverage -- the map should not claim validated until you have executed the behaviour yourself."
+  },
+  {
+    q: "What is the accurate claim to make about Sigma's portability?",
+    opts: ["A Sigma rule runs identically on any SIEM", "It makes detection logic portable and reviewable, but backends differ in capability, pipelines can map fields wrongly, and it cannot invent telemetry you do not collect", "It only works within one vendor ecosystem", "Portability requires rewriting the detection section per platform"],
+    a: 1,
+    why: "Write-once-run-anywhere oversells it. Not every backend supports every modifier or correlation type, a wrong field mapping produces a rule that is broken while looking healthy, and no abstraction fixes a collection gap. What Sigma genuinely delivers -- logic that survives a platform migration and a usable community library -- is still a large win."
+  }
+]} />
+
+<Lab title="Convert, deploy and measure a Sigma rule" host="Attack box with Python + your detection lab" minutes={70}>
+
+You will write a Sigma rule, convert it to your platform's query language, deploy it, and discover for yourself where the abstraction leaks.
+
+1. **Install the tooling.** `pip install sigma-cli`, then add the backend for your platform — the Microsoft 365 Defender or Sentinel backend if you are following the Microsoft path. List the installed backends and pipelines and record them.
+2. **Write a rule from scratch** for a technique you can execute in your lab. Include all the optional metadata: `id` (generate a UUID v4), `status: experimental`, `description`, `references`, ATT&CK `tags`, `falsepositives` and `level`. Use at least one modifier beyond `contains`.
+3. **Convert it** with `sigma convert`, targeting your backend and pipeline. Read the generated query carefully and note which Sigma field names became which platform field names — this mapping is the part people never look at.
+4. **Break the mapping deliberately.** Convert the same rule with no pipeline, or with the wrong one. Compare the output and record what changed. This is how a rule ends up querying a field that does not exist.
+5. **Deploy the converted query** as a rule on your platform, with entity mapping and tactics completed as in Module 7.
+6. **Execute the behaviour** and confirm the rule fires. If it does not, work Module 3's checklist — instrumented, arriving, parsed, normalised, queryable — and record where it failed.
+7. **Now take a community rule.** Pull one from the SigmaHQ repository for a technique relevant to you. Record its `status`, read its `falsepositives`, convert it, and predict how noisy it will be in your environment before you run it.
+8. **Measure.** Run the community rule for as long as practical and compare your predicted noise with the actual count. Record the difference and what you would tune.
+
+**Evidence of completion:** a journal entry with (a) your hand-written Sigma rule including all metadata, (b) the converted query with the Sigma-to-platform field mapping written out explicitly, (c) the diff between correct and wrong pipeline conversions, (d) proof your rule fired on executed behaviour, and (e) your predicted versus measured noise for the community rule, with the tuning you would apply. Item (c) is the one that teaches the module's real lesson: seeing the same rule convert into two different, both-syntactically-valid queries is what makes "conversion is not validation" stick.
+
+</Lab>
+
+## Sources
+
+- [SigmaHQ — Sigma Rules Basics](https://sigmahq.io/docs/basics/rules.html) — the required fields (`title`, `logsource`, `detection`), the optional set, and the allowed values for `status` (stable, test, experimental, deprecated, unsupported) and `level` (critical, high, medium, low, informational)
+- [SigmaHQ — Conditions](https://sigmahq.io/docs/basics/conditions.html) — search identifiers, the `and`, `or`, `not` keywords with brackets, and the `1 of ...` and `all of ...` aggregate forms
+- [SigmaHQ — Value Modifiers](https://sigmahq.io/docs/basics/modifiers.html) — `contains`, `startswith`, `endswith`, `all` switching list logic from OR to AND, `re` with its sub-modifiers, `base64offset` covering the three possible encoding offsets, `windash` expanding Windows dash variants, and `cidr`
+- [SigmaHQ — Log Sources](https://sigmahq.io/docs/basics/log-sources.html) — the `category`, `product` and `service` attributes and the standard taxonomy maintained so rules map correctly across differing infrastructure
+- [SigmaHQ — Sigma rule repository](https://github.com/SigmaHQ/sigma) — the community rule library used in the lab
+- [Sigma specification](https://github.com/SigmaHQ/sigma-specification) — the formal specification for the rule format and correlations
+- [sigma-cli](https://github.com/SigmaHQ/sigma-cli) and [pySigma](https://github.com/SigmaHQ/pySigma) — the conversion tooling, backends and pipelines
+- [SigmaHQ — Correlations](https://sigmahq.io/docs/meta/correlations.html) — the correlation types covered in Module 6
+- [MITRE ATT&CK T1218 — System Binary Proxy Execution](https://attack.mitre.org/techniques/T1218/) and [T1059.001 — PowerShell](https://attack.mitre.org/techniques/T1059/001/) — the techniques in the worked rules
