@@ -1,0 +1,184 @@
+---
+title: "SOAR: Automating the Response You Own"
+course: detection
+order: 13
+summary: "Automate enrichment first, response last, and remember that the thing you just built can disable any account in the company."
+rung: 4
+minutes: 30
+attack: ["T1078.004"]
+atlas: []
+objectives: []
+tags: ["soar", "playbooks", "logic-apps", "automation", "enrichment", "least-privilege"]
+updated: 2026-07-29
+---
+
+import Quiz from '../../../components/Quiz.astro';
+import Callout from '../../../components/Callout.astro';
+import Lab from '../../../components/Lab.astro';
+
+Module 9 watched a vendor's platform act on its own with a 99% precision bar behind it. This module is about building that capability yourself, which means you now own the precision decision, the blast radius, and the consequences.
+
+Security orchestration, automation and response covers three separable things, and the distinction matters because they carry wildly different risk:
+
+- **Orchestration** — making tools talk to each other.
+- **Automation** — doing a repeatable task without a human.
+- **Response** — changing the state of the environment.
+
+Most of the value is in the first two. Most of the danger is in the third.
+
+## Automate in this order
+
+Microsoft's own documentation lists playbook use cases in a sequence that happens to be the right maturity order, and it is worth adopting deliberately:
+
+| Order | Use case | Risk if wrong | Value |
+|---|---|---|---|
+| 1 | **Enrichment** — gather context and attach it to the incident | Near zero: a wrong lookup wastes a query | High and immediate |
+| 2 | **Bi-directional sync** — mirror incidents into a ticketing system | Low: a duplicate ticket | Process hygiene |
+| 3 | **Orchestration** — post to Teams or Slack, manage the queue | Low: noise in a channel | Team velocity |
+| 4 | **Response** — isolate, disable, block | **High: outages and locked-out users** | High, when precision supports it |
+
+**Start at the top and earn your way down.** Enrichment is where a new automation engineer should spend their first month, because the upside is immediate and the downside is a wasted API call.
+
+Consider what enrichment actually does to a shift. An analyst opens an incident and needs to know: is this IP known bad, is this user privileged, is this host a domain controller or a laptop, has this hash been seen elsewhere in the estate, what did the account do in the hour before. Each of those is a lookup taking a minute or two, so ten minutes per ticket before analysis even starts. A playbook that attaches all of it on incident creation gives every analyst those ten minutes back on every ticket — and unlike a response action, it cannot break anything.
+
+## How the wiring works
+
+In Sentinel, **playbooks are Azure Logic Apps workflows**, and the connective tissue is the **automation rule** from Module 4: the rule decides *when*, the playbook decides *what*. Playbooks can be triggered on incident creation, on an alert, or run manually against a specific entity during an investigation — that last mode is the one hunters use most, since it turns a repeated manual enrichment into a right-click.
+
+Two practical notes. Playbooks incur **Logic Apps charges**, so a playbook on every incident has a cost model worth checking before it is a surprise. And there is a distinct set of roles: **Microsoft Sentinel Playbook Operator** to run one manually, and **Microsoft Sentinel Automation Contributor** which exists solely to let automation rules run playbooks. Sentinel itself uses a **service account** for incident-triggered runs, which needs Automation Contributor on the resource group holding the playbook.
+
+<Callout type="key">
+That service account is the part of this module most worth internalising, and it is rarely taught.
+
+**Your SOAR platform holds more privilege than any human in the SOC.** To isolate a machine it needs endpoint management rights. To disable an account it needs directory write access. To block an IP it needs firewall change rights. It holds all of them at once, permanently, and it acts without a human approving each action.
+
+That makes the automation platform a **high-value target**, and an attacker who reaches it does not need to escalate — they inherit a purpose-built tool for disabling accounts and isolating hosts across the estate, with an audit trail that reads like normal automation. Defend it accordingly: separate credentials per connector scoped to the minimum action set, no standing rights the playbooks do not use, every playbook run logged and reviewed, and the automation platform's own configuration inside the change control you would apply to a domain controller. If your playbook credentials are a single overprivileged service principal used by everything, you have built a single point of total compromise and called it efficiency.
+</Callout>
+
+## Four ways automation fails
+
+Beyond precision, which Module 9 covered, automation has failure modes of its own:
+
+- **Silent failure.** A playbook whose API connection expired stops working and nothing alerts, because a workflow that did not run produces no output. This is Module 3's problem in a new place: **monitor playbook run success, not just detections.** An enrichment playbook that has been failing for six weeks means six weeks of analysts working without context they believed they had.
+- **No idempotency.** If the same incident triggers a playbook twice, does it open two tickets, send two messages, disable the account twice? Design so repeat execution is harmless, because retries and duplicate triggers happen.
+- **No rate limit.** The genuinely dangerous one. A detection that misfires on 400 hosts, wired to an isolation playbook, isolates 400 hosts. **Cap the actions a playbook may take in a window and fail closed when the cap is hit** — a playbook that refuses to act on the 401st host and raises an alarm has just saved your afternoon.
+- **No human gate on the irreversible.** Reversible actions can be automatic. For anything hard to undo, the playbook should prepare the action and request approval rather than take it — a Teams message with the evidence and an Approve button, not a fait accompli.
+
+## Reviewing a playbook design
+
+Rung 4. This is proposed for production. Assess it before reading on.
+
+```text
+PLAYBOOK  "Contain compromised user"
+  Trigger:      Sentinel incident created
+  Condition:    incident severity == High
+  Actions:      1. Disable user account in Entra ID
+                2. Revoke all user sessions
+                3. Isolate all devices where user is signed in
+                4. Post to #soc channel
+  Credentials:  single service principal, Global Administrator
+  Rate limit:   none
+  Approval:     none
+  Idempotency:  not considered
+```
+
+Every action here is individually reasonable and the design is dangerous.
+
+**The trigger is far too broad.** "Severity High" is not a detection — it is a *category* containing every high-severity rule you have, including the untuned ones. Any single noisy High rule now disables accounts. The trigger must be a specific rule with measured precision, not a severity band.
+
+**Global Administrator is indefensible.** The playbook needs to disable a user and revoke sessions; that is a narrow permission set. Granting Global Administrator means a compromise of this playbook is a compromise of the tenant. Use separate, least-privileged credentials per connector.
+
+**No rate limit plus a broad trigger is the outage scenario.** One misfiring rule at 03:00 disables every account it matches. There is no brake.
+
+**No approval on step 3.** Isolating every device a user is signed into can include a shared workstation, a conference room machine, or a server with an interactive session. That is a business-impact decision, and it should be prepared for a human, not executed.
+
+**Idempotency is unconsidered.** If the incident regenerates, does it re-isolate, re-post, re-disable?
+
+The defensible redesign keeps the intent: trigger on one specific rule with 99%-plus measured precision, run **enrichment automatically** (gather the sign-in history, device list and privilege level and attach it), then **request approval** with that evidence for the containment steps, with per-connector least-privileged credentials, a rate limit of five users per hour that fails closed, and idempotency keys so a repeat trigger is a no-op. Same capability, and it cannot take the company down.
+
+<Callout type="warn">
+The measure of good automation is not how much it does unattended. It is **how much analyst time it returns per unit of risk it introduces.**
+
+Enrichment scores extremely well on that ratio: large time saving, essentially no risk. Unattended containment on a broad trigger scores appallingly, because a single bad day costs more than a year of saved minutes. When someone asks why you automated enrichment and not response, that ratio is the answer — and it is a more senior answer than "we automated everything".
+</Callout>
+
+## Where this course leaves you
+
+Thirteen modules, and one argument runs through all of them: **a detection is a claim, and claims need evidence.**
+
+Module 1 gave the arithmetic that decides whether a rule is usable. Module 2 refused to colour coverage green without validation. Module 3 showed where detections die silently. Module 4 made tuning a discipline with documented blind spots. Module 5 traded precision for durability and named the price. Modules 6 and 7 turned alerts into incidents on a real platform. Module 8 made hunting a falsifiable process. Modules 9 and 10 required measurement before action and execution before claiming coverage. Modules 11 and 12 made the portfolio reviewable and portable. This module put a brake on the machine.
+
+What you can now do, and should be able to say in an interview: take a technique, check the telemetry exists, write a rule that describes behaviour rather than artefacts, validate it by executing the attack, measure its precision, tune it while documenting what you gave up, map it honestly, put it under review in a repository, and decide — with a number — whether it has earned the right to act on its own.
+
+<Quiz mid="detection/13-soar" title="SOAR: Automating the Response You Own" questions={[
+  {
+    q: "Why should a new automation engineer start with enrichment rather than response?",
+    opts: ["Enrichment playbooks are cheaper to run", "The upside is immediate and the downside of an error is a wasted API call, whereas a wrong response action causes outages", "Response automation requires vendor approval", "Enrichment is the only use case Sentinel supports"],
+    a: 1,
+    why: "Enrichment attaches context an analyst would otherwise spend ten minutes gathering per ticket, and getting it wrong costs a query. Response changes the state of the environment, so an error locks people out or isolates machines. Starting at enrichment and earning your way toward response is the right maturity order, and it is the order Microsoft's own use-case guidance follows."
+  },
+  {
+    q: "What makes a SOAR platform a high-value target for an attacker?",
+    opts: ["It stores incident data", "It holds more privilege than any human in the SOC -- endpoint isolation, directory write and firewall change rights simultaneously -- and acts without per-action human approval", "It is usually internet-facing", "It contains the detection rule logic"],
+    a: 1,
+    why: "To do its job the platform needs the union of every response capability, permanently and unattended. An attacker who reaches it does not need to escalate: they inherit a purpose-built tool for disabling accounts and isolating hosts, with an audit trail resembling normal automation. Least-privileged per-connector credentials and change control equivalent to a domain controller's are the defence."
+  },
+  {
+    q: "A playbook triggers on 'incident severity == High'. Why is that a design flaw?",
+    opts: ["Severity is not available at trigger time", "Severity is a category containing every high-severity rule including untuned ones, so any single noisy rule can drive the response action", "High-severity incidents are too rare to justify automation", "It should trigger on Medium as well"],
+    a: 1,
+    why: "A severity band is not a detection. Wiring a response action to it means the automation inherits the precision of the worst rule in that band rather than a measured figure. Response triggers should name a specific rule with measured precision, which is the Module 9 requirement applied to the trigger rather than just the action."
+  },
+  {
+    q: "An enrichment playbook's API connection expired six weeks ago. Why is this dangerous beyond the lost automation?",
+    opts: ["It causes duplicate incidents", "A workflow that did not run produces no output, so nothing alerts -- meaning six weeks of analysts working without context they believed they had", "It consumes Logic Apps quota", "It disables the automation rule permanently"],
+    a: 1,
+    why: "This is Module 3's silent-failure problem in a new place: absence of output looks identical to nothing needing to be done. Playbook run success must be monitored in its own right, because analysts calibrate their judgement on the assumption that the enrichment is present and correct."
+  },
+  {
+    q: "Why does a response playbook need a rate limit that fails closed?",
+    opts: ["To control Logic Apps costs", "Because a detection misfiring across 400 hosts wired to an isolation action will isolate 400 hosts, and a cap that refuses and alarms prevents the outage", "Because APIs throttle requests anyway", "To ensure idempotency"],
+    a: 1,
+    why: "Without a cap, the automation faithfully amplifies a bad detection into an estate-wide outage. A playbook that stops at the threshold and raises an alarm converts a catastrophe into an alert about a broken rule. Failing closed is the important half -- failing open on a rate limit defeats the purpose."
+  },
+  {
+    q: "Which actions are appropriate to gate behind human approval rather than automate?",
+    opts: ["All actions, without exception", "Actions that are hard to undo or carry unbounded business impact, such as isolating every device a user is signed into", "Only actions affecting servers", "Enrichment lookups, since they query third parties"],
+    a: 1,
+    why: "Reversible, narrowly-scoped actions are reasonable candidates for automation. Isolating every device a user is signed into can catch a shared workstation, a conference room machine or a server with an interactive session, which is a business decision rather than a technical one. The pattern is to automate the enrichment, then present the evidence with an approval step."
+  },
+  {
+    q: "What is the right measure of good security automation?",
+    opts: ["The proportion of incidents closed without human involvement", "How much analyst time it returns per unit of risk it introduces", "The number of playbooks in production", "Mean time to respond alone"],
+    a: 1,
+    why: "Volume of unattended action is not the goal. Enrichment scores very well on the time-returned-per-risk-introduced ratio; unattended containment on a broad trigger scores appallingly, because one bad day costs more than a year of saved minutes. Being able to explain why you automated enrichment and not response is a more senior position than having automated everything."
+  }
+]} />
+
+<Lab title="Build an enrichment playbook, then design the response you would not deploy" host="Sentinel workspace (free trial) + your detection lab" minutes={80}>
+
+Two deliverables: a working enrichment playbook that returns real time to an analyst, and a written response design with the controls that would make it safe. The second is the more senior artifact.
+
+1. **Pick the questions.** For one detection you built earlier in the course, list every lookup you would perform manually when triaging it. Aim for five. Time yourself doing them by hand once and record the total — this is your baseline.
+2. **Build the enrichment playbook.** Create a Logic App triggered on incident creation, restricted to that one analytics rule via an automation rule. Have it gather at least three of your five lookups and attach the results to the incident as a comment.
+3. **Wire and test it.** Trigger the detection, confirm the playbook runs and the comment appears. Record the run duration.
+4. **Measure the saving.** Compare your manual baseline with what the analyst now sees on opening the incident. State the time returned per ticket, and multiply by a realistic ticket volume.
+5. **Break it deliberately.** Revoke or expire one API connection and re-trigger. Confirm what happens: does anything alert, or does the playbook fail silently? Then build the monitoring — an alert on playbook run failure — and prove it fires.
+6. **Now design a response playbook on paper.** For the same detection, specify: the exact trigger, the measured precision that justifies it, each action, whether each is reversible and how, the per-connector credentials and their minimum permissions, the rate limit and its fail-closed behaviour, the approval gate and who approves, and the idempotency approach.
+7. **Write the go/no-go decision.** State plainly whether you would deploy it unattended today, and if not, what evidence would change your answer.
+8. **Audit your own privileges.** List every permission your playbook's identity holds and mark any it does not use. Remove them.
+
+**Evidence of completion:** a journal entry with (a) your manual triage baseline timing, (b) the working enrichment playbook and the incident comment it produces, (c) the measured time returned per ticket with your volume estimate, (d) the silent-failure test result and proof your run-failure monitoring fires, (e) the full response playbook design with rate limit, approval gate and least-privilege credentials, and (f) your go/no-go decision with the evidence that would change it. Items (c) and (f) are the portfolio pair: one demonstrates you can quantify the value of automation, the other that you know when not to use it -- and the second is what distinguishes an engineer from an enthusiast.
+
+</Lab>
+
+## Sources
+
+- [Microsoft Learn — Automate threat response with playbooks in Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/automate-responses-with-playbooks) — playbooks as Azure Logic Apps workflows, the four recommended use cases (enrichment, bi-directional sync, orchestration, response), triggering automatically via automation rules or manually against an entity or alert, the Logic Apps charging note, the role set including Microsoft Sentinel Playbook Operator and Automation Contributor, and the Sentinel service account requiring Automation Contributor on the playbook's resource group
+- [Microsoft Learn — Automate incident handling with automation rules](https://learn.microsoft.com/en-us/azure/sentinel/automate-incident-handling-with-automation-rules) — the rule layer that decides when a playbook runs, and the exception mechanism from Module 4
+- [Microsoft Learn — Tutorial: Respond to threats by using playbooks](https://learn.microsoft.com/en-us/azure/sentinel/tutorial-respond-threats-playbook) — building and attaching a playbook end to end
+- [Microsoft Learn — Azure Logic Apps for Microsoft Sentinel playbooks](https://learn.microsoft.com/en-us/azure/sentinel/logic-apps-playbooks) — the Consumption and Standard logic app models and their role requirements
+- [Microsoft Learn — Azure Logic Apps overview](https://learn.microsoft.com/en-us/azure/logic-apps/logic-apps-overview) — the workflow engine underneath, including connectors and managed identities
+- [Microsoft Learn — Automatic attack disruption](https://learn.microsoft.com/en-us/defender-xdr/automatic-attack-disruption) — the vendor-built comparison from Module 9, and the source of the reversibility, exclusion and audit-mode principles applied here
+- [NIST SP 800-61 Rev. 3 — Incident Response Recommendations and Considerations for Cybersecurity Risk Management](https://csrc.nist.gov/pubs/sp/800/61/r3/final) — the incident response process automation is accelerating rather than replacing
+- [Palantir — Alerting and Detection Strategy framework](https://github.com/palantir/alerting-detection-strategy-framework) — the Response section, which for an automated detection becomes the playbook design produced in the lab
