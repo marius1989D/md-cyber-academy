@@ -52,12 +52,16 @@ carousel that covers `exit 0`, `wrangler.toml`, `functions/`, `dist/index.html`.
 
 ## Logo
 
-Master asset: `public/brand/md-logo.png` — trimmed to its artwork, transparent
-background, 1200x643 (aspect 1.865:1).
+Master asset: `public/brand/md-logo.png` — the MD mark with its crosshair and
+sparkle, transparent background, 1200x639 (aspect 1.877:1).
+
+The "CYBER FORENSICS" wordmark has been removed. It was the smallest element in
+the lockup and the first thing to become unreadable at corner size, and dropping
+it leaves an initials-only mark that does not commit the brand to one discipline.
 
 - Position bottom-right, consistent across every slide.
-- 180-260px wide on a 1080x1350 slide. Below ~180px the "CYBER FORENSICS"
-  wordmark stops being legible; at that size use a crop of the "MD" mark alone.
+- 140-220px wide on a 1080x1350 slide. With no wordmark it survives going
+  smaller than the full lockup did.
 - Full opacity on the night surface. No drop shadow, no container.
 
 ## Layout rules
@@ -77,8 +81,19 @@ well as the colour.
 
 ---
 
-## Open question: the wordmark
+## Canva Brand Kit
 
-The logo reads **MD CYBER FORENSICS**. The platform is **MD Cyber Academy** and
-the target role is SOC analysis, not forensics. Two names in circulation splits
-the brand. Worth settling before this system is used widely.
+The Canva free plan allows one Brand Kit holding **three** colours; custom fonts
+and logo storage need Pro. This palette has nine colours, so it does not fit.
+
+When setting the kit up, use these three. They carry every slide:
+
+| Slot | Hex | Why this one |
+|---|---|---|
+| 1 | `#14100d` | The surface. Appears on 100% of slides. |
+| 2 | `#f0e9dd` | All primary text. |
+| 3 | `#ef7a55` | The single accent. |
+
+Everything else in the table above is occasional, and can be pasted as a hex
+when a slide actually needs it. Syne, Inter and JetBrains Mono have to be set
+per design on the free plan rather than stored in the kit.
