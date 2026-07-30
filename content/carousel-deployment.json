@@ -1,0 +1,83 @@
+[
+  {
+    "kicker": "Deployment post-mortem",
+    "title": "Two days of green builds. *Nothing shipped.*",
+    "bullets": [
+      "Every deploy reported success.",
+      "The live site never changed once.",
+      "Four faults were stacked, and the first one hid the other three."
+    ]
+  },
+  {
+    "kicker": "The symptom",
+    "title": "A Hello World that *would not die*",
+    "bullets": [
+      "The day-one starter Worker was still serving the live URL.",
+      "CI logs were clean: no errors, no warnings, exit code 0.",
+      "The build output was correct, so the code was not the fault."
+    ]
+  },
+  {
+    "kicker": "Fault 1",
+    "title": "The deploy step was `exit 0`",
+    "bullets": [
+      "Cloudflare's deploy command did nothing, instantly and successfully.",
+      "Green pipeline, zero artefacts shipped.",
+      "Nothing reached production, so nothing could fail loudly."
+    ]
+  },
+  {
+    "kicker": "Fault 2",
+    "title": "Code that was *never read*",
+    "bullets": [
+      "`functions/api/progress.ts` is a Cloudflare Pages convention.",
+      "This project is a Worker; that directory is never loaded.",
+      "The sync API compiled cleanly and did absolutely nothing."
+    ]
+  },
+  {
+    "kicker": "Fault 3",
+    "title": "The database was a *placeholder*",
+    "bullets": [
+      "`wrangler.toml` still held the template's placeholder id.",
+      "No D1 resource was ever actually bound.",
+      "Cross-device sync could not have worked regardless."
+    ]
+  },
+  {
+    "kicker": "Fault 4",
+    "title": "Every 404 returned *200*",
+    "bullets": [
+      "SPA fallback was switched on for a multi-page static site.",
+      "Astro emits one real HTML file per route. It was never an SPA.",
+      "Broken routes rendered the homepage instead of failing."
+    ]
+  },
+  {
+    "kicker": "The repair",
+    "title": "What it looks like *fixed*",
+    "bullets": [
+      "`src/worker.ts` routes `/api/progress` to D1, then falls through to assets.",
+      "`wrangler.toml` carries a real D1 binding and `404-page` handling.",
+      "One deploy path only: GitHub Actions with a pinned wrangler."
+    ]
+  },
+  {
+    "kicker": "The guard",
+    "title": "Now the pipeline *checks its own output*",
+    "bullets": [
+      "CI asserts `dist/index.html` and `dist/404.html` exist before deploying.",
+      "Missing either one fails the run loudly instead of shipping empty.",
+      "It prints the page count, so the artefact is visible in the log."
+    ]
+  },
+  {
+    "kicker": "The lesson",
+    "title": "Absence of an alert is not *absence of a problem*",
+    "bullets": [
+      "Green proves the pipeline ran, not that it did anything.",
+      "Verify the artefact at the destination, not the exit code at the source.",
+      "Error handling that hides errors is worse than none at all."
+    ]
+  }
+]
